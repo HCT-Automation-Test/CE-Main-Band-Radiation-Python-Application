@@ -1,0 +1,2 @@
+band,bandwidth,modulation,rb_size,rb_offset,test_channel,range_name,antenna_pol,dut_axis
+n78,100MHz,QPSK,273,0,mid,example_range,H,X

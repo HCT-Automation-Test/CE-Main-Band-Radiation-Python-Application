@@ -1,0 +1,6 @@
+{
+  "_TODO": "결과 필드 → 셀 좌표 매핑. 스펙 §5.2 확정 후 채움.",
+  "fundamental_freq_hz": "Sheet1!B2",
+  "pass_fail": "Sheet1!B3",
+  "harmonic_peaks[0].level_dbm": "Sheet1!B4"
+}

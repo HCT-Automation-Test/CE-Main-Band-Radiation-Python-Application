@@ -1,0 +1,13 @@
+{
+  "_TODO": "Range 이름을 키로 하는 RangePreset 객체 맵. 스펙 확정 시 단위/경로 규칙 반영.",
+  "example_range": {
+    "start_freq_hz": 0,
+    "stop_freq_hz": 0,
+    "rbw_hz": 0,
+    "vbw_hz": 0,
+    "limit_dbm": 0,
+    "sweep_point": 0,
+    "input_path": "",
+    "filter_path": ""
+  }
+}
