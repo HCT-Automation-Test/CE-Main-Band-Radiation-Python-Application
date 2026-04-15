@@ -28,10 +28,10 @@ class DUTAxis(Enum):
 
 
 class Modulation(Enum):
-    """변조 방식 placeholder. TODO(spec): 실제 값 확정 필요."""
+    """지원하는 NR modulation 방식."""
 
-    # TODO(spec): QPSK/16QAM/64QAM/256QAM 등 명세 도착 후 채움
-    UNSPECIFIED = "unspecified"
+    QPSK = "QPSK"
+    PI_OVER_2_BPSK = "pi/2 BPSK"
 
 
 class InputPath(IntEnum):

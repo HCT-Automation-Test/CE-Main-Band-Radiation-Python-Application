@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.enums import FilterMode, FilterPath, InputPath
+from app.models.enums import FilterMode, FilterPath, InputPath, Modulation
 from app.models.switch_box import parse_input_path, resolve_filter_path
 
 
@@ -25,3 +25,9 @@ def test_filter_mode_resolves_direct_hpf_paths() -> None:
 def test_filter_mode_rejects_unsupported_brf_band() -> None:
     with pytest.raises(ValueError, match="Unsupported BRF band"):
         resolve_filter_path(FilterMode.BRF, "n2")
+
+
+def test_modulation_enum_uses_canonical_labels() -> None:
+    assert Modulation.QPSK.value == "QPSK"
+    assert Modulation.PI_OVER_2_BPSK.value == "pi/2 BPSK"
+    assert len(Modulation) == 2

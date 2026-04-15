@@ -9,7 +9,7 @@ def test_test_case_instantiation() -> None:
     case = TestCase(
         band="n78",
         bandwidth="100MHz",
-        modulation=Modulation.UNSPECIFIED,
+        modulation=Modulation.QPSK,
         rb_size=273,
         rb_offset=0,
         test_channel="mid",
@@ -18,5 +18,6 @@ def test_test_case_instantiation() -> None:
         dut_axis=DUTAxis.X,
     )
     assert case.band == "n78"
+    assert case.modulation is Modulation.QPSK
     assert case.antenna_pol is AntennaPol.H
     assert case.dut_axis is DUTAxis.X
