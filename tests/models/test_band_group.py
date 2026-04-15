@@ -4,20 +4,21 @@ import pytest
 
 from app.models.band_group import BAND_GROUPS, find_band_group, resolve_range_id
 from app.models.enums import TestType as BandTestType
+from app.models.test_range import RangeId
 
 
 def test_resolve_range_id_harmonic_all_groups() -> None:
-    assert resolve_range_id("n5", BandTestType.HARMONIC) == 3
-    assert resolve_range_id("n1", BandTestType.HARMONIC) == 4
-    assert resolve_range_id("n38", BandTestType.HARMONIC) == 4
-    assert resolve_range_id("n78", BandTestType.HARMONIC) == 6
+    assert resolve_range_id("n5", BandTestType.HARMONIC) is RangeId.RANGE_3
+    assert resolve_range_id("n1", BandTestType.HARMONIC) is RangeId.RANGE_4
+    assert resolve_range_id("n38", BandTestType.HARMONIC) is RangeId.RANGE_4
+    assert resolve_range_id("n78", BandTestType.HARMONIC) is RangeId.RANGE_6
 
 
 def test_resolve_range_id_inband_all_groups() -> None:
-    assert resolve_range_id("n20", BandTestType.INBAND) == 1
-    assert resolve_range_id("n3", BandTestType.INBAND) == 2
-    assert resolve_range_id("n41", BandTestType.INBAND) == 2
-    assert resolve_range_id("n77", BandTestType.INBAND) == 5
+    assert resolve_range_id("n20", BandTestType.INBAND) is RangeId.RANGE_1
+    assert resolve_range_id("n3", BandTestType.INBAND) is RangeId.RANGE_2
+    assert resolve_range_id("n41", BandTestType.INBAND) is RangeId.RANGE_2
+    assert resolve_range_id("n77", BandTestType.INBAND) is RangeId.RANGE_5
 
 
 def test_resolve_range_id_bilog_unsupported_on_first_group() -> None:
@@ -26,13 +27,13 @@ def test_resolve_range_id_bilog_unsupported_on_first_group() -> None:
 
 
 def test_resolve_range_id_bilog_supported_on_other_groups() -> None:
-    assert resolve_range_id("n1", BandTestType.BILOG) == 1
-    assert resolve_range_id("n40", BandTestType.BILOG) == 1
-    assert resolve_range_id("n79", BandTestType.BILOG) == 1
+    assert resolve_range_id("n1", BandTestType.BILOG) is RangeId.RANGE_1
+    assert resolve_range_id("n40", BandTestType.BILOG) is RangeId.RANGE_1
+    assert resolve_range_id("n79", BandTestType.BILOG) is RangeId.RANGE_1
 
 
 def test_resolve_range_id_accepts_numeric_string() -> None:
-    assert resolve_range_id("78", BandTestType.HARMONIC) == 6
+    assert resolve_range_id("78", BandTestType.HARMONIC) is RangeId.RANGE_6
 
 
 def test_resolve_range_id_unknown_band() -> None:
@@ -46,7 +47,7 @@ def test_find_band_group_returns_expected_profile() -> None:
     assert group.mt8000_recall == "SA_TDD"
     assert group.scs_khz == 30
     assert group.turntable_speed == 4
-    assert group.test_ranges == (1, 5, 6)
+    assert group.test_ranges == (RangeId.RANGE_1, RangeId.RANGE_5, RangeId.RANGE_6)
 
 
 def test_band_groups_cover_four_profiles() -> None:

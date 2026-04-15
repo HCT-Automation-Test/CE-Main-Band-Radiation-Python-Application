@@ -1,2 +1,2 @@
-band,bandwidth,modulation,rb_allocation,test_channel,range_name,antenna_pol,dut_axis
-n78,100MHz,QPSK,Inner_Full,mid,example_range,H,X
+band,bandwidth,modulation,rb_allocation,test_channel,antenna_pol,dut_axis
+n78,100MHz,QPSK,Inner_Full,mid,H,X

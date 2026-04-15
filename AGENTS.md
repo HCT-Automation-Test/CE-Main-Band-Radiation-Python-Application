@@ -22,7 +22,7 @@
 ## Python Responsibilities
 
 1. CSV Test Case 로드, 편집, Range 확장
-2. JSON Range 프리셋 로드 및 매핑
+2. 코드 상수 기반 TestRange 정의 및 매핑
 3. FSM 기반 시퀀스 실행
 4. 외부 프로그램과 TCP/JSON 명령 송수신
 5. Excel 템플릿 결과 매핑 및 SA 스크린샷 저장
@@ -44,7 +44,7 @@
 - `src/app/report/`: Excel writer, template loader, screenshot store
 - `src/app/ui/`: PySide6 UI 로직
 - `src/app/ui/generated/`: `pyside6-uic` 생성물, 직접 수정 금지
-- `testcases/`: 샘플 CSV, range presets
+- `testcases/`: 샘플 CSV
 - `config/`: 앱 설정, Excel template 매핑 예시
 
 ## Build / Run / Test

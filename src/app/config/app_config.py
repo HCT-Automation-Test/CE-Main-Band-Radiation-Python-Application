@@ -15,7 +15,6 @@ class AppConfig:
     tcp_timeout_s: float
     excel_template_path: Path
     screenshot_dir: Path
-    range_preset_path: Path
 
     @classmethod
     def load(cls, path: Path) -> "AppConfig":
@@ -29,5 +28,4 @@ class AppConfig:
             tcp_timeout_s=float(data.get("tcp_timeout_s", 5.0)),
             excel_template_path=Path(data["excel_template_path"]),
             screenshot_dir=Path(data["screenshot_dir"]),
-            range_preset_path=Path(data["range_preset_path"]),
         )

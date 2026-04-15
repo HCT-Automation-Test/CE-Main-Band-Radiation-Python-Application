@@ -80,7 +80,7 @@ class FilterPath(IntEnum):
 
 
 class FilterMode(IntEnum):
-    """Range preset용 필터 선택 모드."""
+    """Range 정의에서 사용하는 필터 선택 모드."""
 
     BRF = 1
     HPF_1G = 2

@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.models.enums import AntennaPol, DUTAxis, FilterPath, InputPath, Modulation
-from app.models.range_preset import RangePreset
+from app.models.test_range import TestRange
 
 
 def setup_mt8000(
@@ -44,7 +44,7 @@ def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPat
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def setup_sa(client: Any, preset: RangePreset) -> None:
+def setup_sa(client: Any, test_range: TestRange) -> None:
     """FSV40 Spectrum Analyzer 셋업. §4.5."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
@@ -62,7 +62,7 @@ def set_turntable_speed(client: Any, *, speed: int) -> None:
 def measure_harmonics(
     client: Any,
     *,
-    ranges: list[RangePreset],
+    ranges: list[TestRange],
     fundamental: float,
 ) -> dict[str, Any]:
     """하모닉 피크 측정. §4.7."""
