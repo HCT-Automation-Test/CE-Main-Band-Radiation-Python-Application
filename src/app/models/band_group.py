@@ -1,24 +1,27 @@
-"""Band 그룹 프로파일 데이터 모델."""
+"""Band 그룹 상수 및 lookup 헬퍼."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.enums import FilterMode, TestType
+from app.models.enums import TestType
 from app.models.switch_box import parse_band_number
 
 
 @dataclass(frozen=True)
 class BandGroupProfile:
-    """CE NR Radiated 측정에서 같은 공통 설정을 공유하는 Band 묶음.
+    """여러 Test Case가 공통으로 사용하는 Band 그룹 설정.
 
-    test_ranges는 이 그룹이 사용하는 전역 Range 인덱스(1~6)의 부분집합이다.
-    hpf_factor는 Switch Box의 HPF 경로, sa_recall은 FSV40에 로드할 프리셋 이름.
+    `test_ranges`는 그룹에서 사용하는 전역 Range 인덱스(1~6) 목록이다.
+    `sa_recall`은 Spectrum Analyzer(FSV40)에 로드할 preset/recall 이름이고,
+    `mt8000_recall`은 MT8000A recall 이름이다.
+    Switch Box filter 선택은 band group이 아니라 range preset에서 관리한다.
+    Band 그룹 정의는 별도 JSON이 아니라 이 모듈의 상수로 유지한다.
     """
 
     bands: tuple[int, ...]
     test_ranges: tuple[int, ...]
-    hpf_factor: FilterMode
     sa_recall: str
+    mt8000_recall: str
     scs_khz: int
     turntable_speed: int
 
@@ -27,32 +30,32 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
     BandGroupProfile(
         bands=(5, 8, 20, 26, 28, 71),
         test_ranges=(1, 3),
-        hpf_factor=FilterMode.HPF_1G,
-        sa_recall="SA_FDD",
+        sa_recall="1G HPF",
+        mt8000_recall="SA_FDD",
         scs_khz=15,
         turntable_speed=6,
     ),
     BandGroupProfile(
         bands=(1, 3, 7),
         test_ranges=(1, 2, 4),
-        hpf_factor=FilterMode.HPF_3G,
-        sa_recall="SA_FDD",
+        sa_recall="3G HPF",
+        mt8000_recall="SA_FDD",
         scs_khz=15,
         turntable_speed=6,
     ),
     BandGroupProfile(
         bands=(38, 40, 41),
         test_ranges=(1, 2, 4),
-        hpf_factor=FilterMode.HPF_3G,
-        sa_recall="SA_TDD",
+        sa_recall="3G HPF",
+        mt8000_recall="SA_TDD",
         scs_khz=30,
         turntable_speed=4,
     ),
     BandGroupProfile(
         bands=(77, 78, 79),
         test_ranges=(1, 5, 6),
-        hpf_factor=FilterMode.HPF_6G,
-        sa_recall="SA_TDD",
+        sa_recall="6G HPF",
+        mt8000_recall="SA_TDD",
         scs_khz=30,
         turntable_speed=4,
     ),
@@ -75,7 +78,7 @@ RANGE_BY_BAND_TEST: dict[tuple[int, TestType], int] = {
 
 
 def find_band_group(band: str) -> BandGroupProfile:
-    """Band 문자열("n78", "78")이 속한 BandGroupProfile 반환."""
+    """입력한 band가 속한 BandGroupProfile을 반환한다."""
 
     band_number = parse_band_number(band)
     for group in BAND_GROUPS:
@@ -85,7 +88,7 @@ def find_band_group(band: str) -> BandGroupProfile:
 
 
 def resolve_range_id(band: str, test_type: TestType) -> int:
-    """(Band, TestType) 조합에 쓰이는 전역 Range 인덱스(1~6) 반환."""
+    """Band/TestType 조합에 해당하는 전역 Range id(1~6)를 반환한다."""
 
     band_number = parse_band_number(band)
     try:

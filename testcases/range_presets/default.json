@@ -1,5 +1,5 @@
 {
-  "_TODO": "전역 Range 1~6 정의. Band 그룹(testcases/band_groups/default.json)은 이 중 일부를 선택해 사용. start_freq/stop_freq/rbw/vbw는 MHz, limit는 dBm. input_path는 InputPath, filter_mode는 FilterMode 라벨.",
+  "_TODO": "전역 Range 1~6 정의. Band 그룹은 src/app/models/band_group.py 상수에서 이 중 일부를 선택해 사용한다. start_freq/stop_freq/rbw/vbw는 MHz, limit는 dBm. input_path는 InputPath, filter_mode는 FilterMode 라벨.",
   "range_1": {
     "start_freq": 0,
     "stop_freq": 0,
