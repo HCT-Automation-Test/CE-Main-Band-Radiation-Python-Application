@@ -1,10 +1,12 @@
-"""Test Case CSV 로더/세이버 및 Range 확장 로직."""
+"""Test Case CSV 로더/세이버 및 TestType 기반 Range 해석 로직."""
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
-from app.models.range_preset import RangePreset
+from app.models.band_group import resolve_range_id
+from app.models.enums import TestType
 from app.models.test_case import TestCase
 
 
@@ -20,12 +22,7 @@ def save_csv(path: Path, cases: Iterable[TestCase]) -> None:
     raise NotImplementedError("spec TODO")
 
 
-def expand_ranges(
-    cases: Iterable[TestCase],
-    presets: dict[str, RangePreset],
-) -> list[TestCase]:
-    """UI에서 다중 Range를 선택한 경우 Range별로 TC를 분해.
+def resolve_test_range(case: TestCase, test_type: TestType) -> TestCase:
+    """band/test type 조합에 맞는 Range를 채운 TestCase 사본을 반환한다."""
 
-    TODO(spec): 확장 규칙(카테시안? 선택 리스트?) 확정 필요.
-    """
-    raise NotImplementedError("spec TODO")
+    return replace(case, test_range=resolve_range_id(case.band, test_type))

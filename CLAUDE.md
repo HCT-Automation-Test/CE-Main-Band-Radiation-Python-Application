@@ -19,7 +19,7 @@
 ## Python 책임 범위
 
 1. CSV Test Case 로드 / 편집 / Range 확장
-2. JSON Range 프리셋(SA·SwitchBox 파라미터 묶음) 로드 및 매핑
+2. 코드 상수 기반 TestRange(SA·SwitchBox 파라미터 묶음) 정의 및 매핑
 3. **FSM 기반 시퀀스 실행** (QThread + 명시적 State 클래스)
 4. 외부 프로그램과 TCP/JSON으로 명령 송신 및 결과 수신
 5. Excel 템플릿에 결과 매핑 + SA 스크린샷 저장
@@ -46,7 +46,6 @@ claude_test/
 │   └── icons/
 ├── testcases/
 │   ├── samples/harmonic_sample.csv
-│   └── range_presets/default.json
 ├── config/
 │   ├── app_config.example.json
 │   └── excel_template_map.example.json
@@ -54,11 +53,10 @@ claude_test/
 │   ├── __main__.py              # QApplication 부트스트랩
 │   ├── logging_setup.py
 │   ├── config/app_config.py
-│   ├── models/                  # enums, test_case, range_preset, measurement_result
+│   ├── models/                  # enums, test_case, test_range, measurement_result
 │   ├── core/
 │   │   ├── tc_loader.py
 │   │   ├── tc_validator.py
-│   │   ├── range_preset_store.py
 │   │   ├── runner.py            # QObject + QThread runner
 │   │   ├── events.py            # RunnerEvents (Qt signals)
 │   │   └── fsm/

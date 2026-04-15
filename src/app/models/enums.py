@@ -28,10 +28,18 @@ class DUTAxis(Enum):
 
 
 class Modulation(Enum):
-    """변조 방식 placeholder. TODO(spec): 실제 값 확정 필요."""
+    """지원하는 NR modulation 방식."""
 
-    # TODO(spec): QPSK/16QAM/64QAM/256QAM 등 명세 도착 후 채움
-    UNSPECIFIED = "unspecified"
+    QPSK = "QPSK"
+    PI_OVER_2_BPSK = "pi/2 BPSK"
+
+
+class RBAllocation(Enum):
+    """DFT-s 기반 RB allocation 프리셋."""
+
+    INNER_FULL = "Inner_Full"
+    INNER_1RB_LEFT = "Inner_1RB_Left"
+    INNER_1RB_RIGHT = "Inner_1RB_Right"
 
 
 class InputPath(IntEnum):
@@ -72,7 +80,7 @@ class FilterPath(IntEnum):
 
 
 class FilterMode(IntEnum):
-    """Range preset용 필터 선택 모드."""
+    """Range 정의에서 사용하는 필터 선택 모드."""
 
     BRF = 1
     HPF_1G = 2

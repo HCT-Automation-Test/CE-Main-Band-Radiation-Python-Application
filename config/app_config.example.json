@@ -3,6 +3,5 @@
   "tcp_port": 5025,
   "tcp_timeout_s": 5.0,
   "excel_template_path": "resources/report_template.xlsx",
-  "screenshot_dir": "runs/screenshots",
-  "range_preset_path": "testcases/range_presets/default.json"
+  "screenshot_dir": "runs/screenshots"
 }

@@ -4,7 +4,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from app.models.enums import AntennaPol, DUTAxis, Modulation
+from app.models.band_group import find_band_group
+from app.models.enums import AntennaPol, DUTAxis, Modulation, RBAllocation
+from app.models.rb_parameters import resolve_rb_parameters
+from app.models.test_range import RangeId, TestRange, get_test_range
 
 
 @dataclass
@@ -14,15 +17,47 @@ class TestCase:
     TODO(spec): 필드 이름/타입/기본값은 명세 §3.3 확정 후 재정비.
     """
 
+    __test__ = False
+
     band: str
     bandwidth: str
     modulation: Modulation
-    rb_size: int
-    rb_offset: int
+    rb_allocation: RBAllocation
     test_channel: str
-    range_name: str
+    test_range: RangeId
     antenna_pol: AntennaPol
     dut_axis: DUTAxis
+
+    def __post_init__(self) -> None:
+        self.test_range = RangeId.coerce(self.test_range)
+
+    @property
+    def rb_size(self) -> int:
+        return self.rb_parameters[0]
+
+    @property
+    def rb_offset(self) -> int:
+        return self.rb_parameters[1]
+
+    @property
+    def rb_parameters(self) -> tuple[int, int]:
+        return resolve_rb_parameters(
+            band=self.band,
+            bandwidth=self.bandwidth,
+            rb_allocation=self.rb_allocation,
+        )
+
+    @property
+    def scs_khz(self) -> int:
+        return find_band_group(self.band).scs_khz
+
+    @property
+    def range_name(self) -> str:
+        return self.test_range.key
+
+    @property
+    def range_definition(self) -> TestRange:
+        return get_test_range(self.test_range)
 
     @classmethod
     def from_csv_row(cls, row: dict[str, Any]) -> "TestCase":

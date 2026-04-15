@@ -36,7 +36,7 @@ class MeasureFundamentalState(State):
 
 
 class SetSwitchBoxState(State):
-    """§4.4 — Switch Box의 입력 경로/필터를 Range 프리셋에 맞게 전환한다."""
+    """§4.4 — Switch Box의 입력 경로/필터를 TestRange에 맞게 전환한다."""
 
     name = "SetSwitchBox"
 
@@ -46,12 +46,12 @@ class SetSwitchBoxState(State):
 
 
 class SetupSpectrumAnalyzerState(State):
-    """§4.5 — FSV40에 Range 프리셋(Start/Stop/RBW/VBW/Limit/SweepPoint)을 로드한다."""
+    """§4.5 — FSV40에 TestRange(Start/Stop/RBW/VBW/Limit/SweepPoint)을 로드한다."""
 
     name = "SetupSpectrumAnalyzer"
 
     def run(self, ctx: Context) -> StateResult:
-        # calls: net.commands.setup_sa(client, preset=...)
+        # calls: net.commands.setup_sa(client, test_range=...)
         raise NotImplementedError("spec TODO")
 
 
