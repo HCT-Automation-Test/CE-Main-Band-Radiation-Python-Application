@@ -2,24 +2,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
+
+from app.models.enums import FilterMode, InputPath
 
 
 @dataclass
 class RangePreset:
     """Spectrum Analyzer + Switch Box 파라미터 번들.
 
-    TODO(spec): 단위(Hz/kHz), 경로 표현 규칙은 명세 §3.4 확정 후 재정비.
+    주파수 관련 값은 MHz, limit는 dBm 기준이다.
     """
 
-    start_freq_hz: float
-    stop_freq_hz: float
-    rbw_hz: float
-    vbw_hz: float
-    limit_dbm: float
+    start_freq: float
+    stop_freq: float
+    rbw: float
+    vbw: float
+    limit: float
     sweep_point: int
-    input_path: str
-    filter_path: str
+    input_path: InputPath
+    filter_mode: FilterMode
 
     @property
     def sweep_points(self) -> int:
