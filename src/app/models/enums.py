@@ -34,6 +34,14 @@ class Modulation(Enum):
     PI_OVER_2_BPSK = "pi/2 BPSK"
 
 
+class RBAllocation(Enum):
+    """DFT-s 기반 RB allocation 프리셋."""
+
+    INNER_FULL = "Inner_Full"
+    INNER_1RB_LEFT = "Inner_1RB_Left"
+    INNER_1RB_RIGHT = "Inner_1RB_Right"
+
+
 class InputPath(IntEnum):
     """Switch Box 입력 경로."""
 
