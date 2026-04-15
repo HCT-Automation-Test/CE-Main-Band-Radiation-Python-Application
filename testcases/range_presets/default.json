@@ -1,13 +1,13 @@
 {
-  "_TODO": "Range 이름을 키로 하는 RangePreset 객체 맵. 스펙 확정 시 단위/경로 규칙 반영.",
+  "_TODO": "Range 이름을 키로 하는 RangePreset 객체 맵. start_freq/stop_freq/rbw/vbw는 MHz, limit는 dBm 기준. input_path는 InputPath, filter_mode는 FilterMode 라벨을 사용.",
   "example_range": {
-    "start_freq_hz": 0,
-    "stop_freq_hz": 0,
-    "rbw_hz": 0,
-    "vbw_hz": 0,
-    "limit_dbm": 0,
+    "start_freq": 0,
+    "stop_freq": 0,
+    "rbw": 0,
+    "vbw": 0,
+    "limit": 0,
     "sweep_point": 0,
-    "input_path": "",
-    "filter_path": ""
+    "input_path": "Input1",
+    "filter_mode": "BRF"
   }
 }
