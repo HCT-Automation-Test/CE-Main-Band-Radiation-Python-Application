@@ -21,7 +21,11 @@ def setup_mt8000(
     rb_offset: int,
     channel: str,
 ) -> None:
-    """MT8000A 셋업. §4.1."""
+    """MT8000A 셋업. §4.1.
+
+    SCS는 MT8000A Recall file에 포함되어 자동 설정되므로 인자에 두지 않는다.
+    Band 그룹의 scs_khz는 RB Allocation(RB size/offset 산출) 단계의 Python 로직에서만 사용.
+    """
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
@@ -47,6 +51,11 @@ def setup_sa(client: Any, preset: RangePreset) -> None:
 
 def rotate_turntable(client: Any, *, axis: DUTAxis, angle: float) -> None:
     """CO3000 턴테이블 회전. §4.6."""
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
+def set_turntable_speed(client: Any, *, speed: int) -> None:
+    """CO3000 턴테이블 회전 속도 설정 (Band 그룹 공통 설정)."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 

@@ -49,14 +49,14 @@ def resolve_filter_path(filter_mode: FilterMode, band: str) -> FilterPath:
 
 
 def resolve_brf_filter_path(band: str) -> FilterPath:
-    band_number = _parse_band_number(band)
+    band_number = parse_band_number(band)
     try:
         return _BRF_FILTER_PATH_BY_BAND[band_number]
     except KeyError as exc:
         raise ValueError(f"Unsupported BRF band: {band!r}") from exc
 
 
-def _parse_band_number(band: str) -> int:
+def parse_band_number(band: str) -> int:
     if not isinstance(band, str):
         raise ValueError(f"Band must be a string, got {type(band).__name__}")
 
