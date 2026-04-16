@@ -67,6 +67,7 @@ uv run pytest tests/core -k harmonic
 - UI 로직은 생성물이 아닌 래퍼/상속 클래스에 작성한다.
 - 경로는 항상 `pathlib.Path`를 사용한다.
 - 파일 I/O에는 `encoding="utf-8"`을 명시한다.
+- 코드 주석은 한글로 작성한다.
 - 시그널 이름은 `something_changed`, 슬롯 이름은 `on_something_changed` 패턴을 따른다.
 - `print` 대신 `logging`을 사용한다.
 - UI 로그 출력은 `QPlainTextEdit` 미러 핸들러를 우선한다.
