@@ -128,3 +128,18 @@ def test_load_csv_rejects_legacy_bandwidth_unit_suffix(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"row 2: Invalid bandwidth"):
         load_csv(path)
+
+
+def test_load_csv_rejects_unsupported_bandwidth_for_band(tmp_path: Path) -> None:
+    path = tmp_path / "unsupported_bandwidth.csv"
+    path.write_text(
+        ",".join(CSV_FIELDNAMES) + "\n"
+        "n71,30,harmonic,QPSK,Inner_Full,mid,H,X\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"row 2: Unsupported bandwidth '30' for band 'n71'",
+    ):
+        load_csv(path)
