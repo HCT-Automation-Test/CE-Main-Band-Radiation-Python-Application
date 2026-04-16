@@ -12,6 +12,7 @@ from app.models.enums import (
     RBAllocation,
     TestType as MeasurementTestType,
 )
+from app.models.supported_bandwidths import get_supported_bandwidths
 from app.models.test_case import CSV_FIELDNAMES, TestCase
 from app.models.test_range import RangeId
 
@@ -84,11 +85,29 @@ def test_test_case_rejects_unsupported_band_and_test_type_at_instantiation() -> 
         _build_case(band="n5", test_type=MeasurementTestType.BILOG)
 
 
-def test_test_case_rejects_unsupported_bandwidth_scs_combination() -> None:
-    case = _build_case(band="n1", bandwidth=60.0)
+def test_test_case_rejects_unsupported_bandwidth_at_instantiation() -> None:
+    with pytest.raises(
+        ValueError,
+        match=r"Unsupported bandwidth '60' for band 'n1'",
+    ):
+        _build_case(band="n1", bandwidth=60.0)
 
-    with pytest.raises(ValueError, match="Unsupported RB allocation mapping"):
-        _ = case.rb_parameters
+
+def test_test_case_exposes_supported_bandwidth_lookup_for_valid_band() -> None:
+    assert get_supported_bandwidths("N78") == (
+        10.0,
+        15.0,
+        20.0,
+        25.0,
+        30.0,
+        40.0,
+        50.0,
+        60.0,
+        70.0,
+        80.0,
+        90.0,
+        100.0,
+    )
 
 
 def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None:
@@ -130,21 +149,22 @@ def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
 
 
 @pytest.mark.parametrize(
-    ("band", "test_type", "expected_range"),
+    ("band", "bandwidth", "test_type", "expected_range"),
     [
-        ("n5", "harmonic", RangeId.RANGE_3),
-        ("n78", "harmonic", RangeId.RANGE_6),
+        ("n5", "20", "harmonic", RangeId.RANGE_3),
+        ("n78", "100", "harmonic", RangeId.RANGE_6),
     ],
 )
 def test_test_case_from_csv_row_uses_representative_range_mappings(
     band: str,
+    bandwidth: str,
     test_type: str,
     expected_range: RangeId,
 ) -> None:
     case = TestCase.from_csv_row(
         {
             "band": band,
-            "bandwidth": "100",
+            "bandwidth": bandwidth,
             "test_type": test_type,
             "modulation": "QPSK",
             "rb_allocation": "Inner_Full",
@@ -164,12 +184,6 @@ def test_test_case_to_csv_row_uses_external_csv_schema_only() -> None:
     assert row["bandwidth"] == "100"
     assert row["test_type"] == "harmonic"
     assert "test_range" not in row
-
-
-def test_test_case_to_csv_row_uses_compact_decimal_bandwidth() -> None:
-    row = _build_case(bandwidth=5.5).to_csv_row()
-
-    assert row["bandwidth"] == "5.5"
 
 
 def test_test_case_from_csv_row_rejects_missing_test_type() -> None:

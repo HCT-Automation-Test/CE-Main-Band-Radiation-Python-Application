@@ -8,6 +8,7 @@ from typing import Any
 from app.models.band_group import find_band_group, resolve_range_id
 from app.models.enums import AntennaPol, DUTAxis, Modulation, RBAllocation, TestType
 from app.models.rb_parameters import resolve_rb_parameters
+from app.models.supported_bandwidths import validate_supported_bandwidth
 from app.models.test_range import RangeId, TestRange, get_test_range
 
 CSV_FIELDNAMES: tuple[str, ...] = (
@@ -92,6 +93,7 @@ class TestCase:
         self.bandwidth = _coerce_bandwidth_value(self.bandwidth)
         # 지원되지 않는 band/test_type 조합은 생성 시점에 바로 실패시킨다.
         resolve_range_id(self.band, self.test_type)
+        validate_supported_bandwidth(self.band, self.bandwidth)
 
     @property
     def rb_size(self) -> int:
