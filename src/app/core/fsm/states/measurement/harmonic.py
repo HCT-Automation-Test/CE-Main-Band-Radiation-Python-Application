@@ -1,38 +1,27 @@
-"""Harmonic 시퀀스 8단계 State (§4)."""
+"""Harmonic 측정 상태 (기존 §4 기준, SetupMT8000/CallConnect는 NRCallConnect로 통합됨)."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.context import Context
 
-
-class SetupMT8000State(State):
-    """§4.1 — MT8000A에 Band/BW/Modulation/RB Size/Offset/Channel을 세팅한다."""
-
-    name = "SetupMT8000"
-
-    def run(self, ctx: Context) -> StateResult:
-        # calls: net.commands.setup_mt8000(client, band=..., bw=..., modulation=..., rb_size=..., rb_offset=..., channel=...)
-        raise NotImplementedError("spec TODO")
-
-
-class CallConnectState(State):
-    """§4.2 — Call Connect 수행. 연결 상태를 확인한다."""
-
-    name = "CallConnect"
-
-    def run(self, ctx: Context) -> StateResult:
-        # calls: net.commands.call_connect(client)
-        raise NotImplementedError("spec TODO")
+if TYPE_CHECKING:
+    from app.core.fsm.context import SessionContext
 
 
 class MeasureFundamentalState(State):
-    """§4.3 — 기본파 주파수를 측정하여 Context.result.fundamental_freq_hz에 저장."""
+    """§4.3 — 기본파 주파수를 측정하여 결과에 저장한다."""
 
     name = "MeasureFundamental"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.measure_fundamental(client, target_freq=...)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "SetSwitchBox"
 
 
 class SetSwitchBoxState(State):
@@ -40,9 +29,14 @@ class SetSwitchBoxState(State):
 
     name = "SetSwitchBox"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.set_switch_box(client, input_path=..., filter_path=...)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "SetupSpectrumAnalyzer"
 
 
 class SetupSpectrumAnalyzerState(State):
@@ -50,9 +44,14 @@ class SetupSpectrumAnalyzerState(State):
 
     name = "SetupSpectrumAnalyzer"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.setup_sa(client, test_range=...)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "RotateTurntable"
 
 
 class RotateTurntableState(State):
@@ -60,9 +59,14 @@ class RotateTurntableState(State):
 
     name = "RotateTurntable"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.rotate_turntable(client, axis=..., angle=...)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "MeasureHarmonics"
 
 
 class MeasureHarmonicsState(State):
@@ -70,9 +74,14 @@ class MeasureHarmonicsState(State):
 
     name = "MeasureHarmonics"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.measure_harmonics(client, ranges=..., fundamental=...)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "ResetSwitchBox"
 
 
 class ResetSwitchBoxState(State):
@@ -80,6 +89,11 @@ class ResetSwitchBoxState(State):
 
     name = "ResetSwitchBox"
 
-    def run(self, ctx: Context) -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.set_switch_box(client, input_path=DEFAULT, filter_path=DEFAULT)
         raise NotImplementedError("spec TODO")
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        return "CheckNextCase"

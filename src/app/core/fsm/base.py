@@ -6,7 +6,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from app.core.fsm.context import Context
+    from app.core.fsm.context import SessionContext
 
 
 class StateResult(Enum):
@@ -23,15 +23,22 @@ class State(ABC):
 
     name: str = "State"
 
-    def enter(self, ctx: "Context") -> None:
+    def enter(self, ctx: "SessionContext") -> None:
         """상태 진입 훅. 기본 no-op."""
         return None
 
     @abstractmethod
-    def run(self, ctx: "Context") -> StateResult:
+    def run(self, ctx: "SessionContext") -> StateResult:
         """상태 본 작업. 결과 코드를 반환해야 한다."""
         raise NotImplementedError
 
-    def exit(self, ctx: "Context") -> None:
+    def exit(self, ctx: "SessionContext") -> None:
         """상태 이탈 훅. 기본 no-op."""
         return None
+
+    @abstractmethod
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        """다음 상태 이름을 반환한다. None이면 FSM 종료."""
+        raise NotImplementedError
