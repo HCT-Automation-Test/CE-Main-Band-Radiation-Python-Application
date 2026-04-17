@@ -20,7 +20,7 @@
 
 1. CSV Test Case 로드 / 편집 / Range 확장
 2. 코드 상수 기반 TestRange(SA·SwitchBox 파라미터 묶음) 정의 및 매핑
-3. **FSM 기반 시퀀스 실행** (QThread + 명시적 State 클래스)
+3. **통합 세션 FSM 실행** (QThread + 명시적 State 클래스, 시험 간 전환 포함)
 4. 외부 프로그램과 TCP/JSON으로 명령 송신 및 결과 수신
 5. Excel 템플릿에 결과 매핑 + SA 스크린샷 저장
 6. UI: 장비 상태 / TC 편집 / 실행 모니터링 / 스크린샷 뷰어 / 로그
@@ -61,11 +61,16 @@ claude_test/
 │   │   ├── events.py            # RunnerEvents (Qt signals)
 │   │   └── fsm/
 │   │       ├── base.py          # State ABC, StateResult
-│   │       ├── context.py
-│   │       ├── registry.py      # TestType → Sequence 매핑
-│   │       ├── harmonic/        # states.py, sequence.py (§4 8단계)
-│   │       ├── inband/          # TODO(spec)
-│   │       └── bilog/           # TODO(spec)
+│   │       ├── context.py       # SessionContext
+│   │       ├── engine.py        # FSM 전이 엔진
+│   │       └── states/
+│   │           ├── session.py       # Init, Idle, CheckNextCase, TestEnd
+│   │           ├── nr_setup.py      # NRCallConnect, NRCallDisconnected
+│   │           ├── transition.py    # AntPolChange, Handover, RecallChange, DUTAxisChange
+│   │           └── measurement/
+│   │               ├── harmonic.py  # Harmonic 측정 State들 (4~9)
+│   │               ├── inband.py    # TODO(spec)
+│   │               └── bilog.py     # TODO(spec)
 │   ├── net/
 │   │   ├── protocol.py          # Request/Response/Event dataclass
 │   │   ├── tcp_client.py        # QTcpSocket 래퍼
@@ -115,10 +120,33 @@ uv run pytest tests/core -k harmonic
 - **로깅**: `print` 금지. `logging` 모듈 사용. UI에는 `QPlainTextEdit` 미러 핸들러.
 - **Spec TODO 규약**: 명세 미확정 지점은 일관된 `# TODO(spec): ...` 주석으로 표시.
 
+## 통합 세션 FSM 설계
+
+세션 전체를 하나의 FSM으로 모델링. 시험 간 전환(Handover, AntPol 변경 등)이 FSM 상태로 존재.
+
+**상태 흐름:**
+`Init → Idle → NRCallConnect → [Measurement(test type별)] → CheckNextCase → (전환 상태) → loop | TestEnd → Idle`
+
+**전환 상태:** AntPolChange, Handover, RecallChange, DUTAxisChange, NRCallDisconnected
+
+**설계 원칙:**
+
+- 각 State는 `next_state()`로 다음 상태를 결정 (고정 리스트 순차 실행이 아님)
+- NRCallConnect 진입 시 항상 풀 Setup + 신규 연결
+- 같은 Band 내 파라미터(BW/Mod/RB/Channel)는 Band에 종속 — 별도 전환 불필요
+- 복합 변경(Band+AntPol 동시 등) 우선순위 규칙은 추후 협의 예정
+
+**시험 타입 확장 (InBand/Bilog):**
+
+- 측정 구간(states/measurement/)만 test type별로 분기
+- NRCallConnect 출구 및 CheckNextCase 복귀 지점에서 test_type 기반 분기
+- InBand/Bilog는 Harmonic과 상태 재활용 많을 예정
+- InBand/Bilog는 시험 간 전환 상태(AntPol/Handover/DUTAxis)가 없이 연속 진행 다수
+
 ## 새 시험 타입 추가 절차
 
-1. `src/app/core/fsm/<type>/` 모듈 생성 (`states.py`, `sequence.py`)
-2. `src/app/core/fsm/registry.py`의 `SEQUENCES`에 등록
+1. `src/app/core/fsm/states/measurement/<type>.py` 모듈 생성
+2. `src/app/core/fsm/engine.py`에 test_type 분기 전이 규칙 등록
 3. `src/app/net/commands.py`에 필요한 facade 함수 추가
 4. `src/app/models/enums.py`의 `TestType` enum에 항목 추가
 5. 해당 타입 테스트를 `tests/core/test_fsm_<type>.py`에 작성

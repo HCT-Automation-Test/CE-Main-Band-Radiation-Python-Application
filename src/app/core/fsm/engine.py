@@ -1,0 +1,111 @@
+"""통합 세션 FSM 전이 엔진."""
+from __future__ import annotations
+
+import logging
+from typing import TYPE_CHECKING
+
+from app.core.fsm.base import State
+
+if TYPE_CHECKING:
+    from app.core.fsm.context import SessionContext
+
+logger = logging.getLogger(__name__)
+
+
+class FSMEngine:
+    """통합 세션 FSM 전이 엔진.
+
+    State 인스턴스를 name으로 등록하고, enter → run → exit → next_state
+    루프를 실행한다. QThread 워커 내에서 동기적으로 호출된다.
+    """
+
+    def __init__(self, ctx: "SessionContext") -> None:
+        self._ctx = ctx
+        self._states: dict[str, State] = {}
+        self._current_state_name: str | None = None
+
+    def register(self, state: State) -> None:
+        """State를 name으로 등록한다. 중복 name은 ValueError."""
+        if state.name in self._states:
+            raise ValueError(f"State name 중복: {state.name!r}")
+        self._states[state.name] = state
+
+    @property
+    def current_state_name(self) -> str | None:
+        """현재 실행 중인 상태 이름."""
+        return self._current_state_name
+
+    def run(self, initial_state: str = "SessionInit") -> None:
+        """FSM 메인 루프. 상태 전이를 반복한다.
+
+        의사 코드:
+        1. _current_state_name = initial_state
+        2. while _current_state_name is not None:
+           a. state = _states[_current_state_name]
+           b. ctx.events.state_changed.emit(state.name)
+           c. state.enter(ctx)
+           d. result = state.run(ctx)
+           e. state.exit(ctx)
+           f. _current_state_name = state.next_state(ctx, result)
+        3. 루프 종료 시 세션 완료
+        """
+        # TODO(spec): pause/stop 체크, RETRY 루프, 에러 핸들링
+        raise NotImplementedError("spec TODO")
+
+
+def build_session_engine(ctx: "SessionContext") -> FSMEngine:
+    """모든 상태를 등록한 세션 엔진을 구성한다."""
+    from app.core.fsm.states.measurement.harmonic import (
+        MeasureFundamentalState,
+        MeasureHarmonicsState,
+        ResetSwitchBoxState,
+        RotateTurntableState,
+        SetSwitchBoxState,
+        SetupSpectrumAnalyzerState,
+    )
+    from app.core.fsm.states.nr_setup import (
+        NRCallConnectState,
+        NRCallDisconnectedState,
+    )
+    from app.core.fsm.states.session import (
+        CheckNextCaseState,
+        IdleState,
+        SessionInitState,
+        TestEndState,
+    )
+    from app.core.fsm.states.transition import (
+        AntPolChangeState,
+        DUTAxisChangeState,
+        HandoverState,
+        RecallChangeState,
+    )
+
+    engine = FSMEngine(ctx)
+
+    # 세션 제어 상태
+    engine.register(SessionInitState())
+    engine.register(IdleState())
+    engine.register(CheckNextCaseState())
+    engine.register(TestEndState())
+
+    # NR 연결 관리 상태
+    engine.register(NRCallConnectState())
+    engine.register(NRCallDisconnectedState())
+
+    # 시험 간 전환 상태
+    engine.register(AntPolChangeState())
+    engine.register(HandoverState())
+    engine.register(RecallChangeState())
+    engine.register(DUTAxisChangeState())
+
+    # Harmonic 측정 상태
+    engine.register(MeasureFundamentalState())
+    engine.register(SetSwitchBoxState())
+    engine.register(SetupSpectrumAnalyzerState())
+    engine.register(RotateTurntableState())
+    engine.register(MeasureHarmonicsState())
+    engine.register(ResetSwitchBoxState())
+
+    # TODO(spec): InBand, Bilog 측정 상태 등록
+
+    return engine
