@@ -14,6 +14,7 @@ dist/
 
 # Test / tooling
 .pytest_cache/
+.tmp/
 .mypy_cache/
 .ruff_cache/
 htmlcov/
