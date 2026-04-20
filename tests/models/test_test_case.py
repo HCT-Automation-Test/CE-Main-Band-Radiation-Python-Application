@@ -9,7 +9,9 @@ from app.models.enums import (
     FilterMode,
     InputPath,
     Modulation,
+    NRBand,
     RBAllocation,
+    TestChannel as ChannelEnum,
     TestType as MeasurementTestType,
 )
 from app.models.supported_bandwidths import get_supported_bandwidths
@@ -20,9 +22,10 @@ from app.models.test_range import RangeId
 def _build_case(
     *,
     bandwidth: float = 100.0,
-    band: str = "n78",
+    band: NRBand | str = NRBand.N78,
     test_type: MeasurementTestType = MeasurementTestType.HARMONIC,
     rb_allocation: RBAllocation = RBAllocation.INNER_FULL,
+    test_channel: ChannelEnum | str = ChannelEnum.MID,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -30,7 +33,7 @@ def _build_case(
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=rb_allocation,
-        test_channel="mid",
+        test_channel=test_channel,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
     )
@@ -39,16 +42,29 @@ def _build_case(
 def test_test_case_instantiation() -> None:
     case = _build_case()
 
-    assert case.band == "n78"
+    assert case.band is NRBand.N78
     assert case.bandwidth == 100.0
     assert case.scs_khz == 30
     assert case.test_type is MeasurementTestType.HARMONIC
     assert case.modulation is Modulation.QPSK
     assert case.rb_allocation is RBAllocation.INNER_FULL
+    assert case.test_channel is ChannelEnum.MID
     assert case.test_range is RangeId.RANGE_6
     assert case.range_name == "range_6"
     assert case.antenna_pol is AntennaPol.H
     assert case.dut_axis is DUTAxis.X
+
+
+def test_test_case_coerces_test_channel_on_direct_instantiation() -> None:
+    case = _build_case(test_channel="MID")
+
+    assert case.test_channel is ChannelEnum.MID
+
+
+def test_test_case_coerces_band_on_direct_instantiation() -> None:
+    case = _build_case(band="N78")
+
+    assert case.band is NRBand.N78
 
 
 def test_test_case_resolves_typed_range_definition() -> None:
@@ -78,6 +94,16 @@ def test_test_case_resolves_edge_rb_allocations() -> None:
 def test_test_case_rejects_legacy_bandwidth_units_at_instantiation() -> None:
     with pytest.raises(ValueError, match="Invalid bandwidth"):
         _build_case(bandwidth="100MHz")  # type: ignore[arg-type]
+
+
+def test_test_case_rejects_unknown_test_channel_at_instantiation() -> None:
+    with pytest.raises(ValueError, match="Invalid test_channel"):
+        _build_case(test_channel="center")
+
+
+def test_test_case_rejects_unknown_band_at_instantiation() -> None:
+    with pytest.raises(ValueError, match="Invalid band"):
+        _build_case(band="n99")
 
 
 def test_test_case_rejects_unsupported_band_and_test_type_at_instantiation() -> None:
@@ -125,7 +151,9 @@ def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None
     )
 
     assert case.test_type is MeasurementTestType.HARMONIC
+    assert case.band is NRBand.N78
     assert case.bandwidth == 100.0
+    assert case.test_channel is ChannelEnum.MID
     assert case.test_range is RangeId.RANGE_6
     assert case.rb_size == 135
     assert case.rb_offset == 67
@@ -146,6 +174,40 @@ def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
     )
 
     assert case.bandwidth == 100.0
+
+
+def test_test_case_from_csv_row_parses_band_case_insensitively() -> None:
+    case = TestCase.from_csv_row(
+        {
+            "band": "N78",
+            "bandwidth": "100",
+            "test_type": "harmonic",
+            "modulation": "QPSK",
+            "rb_allocation": "Inner_Full",
+            "test_channel": "mid",
+            "antenna_pol": "H",
+            "dut_axis": "X",
+        }
+    )
+
+    assert case.band is NRBand.N78
+
+
+def test_test_case_from_csv_row_parses_test_channel_case_insensitively() -> None:
+    case = TestCase.from_csv_row(
+        {
+            "band": "n78",
+            "bandwidth": "100",
+            "test_type": "harmonic",
+            "modulation": "QPSK",
+            "rb_allocation": "Inner_Full",
+            "test_channel": "MID",
+            "antenna_pol": "H",
+            "dut_axis": "X",
+        }
+    )
+
+    assert case.test_channel is ChannelEnum.MID
 
 
 @pytest.mark.parametrize(
@@ -181,8 +243,10 @@ def test_test_case_to_csv_row_uses_external_csv_schema_only() -> None:
     row = _build_case().to_csv_row()
 
     assert list(row) == list(CSV_FIELDNAMES)
+    assert row["band"] == "n78"
     assert row["bandwidth"] == "100"
     assert row["test_type"] == "harmonic"
+    assert row["test_channel"] == "mid"
     assert "test_range" not in row
 
 
@@ -208,6 +272,38 @@ def test_test_case_from_csv_row_rejects_unknown_test_type() -> None:
                 "band": "n78",
                 "bandwidth": "100",
                 "test_type": "unknown",
+                "modulation": "QPSK",
+                "rb_allocation": "Inner_Full",
+                "test_channel": "mid",
+                "antenna_pol": "H",
+                "dut_axis": "X",
+            }
+        )
+
+
+def test_test_case_from_csv_row_rejects_unknown_test_channel() -> None:
+    with pytest.raises(ValueError, match="Invalid test_channel"):
+        TestCase.from_csv_row(
+            {
+                "band": "n78",
+                "bandwidth": "100",
+                "test_type": "harmonic",
+                "modulation": "QPSK",
+                "rb_allocation": "Inner_Full",
+                "test_channel": "center",
+                "antenna_pol": "H",
+                "dut_axis": "X",
+            }
+        )
+
+
+def test_test_case_from_csv_row_rejects_unknown_band() -> None:
+    with pytest.raises(ValueError, match="Invalid band"):
+        TestCase.from_csv_row(
+            {
+                "band": "n99",
+                "bandwidth": "100",
+                "test_type": "harmonic",
                 "modulation": "QPSK",
                 "rb_allocation": "Inner_Full",
                 "test_channel": "mid",

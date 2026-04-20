@@ -5,20 +5,22 @@ from app.models.enums import (
     AntennaPol,
     DUTAxis,
     Modulation,
+    NRBand,
     RBAllocation,
+    TestChannel as ChannelEnum,
     TestType as MeasurementTestType,
 )
 from app.models.test_case import TestCase
 
 
-def _build_case(*, band: str = "n78", bandwidth: float = 100.0) -> TestCase:
+def _build_case(*, band: NRBand | str = NRBand.N78, bandwidth: float = 100.0) -> TestCase:
     return TestCase(
         band=band,
         bandwidth=bandwidth,
         test_type=MeasurementTestType.HARMONIC,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
-        test_channel="mid",
+        test_channel=ChannelEnum.MID,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
     )

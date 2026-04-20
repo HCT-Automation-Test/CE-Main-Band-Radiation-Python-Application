@@ -9,7 +9,9 @@ from app.models.enums import (
     AntennaPol,
     DUTAxis,
     Modulation,
+    NRBand,
     RBAllocation,
+    TestChannel as ChannelEnum,
     TestType as MeasurementTestType,
 )
 from app.models.test_case import CSV_FIELDNAMES, TestCase
@@ -18,7 +20,7 @@ from app.models.test_range import RangeId
 
 def _build_case(
     *,
-    band: str,
+    band: NRBand | str,
     test_type: MeasurementTestType = MeasurementTestType.HARMONIC,
 ) -> TestCase:
     return TestCase(
@@ -27,7 +29,7 @@ def _build_case(
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
-        test_channel="mid",
+        test_channel=ChannelEnum.MID,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
     )
@@ -37,8 +39,8 @@ def test_test_case_derives_range_during_direct_creation() -> None:
     case = _build_case(band="n78")
 
     assert case.test_range is RangeId.RANGE_6
-    assert case.band == "n78"
-    assert case.test_channel == "mid"
+    assert case.band is NRBand.N78
+    assert case.test_channel is ChannelEnum.MID
 
 
 def test_load_csv_reads_sample_and_resolves_test_range() -> None:
@@ -49,9 +51,10 @@ def test_load_csv_reads_sample_and_resolves_test_range() -> None:
     cases = load_csv(sample_path)
 
     assert len(cases) == 1
-    assert cases[0].band == "n78"
+    assert cases[0].band is NRBand.N78
     assert cases[0].bandwidth == 100.0
     assert cases[0].test_type is MeasurementTestType.HARMONIC
+    assert cases[0].test_channel is ChannelEnum.MID
     assert cases[0].test_range is RangeId.RANGE_6
 
 

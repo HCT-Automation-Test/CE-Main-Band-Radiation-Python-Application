@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.enums import FilterMode, FilterPath, InputPath, Modulation, RBAllocation
+from app.models.enums import (
+    FilterMode,
+    FilterPath,
+    InputPath,
+    Modulation,
+    NRBand,
+    RBAllocation,
+    TestChannel as ChannelEnum,
+)
 from app.models.switch_box import parse_input_path, resolve_filter_path
 
 
@@ -38,3 +46,16 @@ def test_rb_allocation_enum_uses_canonical_labels() -> None:
     assert RBAllocation.INNER_1RB_LEFT.value == "Inner_1RB_Left"
     assert RBAllocation.INNER_1RB_RIGHT.value == "Inner_1RB_Right"
     assert len(RBAllocation) == 3
+
+
+def test_test_channel_enum_uses_canonical_labels() -> None:
+    assert ChannelEnum.LOW.value == "low"
+    assert ChannelEnum.MID.value == "mid"
+    assert ChannelEnum.HIGH.value == "high"
+    assert len(ChannelEnum) == 3
+
+
+def test_nr_band_enum_uses_canonical_labels() -> None:
+    assert NRBand.N1.value == "n1"
+    assert NRBand.N78.value == "n78"
+    assert NRBand.N79.value == "n79"

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.models.enums import NRBand
 from app.models.supported_bandwidths import (
     get_supported_bandwidths,
     validate_supported_bandwidth,
@@ -62,3 +63,24 @@ def test_get_supported_bandwidths_normalizes_band_label() -> None:
         90.0,
         100.0,
     )
+
+
+def test_get_supported_bandwidths_accepts_band_enum() -> None:
+    assert get_supported_bandwidths(NRBand.N78) == (
+        10.0,
+        15.0,
+        20.0,
+        25.0,
+        30.0,
+        40.0,
+        50.0,
+        60.0,
+        70.0,
+        80.0,
+        90.0,
+        100.0,
+    )
+
+
+def test_validate_supported_bandwidth_accepts_band_enum() -> None:
+    validate_supported_bandwidth(NRBand.N78, 100.0)
