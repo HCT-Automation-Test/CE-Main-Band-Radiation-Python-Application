@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.band_group import BAND_GROUPS, find_band_group, resolve_range_id
-from app.models.enums import TestType as BandTestType
+from app.models.enums import NRBand, TestType as BandTestType
 from app.models.test_range import RangeId
 
 
@@ -36,13 +36,17 @@ def test_resolve_range_id_accepts_numeric_string() -> None:
     assert resolve_range_id("78", BandTestType.HARMONIC) is RangeId.RANGE_6
 
 
+def test_resolve_range_id_accepts_band_enum() -> None:
+    assert resolve_range_id(NRBand.N78, BandTestType.HARMONIC) is RangeId.RANGE_6
+
+
 def test_resolve_range_id_unknown_band() -> None:
     with pytest.raises(ValueError):
         resolve_range_id("n99", BandTestType.HARMONIC)
 
 
 def test_find_band_group_returns_expected_profile() -> None:
-    group = find_band_group("n78")
+    group = find_band_group(NRBand.N78)
     assert group.sa_recall == "6G HPF"
     assert group.mt8000_recall == "SA_TDD"
     assert group.scs_khz == 30

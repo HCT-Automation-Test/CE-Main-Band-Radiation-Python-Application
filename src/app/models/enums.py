@@ -4,6 +4,26 @@ from __future__ import annotations
 from enum import Enum, IntEnum
 
 
+class NRBand(str, Enum):
+    """지원하는 NR band."""
+
+    N1 = "n1"
+    N3 = "n3"
+    N5 = "n5"
+    N7 = "n7"
+    N8 = "n8"
+    N20 = "n20"
+    N26 = "n26"
+    N28 = "n28"
+    N38 = "n38"
+    N40 = "n40"
+    N41 = "n41"
+    N71 = "n71"
+    N77 = "n77"
+    N78 = "n78"
+    N79 = "n79"
+
+
 class TestType(Enum):
     """시험 종류."""
 
@@ -40,6 +60,14 @@ class RBAllocation(Enum):
     INNER_FULL = "Inner_Full"
     INNER_1RB_LEFT = "Inner_1RB_Left"
     INNER_1RB_RIGHT = "Inner_1RB_Right"
+
+
+class TestChannel(Enum):
+    """시험 채널 위치."""
+
+    LOW = "low"
+    MID = "mid"
+    HIGH = "high"
 
 
 class InputPath(IntEnum):
