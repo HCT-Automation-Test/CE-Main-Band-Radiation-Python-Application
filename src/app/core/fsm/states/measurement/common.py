@@ -7,13 +7,23 @@ Harmonic, InBand, Bilog 측정 모두가 공유하는 장비 조작 스텝.
 """
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
-from app.models.enums import TestType
+from app.models.enums import FilterPath, InputPath, TestType
+from app.models.switch_box import resolve_filter_path
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_error(ctx: "SessionContext", message: str) -> None:
+    logger.error(message)
+    if ctx.events is not None:
+        ctx.events.error.emit(message)
 
 
 class SetSwitchBoxState(State):
@@ -22,12 +32,33 @@ class SetSwitchBoxState(State):
     name = "SetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.set_switch_box(client, input_path=..., filter_path=...)
-        raise NotImplementedError("spec TODO")
+        test_case = ctx.current_case
+        test_range = test_case.range_definition
+        try:
+            filter_path = resolve_filter_path(
+                test_range.filter_mode,
+                test_case.band.value,
+            )
+            configured = ctx.commands.set_switch_box(
+                ctx.client,
+                input_path=test_range.input_path,
+                filter_path=filter_path,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Switch Box RF 경로 설정 실패: {exc}")
+            return StateResult.FAIL
+
+        if configured:
+            return StateResult.OK
+
+        _emit_error(ctx, "Switch Box RF 경로 설정 실패: set_switch_box returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "SetupSpectrumAnalyzer"
 
 
@@ -37,12 +68,24 @@ class SetupSpectrumAnalyzerState(State):
     name = "SetupSpectrumAnalyzer"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.setup_sa(client, test_range=...)
-        raise NotImplementedError("spec TODO")
+        test_range = ctx.current_case.range_definition
+        try:
+            configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
+        except Exception as exc:
+            _emit_error(ctx, f"Spectrum Analyzer 설정 실패: {exc}")
+            return StateResult.FAIL
+
+        if configured:
+            return StateResult.OK
+
+        _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "RotateTurntable"
 
 
@@ -67,12 +110,27 @@ class ResetSwitchBoxState(State):
     name = "ResetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.set_switch_box(client, input_path=DEFAULT, filter_path=DEFAULT)
-        raise NotImplementedError("spec TODO")
+        try:
+            configured = ctx.commands.set_switch_box(
+                ctx.client,
+                input_path=InputPath.INPUT1,
+                filter_path=FilterPath.THRU,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Switch Box 기본 경로 복원 실패: {exc}")
+            return StateResult.FAIL
+
+        if configured:
+            return StateResult.OK
+
+        _emit_error(ctx, "Switch Box 기본 경로 복원 실패: set_switch_box returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "CheckNextCase"
 
 
