@@ -19,7 +19,7 @@ class NRCallConnectState(State):
     name = "NRCallConnect"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.setup_mt8000(client, band=..., bw=..., ...)
+        # calls: net.commands.setup_mt8000(client, band=..., bw=..., channel=..., ...)
         # calls: net.commands.call_connect(client)
         raise NotImplementedError("spec TODO")
 

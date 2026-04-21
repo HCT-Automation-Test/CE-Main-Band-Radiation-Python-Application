@@ -60,7 +60,7 @@ class RotateTurntableState(State):
     name = "RotateTurntable"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.rotate_turntable(client, axis=..., angle=...)
+        # calls: net.commands.rotate_turntable(client, axis=..., angle=..., turntable_speed=...)
         raise NotImplementedError("spec TODO")
 
     def next_state(
@@ -75,7 +75,7 @@ class MeasureHarmonicsState(State):
     name = "MeasureHarmonics"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.measure_harmonics(client, ranges=..., fundamental=...)
+        # calls: net.commands.measure_harmonics(client, fundamental=...)
         raise NotImplementedError("spec TODO")
 
     def next_state(

@@ -7,68 +7,63 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.models.enums import AntennaPol, DUTAxis, FilterPath, InputPath, Modulation
+from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import TestRange
 
 
 def setup_mt8000(
     client: Any,
     *,
-    band: str,
-    bw: str,
+    band: int,
+    bw: int,
     modulation: Modulation,
     rb_size: int,
     rb_offset: int,
-    channel: str,
-) -> None:
+    channel: int,
+) -> bool:
     """MT8000A 셋업. §4.1.
 
     SCS는 MT8000A Recall file에 포함되어 자동 설정되므로 인자에 두지 않는다.
     Band 그룹의 scs_khz는 RB Allocation(RB size/offset 산출) 단계의 Python 로직에서만 사용.
+    외부 프로그램은 band/bw/channel을 정수 코드로 받는다.
     """
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def call_connect(client: Any) -> dict[str, Any]:
+def call_connect(client: Any) -> bool:
     """Call Connect 수행. §4.2."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def measure_fundamental(client: Any, *, target_freq: float) -> dict[str, Any]:
-    """기본파 측정. §4.3."""
+def measure_fundamental(client: Any, *, target_freq: float) -> float:
+    """기본파 측정 후 fundamental frequency를 반환한다. §4.3."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> None:
+def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> bool:
     """Switch Box 경로 설정. §4.4 / §4.8."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def setup_sa(client: Any, test_range: TestRange) -> None:
+def setup_sa(client: Any, test_range: TestRange) -> bool:
     """FSV40 Spectrum Analyzer 셋업. §4.5."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def rotate_turntable(client: Any, *, axis: DUTAxis, angle: float) -> None:
-    """CO3000 턴테이블 회전. §4.6."""
-    raise NotImplementedError("spec TODO: send_request op name pending")
-
-
-def set_turntable_speed(client: Any, *, speed: int) -> None:
-    """CO3000 턴테이블 회전 속도 설정 (Band 그룹 공통 설정)."""
+def rotate_turntable(client: Any, *, angle: float, turntable_speed: int) -> None:
+    """CO3000 턴테이블 회전 시작. 완료/진행 상태는 이후 Event로 수신한다. §4.6."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
 def measure_harmonics(
     client: Any,
     *,
-    ranges: list[TestRange],
     fundamental: float,
-) -> dict[str, Any]:
-    """하모닉 피크 측정. §4.7."""
+) -> list[float]:
+    """2nd~5th harmonic amplitude(dBm)를 순서대로 반환한다. §4.7."""
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
-def set_antenna_pol(client: Any, *, pol: AntennaPol) -> None:
+def set_antenna_pol(client: Any, *, pol: AntennaPol) -> bool:
     """안테나 편파 전환 (사용자 개입 훅과 연동)."""
     raise NotImplementedError("spec TODO: send_request op name pending")
