@@ -51,12 +51,14 @@ class CheckNextCaseState(State):
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): prev/curr TC 비교 후 분기
+        # TODO(spec): prev/curr TC 비교 후 분기 (위에서부터 우선순위)
+        # - 큐 종료 → "TestEnd"
         # - Band 변경 + Recall 필요 → "RecallChange"
         # - Band 변경 → "Handover"
-        # - AntPol 변경 → "AntPolChange"
         # - DUT Axis 변경 → "DUTAxisChange"
-        # - 큐 종료 → "TestEnd"
+        # - AntPol 변경 → "AntPolChange"
+        # - test_type만 변경 → "TestTypeChange"
+        # - 모두 동일 → TODO(spec): 동일 설정 재측정 시나리오
         raise NotImplementedError("spec TODO")
 
 

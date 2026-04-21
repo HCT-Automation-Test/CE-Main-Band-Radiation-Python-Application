@@ -64,6 +64,23 @@ def measure_harmonics(
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
+def measure_inband(client: Any, **kwargs: Any) -> Any:
+    """In-Band 측정."""
+    # TODO(spec): 파라미터/반환 스키마 확정 필요
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
+def measure_bilog(client: Any, **kwargs: Any) -> Any:
+    """Bilog 측정."""
+    # TODO(spec): 파라미터/반환 스키마 확정 필요
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
+def check_call_status(client: Any) -> bool:
+    """현재 NR Call 연결 상태를 확인한다. TestTypeChange 등에서 호출."""
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
 def set_antenna_pol(client: Any, *, pol: AntennaPol) -> bool:
     """안테나 편파 전환 (사용자 개입 훅과 연동)."""
     raise NotImplementedError("spec TODO: send_request op name pending")

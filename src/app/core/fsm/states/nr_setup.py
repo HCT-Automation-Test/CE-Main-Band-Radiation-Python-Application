@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.states.measurement.common import measurement_start_state_for
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -26,11 +27,7 @@ class NRCallConnectState(State):
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): test_type에 따라 측정 시작 상태 분기
-        # Harmonic → "MeasureFundamental"
-        # InBand  → TODO(spec)
-        # Bilog   → TODO(spec)
-        return "MeasureFundamental"
+        return measurement_start_state_for(ctx.current_case.test_type)
 
 
 class NRCallDisconnectedState(State):
