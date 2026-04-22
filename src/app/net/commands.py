@@ -55,6 +55,11 @@ def rotate_turntable(client: Any, *, angle: float, turntable_speed: int) -> None
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
+def stop_turntable(client: Any) -> None:
+    """CO3000 턴테이블 즉시 정지. UI Stop 처리용. §4.6."""
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
 def measure_harmonics(
     client: Any,
     *,

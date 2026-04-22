@@ -25,6 +25,7 @@ class SessionContext:
     results: list[MeasurementResult] = field(default_factory=list)
     paused: bool = False
     stopped: bool = False
+    current_angle: float = 0.0
     # TODO(spec): equipment_state (장비 연결 상태 추적) 추가 지점
 
     @property
