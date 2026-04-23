@@ -8,7 +8,7 @@ class RunnerEvents(QObject):
     """시퀀스 실행 중 발생하는 이벤트의 Qt 시그널 묶음."""
 
     tc_started = Signal(int)                # index
-    tc_finished = Signal(int, bool)         # index, pass_fail
+    tc_finished = Signal(int)               # index
     state_changed = Signal(str)             # state name
     progress = Signal(int)                  # percent
     screenshot_saved = Signal(str)          # path

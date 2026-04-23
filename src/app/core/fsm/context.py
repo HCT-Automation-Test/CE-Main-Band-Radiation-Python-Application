@@ -21,7 +21,6 @@ class SessionContext:
     events: RunnerEvents
     client: Any | None = None
     current_index: int = 0
-    result: MeasurementResult = field(default_factory=MeasurementResult)
     results: list[MeasurementResult] = field(default_factory=list)
     paused: bool = False
     stopped: bool = False
