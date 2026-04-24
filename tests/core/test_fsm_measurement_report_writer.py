@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -41,6 +42,26 @@ class _SignalRecorder:
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+
+
+class _Commands:
+    def __init__(
+        self,
+        *,
+        fundamental_frequency_mhz: float = 3549.99,
+        exception: Exception | None = None,
+    ) -> None:
+        self.fundamental_frequency_mhz = fundamental_frequency_mhz
+        self.exception = exception
+        self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
+
+    def measure_fundamental(self, client: Any, *, target_freq: float) -> float:
+        self.measure_fundamental_calls.append(
+            (client, {"target_freq": target_freq})
+        )
+        if self.exception is not None:
+            raise self.exception
+        return self.fundamental_frequency_mhz
 
 
 class _ReportWriter:
@@ -89,14 +110,20 @@ class _ReportWriter:
         return self.return_value
 
 
-def _make_case(test_type: MeasurementTestType) -> TestCase:
+def _make_case(
+    test_type: MeasurementTestType,
+    *,
+    band: NRBand = NRBand.N78,
+    bandwidth: float = 100.0,
+    test_channel: ChannelEnum = ChannelEnum.MID,
+) -> TestCase:
     return TestCase(
-        band=NRBand.N78,
-        bandwidth=100.0,
+        band=band,
+        bandwidth=bandwidth,
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
-        test_channel=ChannelEnum.MID,
+        test_channel=test_channel,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
     )
@@ -105,14 +132,18 @@ def _make_case(test_type: MeasurementTestType) -> TestCase:
 def _make_ctx(
     test_type: MeasurementTestType,
     *,
+    case: TestCase | None = None,
+    commands: Any | None = None,
     report_writer: Any | None = None,
     events: Any | None = None,
+    temp_dir: Path | None = Path("tmp"),
 ) -> SessionContext:
     return SessionContext(
-        queue=[_make_case(test_type)],
-        commands=None,
+        queue=[case or _make_case(test_type)],
+        commands=commands or _Commands(),
         events=events,  # type: ignore[arg-type]
         report_writer=report_writer,
+        temp_dir=temp_dir,
     )
 
 
@@ -155,6 +186,109 @@ def test_measurement_states_call_individual_report_writer_methods(
     assert len(ctx.results) == 1
     assert isinstance(ctx.results[0], expected_result_type)
     assert report_writer.calls == [(expected_name, ctx.current_case, ctx.results[0])]
+
+
+def test_measure_fundamental_uses_target_frequency_and_temp_dir(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.measure_fundamental_calls == [
+        (None, {"target_freq": 3549.99})
+    ]
+    assert len(ctx.results) == 1
+    measured = ctx.results[0]
+    assert isinstance(measured, FundamentalResult)
+    assert measured.fundamental_frequency_mhz == 3550.25
+    assert measured.screenshot_path == tmp_path / "fundamental.png"
+    assert report_writer.calls == [("fundamental", ctx.current_case, measured)]
+
+
+def test_measure_fundamental_returns_fail_without_temp_dir() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=None,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert len(ctx.results) == 0
+    assert commands.measure_fundamental_calls == []
+    assert events.error.messages == [
+        "Fundamental 스크린샷 경로 생성 실패: temp_dir is not set"
+    ]
+
+
+def test_measure_fundamental_returns_fail_when_lookup_raises() -> None:
+    events = _Events()
+    commands = _Commands()
+    case = _make_case(
+        MeasurementTestType.HARMONIC,
+        band=NRBand.N28,
+        bandwidth=25.0,
+        test_channel=ChannelEnum.MID,
+    )
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        case=case,
+        commands=commands,
+        events=events,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert len(ctx.results) == 0
+    assert commands.measure_fundamental_calls == []
+    assert events.error.messages == [
+        (
+            "Fundamental 측정 준비 실패: "
+            "No NR channel lookup for band='n28', bandwidth='25', "
+            "test_channel='mid'"
+        )
+    ]
+
+
+def test_measure_fundamental_returns_fail_when_command_raises() -> None:
+    events = _Events()
+    commands = _Commands(exception=RuntimeError("instrument timeout"))
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert len(ctx.results) == 0
+    assert commands.measure_fundamental_calls == [
+        (None, {"target_freq": 3549.99})
+    ]
+    assert events.error.messages == [
+        "Fundamental 측정 실패: instrument timeout"
+    ]
 
 
 def test_measurement_state_returns_fail_when_report_writer_returns_false() -> None:

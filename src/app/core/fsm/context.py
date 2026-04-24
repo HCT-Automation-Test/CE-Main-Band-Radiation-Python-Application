@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.core.events import RunnerEvents
@@ -29,6 +30,7 @@ class SessionContext:
     paused: bool = False
     stopped: bool = False
     current_angle: float = 0.0
+    temp_dir: Path | None = None
     # TODO(spec): equipment_state (장비 연결 상태 추적) 추가 지점
 
     @property
