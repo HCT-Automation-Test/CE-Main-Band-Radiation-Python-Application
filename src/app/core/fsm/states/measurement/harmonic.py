@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
@@ -18,11 +19,48 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_HARMONIC_SCREENSHOT_NAME = "harmonic.png"
+
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
     logger.error(message)
     if ctx.events is not None:
         ctx.events.error.emit(message)
+
+
+def _normalize_harmonic_levels(raw_levels: object) -> list[float]:
+    if isinstance(raw_levels, str | bytes):
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        )
+
+    try:
+        normalized = [float(level) for level in raw_levels]  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        ) from exc
+    except ValueError as exc:
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        ) from exc
+
+    if len(normalized) != 4:
+        raise ValueError(
+            f"Harmonic 측정 응답 형식 오류: expected 4 peak levels, got {len(normalized)}"
+        )
+
+    return normalized
+
+
+def _recordable_peak(level_dbm: float, threshold_dbm: float) -> float | None:
+    if level_dbm > threshold_dbm:
+        return level_dbm
+    return None
+
+
+def _harmonic_screenshot_path(temp_dir: Path) -> Path:
+    return temp_dir / _HARMONIC_SCREENSHOT_NAME
 
 
 class MeasureFundamentalState(State):
@@ -60,6 +98,7 @@ class MeasureFundamentalState(State):
             _emit_error(ctx, f"Fundamental 측정 실패: {exc}")
             return StateResult.FAIL
 
+        ctx.fundamental_frequency_mhz = fundamental_frequency_mhz
         result = FundamentalResult(
             screenshot_path=ctx.temp_dir / "fundamental.png",
             fundamental_frequency_mhz=fundamental_frequency_mhz,
@@ -85,9 +124,56 @@ class MeasureHarmonicsState(State):
     name = "MeasureHarmonics"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.measure_harmonics(client, fundamental=...)
-        # TODO(spec): 외부 프로그램의 측정 응답 스키마 확정 후 필드 매핑.
-        result = HarmonicResult()
+        fundamental_frequency_mhz = ctx.fundamental_frequency_mhz
+        if fundamental_frequency_mhz is None:
+            _emit_error(
+                ctx,
+                "Harmonic 측정 실패: fundamental_frequency_mhz is not set",
+            )
+            return StateResult.FAIL
+
+        if ctx.temp_dir is None:
+            _emit_error(
+                ctx,
+                "Harmonic 스크린샷 경로 생성 실패: temp_dir is not set",
+            )
+            return StateResult.FAIL
+
+        try:
+            harmonic_levels = _normalize_harmonic_levels(
+                ctx.commands.measure_harmonics(
+                    ctx.client,
+                    fundamental=fundamental_frequency_mhz,
+                )
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Harmonic 측정 실패: {exc}")
+            return StateResult.FAIL
+
+        screenshot_path = _harmonic_screenshot_path(ctx.temp_dir)
+        if not screenshot_path.is_file():
+            _emit_error(
+                ctx,
+                f"Harmonic 스크린샷 저장 실패: {screenshot_path} does not exist",
+            )
+            return StateResult.FAIL
+
+        threshold_dbm = ctx.current_case.range_definition.limit - 10.0
+        result = HarmonicResult(
+            screenshot_path=screenshot_path,
+            harmonic_2nd_peak_level_dbm=_recordable_peak(
+                harmonic_levels[0], threshold_dbm
+            ),
+            harmonic_3rd_peak_level_dbm=_recordable_peak(
+                harmonic_levels[1], threshold_dbm
+            ),
+            harmonic_4th_peak_level_dbm=_recordable_peak(
+                harmonic_levels[2], threshold_dbm
+            ),
+            harmonic_5th_peak_level_dbm=_recordable_peak(
+                harmonic_levels[3], threshold_dbm
+            ),
+        )
         return append_and_write_report(
             ctx,
             result,

@@ -1,12 +1,11 @@
 """통합 세션 FSM 실행 컨텍스트."""
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from app.core.events import RunnerEvents
-from app.models.measurement_result import MeasurementResult
 from app.models.test_case import TestCase
 
 if TYPE_CHECKING:
@@ -26,10 +25,10 @@ class SessionContext:
     client: Any | None = None
     report_writer: ReportWriter | None = None
     current_index: int = 0
-    results: list[MeasurementResult] = field(default_factory=list)
     paused: bool = False
     stopped: bool = False
     current_angle: float = 0.0
+    fundamental_frequency_mhz: float | None = None
     temp_dir: Path | None = None
     # TODO(spec): equipment_state (장비 연결 상태 추적) 추가 지점
 

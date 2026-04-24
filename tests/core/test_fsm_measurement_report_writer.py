@@ -49,19 +49,32 @@ class _Commands:
         self,
         *,
         fundamental_frequency_mhz: float = 3549.99,
-        exception: Exception | None = None,
+        harmonic_levels: object = (-41.0, -39.5, -40.0, -37.0),
+        fundamental_exception: Exception | None = None,
+        harmonics_exception: Exception | None = None,
     ) -> None:
         self.fundamental_frequency_mhz = fundamental_frequency_mhz
-        self.exception = exception
+        self.harmonic_levels = harmonic_levels
+        self.fundamental_exception = fundamental_exception
+        self.harmonics_exception = harmonics_exception
         self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def measure_fundamental(self, client: Any, *, target_freq: float) -> float:
         self.measure_fundamental_calls.append(
             (client, {"target_freq": target_freq})
         )
-        if self.exception is not None:
-            raise self.exception
+        if self.fundamental_exception is not None:
+            raise self.fundamental_exception
         return self.fundamental_frequency_mhz
+
+    def measure_harmonics(self, client: Any, *, fundamental: float) -> object:
+        self.measure_harmonics_calls.append(
+            (client, {"fundamental": fundamental})
+        )
+        if self.harmonics_exception is not None:
+            raise self.harmonics_exception
+        return self.harmonic_levels
 
 
 class _ReportWriter:
@@ -137,6 +150,7 @@ def _make_ctx(
     report_writer: Any | None = None,
     events: Any | None = None,
     temp_dir: Path | None = Path("tmp"),
+    fundamental_frequency_mhz: float | None = None,
 ) -> SessionContext:
     return SessionContext(
         queue=[case or _make_case(test_type)],
@@ -144,48 +158,20 @@ def _make_ctx(
         events=events,  # type: ignore[arg-type]
         report_writer=report_writer,
         temp_dir=temp_dir,
+        fundamental_frequency_mhz=fundamental_frequency_mhz,
     )
 
 
-@pytest.mark.parametrize(
-    ("state", "test_type", "expected_name", "expected_result_type"),
-    [
-        (
-            MeasureFundamentalState(),
-            MeasurementTestType.HARMONIC,
-            "fundamental",
-            FundamentalResult,
-        ),
-        (
-            MeasureHarmonicsState(),
-            MeasurementTestType.HARMONIC,
-            "harmonic",
-            HarmonicResult,
-        ),
-        (
-            MeasureInBandState(),
-            MeasurementTestType.INBAND,
-            "inband",
-            InbandResult,
-        ),
-        (MeasureBilogState(), MeasurementTestType.BILOG, "bilog", BilogResult),
-    ],
-)
-def test_measurement_states_call_individual_report_writer_methods(
-    state: Any,
-    test_type: MeasurementTestType,
-    expected_name: str,
-    expected_result_type: type,
+def _prepare_harmonic_measurement(
+    ctx: SessionContext,
+    temp_dir: Path,
+    *,
+    screenshot_exists: bool = True,
 ) -> None:
-    report_writer = _ReportWriter()
-    ctx = _make_ctx(test_type, report_writer=report_writer)
-
-    result = state.run(ctx)
-
-    assert result is StateResult.OK
-    assert len(ctx.results) == 1
-    assert isinstance(ctx.results[0], expected_result_type)
-    assert report_writer.calls == [(expected_name, ctx.current_case, ctx.results[0])]
+    ctx.temp_dir = temp_dir
+    ctx.fundamental_frequency_mhz = 3550.25
+    if screenshot_exists:
+        (temp_dir / "harmonic.png").write_bytes(b"png")
 
 
 def test_measure_fundamental_uses_target_frequency_and_temp_dir(
@@ -206,12 +192,71 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     assert commands.measure_fundamental_calls == [
         (None, {"target_freq": 3549.99})
     ]
-    assert len(ctx.results) == 1
-    measured = ctx.results[0]
+    assert ctx.fundamental_frequency_mhz == 3550.25
+    assert report_writer.calls[0][0] == "fundamental"
+    assert report_writer.calls[0][1] == ctx.current_case
+    measured = report_writer.calls[0][2]
     assert isinstance(measured, FundamentalResult)
     assert measured.fundamental_frequency_mhz == 3550.25
     assert measured.screenshot_path == tmp_path / "fundamental.png"
-    assert report_writer.calls == [("fundamental", ctx.current_case, measured)]
+
+
+def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands(
+        harmonic_levels=(-41.0, -39.9, -40.0, -37.5)
+    )
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+    _prepare_harmonic_measurement(ctx, tmp_path)
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.measure_harmonics_calls == [
+        (None, {"fundamental": 3550.25})
+    ]
+    assert report_writer.calls[0][0] == "harmonic"
+    assert report_writer.calls[0][1] == ctx.current_case
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, HarmonicResult)
+    assert measured.screenshot_path == tmp_path / "harmonic.png"
+    assert measured.harmonic_2nd_peak_level_dbm is None
+    assert measured.harmonic_3rd_peak_level_dbm == -39.9
+    assert measured.harmonic_4th_peak_level_dbm is None
+    assert measured.harmonic_5th_peak_level_dbm == -37.5
+
+
+def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands(
+        harmonic_levels=(-45.0, -40.0, -42.0, -50.0)
+    )
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+    _prepare_harmonic_measurement(ctx, tmp_path)
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.OK
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, HarmonicResult)
+    assert measured.harmonic_2nd_peak_level_dbm is None
+    assert measured.harmonic_3rd_peak_level_dbm is None
+    assert measured.harmonic_4th_peak_level_dbm is None
+    assert measured.harmonic_5th_peak_level_dbm is None
 
 
 def test_measure_fundamental_returns_fail_without_temp_dir() -> None:
@@ -229,7 +274,7 @@ def test_measure_fundamental_returns_fail_without_temp_dir() -> None:
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert len(ctx.results) == 0
+    assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == []
     assert events.error.messages == [
         "Fundamental 스크린샷 경로 생성 실패: temp_dir is not set"
@@ -257,7 +302,7 @@ def test_measure_fundamental_returns_fail_when_lookup_raises() -> None:
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert len(ctx.results) == 0
+    assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == []
     assert events.error.messages == [
         (
@@ -270,7 +315,9 @@ def test_measure_fundamental_returns_fail_when_lookup_raises() -> None:
 
 def test_measure_fundamental_returns_fail_when_command_raises() -> None:
     events = _Events()
-    commands = _Commands(exception=RuntimeError("instrument timeout"))
+    commands = _Commands(
+        fundamental_exception=RuntimeError("instrument timeout")
+    )
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
         commands=commands,
@@ -282,12 +329,157 @@ def test_measure_fundamental_returns_fail_when_command_raises() -> None:
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert len(ctx.results) == 0
+    assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == [
         (None, {"target_freq": 3549.99})
     ]
     assert events.error.messages == [
         "Fundamental 측정 실패: instrument timeout"
+    ]
+
+
+def test_measure_harmonics_returns_fail_without_fundamental(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.measure_harmonics_calls == []
+    assert events.error.messages == [
+        "Harmonic 측정 실패: fundamental_frequency_mhz is not set"
+    ]
+
+
+def test_measure_harmonics_returns_fail_without_temp_dir() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=None,
+        fundamental_frequency_mhz=3550.25,
+    )
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.measure_harmonics_calls == []
+    assert events.error.messages == [
+        "Harmonic 스크린샷 경로 생성 실패: temp_dir is not set"
+    ]
+
+
+def test_measure_harmonics_returns_fail_when_command_raises(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands(
+        harmonics_exception=RuntimeError("instrument timeout")
+    )
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.measure_harmonics_calls == [
+        (None, {"fundamental": 3550.25})
+    ]
+    assert events.error.messages == [
+        "Harmonic 측정 실패: instrument timeout"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("harmonic_levels", "message"),
+    [
+        (
+            (-41.0, -39.0, -38.0),
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 peak levels, got 3",
+        ),
+        (
+            ("bad", -39.0, -38.0, -37.0),
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels",
+        ),
+        (
+            None,
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels",
+        ),
+    ],
+)
+def test_measure_harmonics_returns_fail_for_invalid_response(
+    tmp_path: Path,
+    harmonic_levels: object,
+    message: str,
+) -> None:
+    events = _Events()
+    commands = _Commands(harmonic_levels=harmonic_levels)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.measure_harmonics_calls == [
+        (None, {"fundamental": 3550.25})
+    ]
+    assert events.error.messages == [message]
+
+
+def test_measure_harmonics_returns_fail_when_screenshot_is_missing(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    report_writer = _ReportWriter()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert report_writer.calls == []
+    assert events.error.messages == [
+        f"Harmonic 스크린샷 저장 실패: {tmp_path / 'harmonic.png'} does not exist"
     ]
 
 
@@ -305,7 +497,7 @@ def test_measurement_state_returns_fail_when_report_writer_returns_false() -> No
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert len(ctx.results) == 1
+    assert len(report_writer.calls) == 1
     assert events.error.messages == [
         "In-Band 리포트 작성 실패: write_inband returned false"
     ]
@@ -325,32 +517,88 @@ def test_measurement_state_returns_fail_when_report_writer_raises() -> None:
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert len(ctx.results) == 1
+    assert report_writer.calls == []
     assert events.error.messages == ["리포트 작성 실패: disk full"]
 
 
 @pytest.mark.parametrize(
-    ("state", "test_type", "expected_result_type"),
+    ("state", "test_type", "expected_name", "expected_result_type"),
     [
         (
-            MeasureFundamentalState(),
-            MeasurementTestType.HARMONIC,
-            FundamentalResult,
+            MeasureInBandState(),
+            MeasurementTestType.INBAND,
+            "inband",
+            InbandResult,
         ),
-        (MeasureHarmonicsState(), MeasurementTestType.HARMONIC, HarmonicResult),
-        (MeasureInBandState(), MeasurementTestType.INBAND, InbandResult),
-        (MeasureBilogState(), MeasurementTestType.BILOG, BilogResult),
+        (MeasureBilogState(), MeasurementTestType.BILOG, "bilog", BilogResult),
     ],
 )
-def test_measurement_states_append_result_without_report_writer(
+def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
     state: Any,
     test_type: MeasurementTestType,
+    expected_name: str,
     expected_result_type: type,
+) -> None:
+    report_writer = _ReportWriter()
+    ctx = _make_ctx(test_type, report_writer=report_writer)
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert report_writer.calls[0][0] == expected_name
+    assert report_writer.calls[0][1] == ctx.current_case
+    assert isinstance(report_writer.calls[0][2], expected_result_type)
+
+
+def test_measure_fundamental_returns_ok_without_report_writer(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        temp_dir=tmp_path,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.fundamental_frequency_mhz == 3550.25
+
+
+def test_measure_harmonics_returns_ok_without_report_writer(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.measure_harmonics_calls == [
+        (None, {"fundamental": 3550.25})
+    ]
+
+
+@pytest.mark.parametrize(
+    ("state", "test_type"),
+    [
+        (MeasureInBandState(), MeasurementTestType.INBAND),
+        (MeasureBilogState(), MeasurementTestType.BILOG),
+    ],
+)
+def test_non_harmonic_measurement_states_return_ok_without_report_writer(
+    state: Any,
+    test_type: MeasurementTestType,
 ) -> None:
     ctx = _make_ctx(test_type)
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert len(ctx.results) == 1
-    assert isinstance(ctx.results[0], expected_result_type)

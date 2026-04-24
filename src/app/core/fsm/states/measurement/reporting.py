@@ -21,9 +21,7 @@ def append_and_write_report(
     write_report: Callable[["ReportWriter"], bool],
     false_message: str,
 ) -> StateResult:
-    """결과 히스토리에 추가한 뒤, writer가 있으면 리포트에 기록한다."""
-    ctx.results.append(result)
-
+    """writer가 설정된 경우에만 리포트를 기록한다."""
     writer = ctx.report_writer
     if writer is None:
         return StateResult.OK

@@ -65,7 +65,11 @@ def measure_harmonics(
     *,
     fundamental: float,
 ) -> list[float]:
-    """2nd~5th harmonic amplitude(dBm)를 순서대로 반환한다. §4.7."""
+    """2nd~5th harmonic amplitude(dBm) 4개를 순서대로 반환한다. §4.7.
+
+    외부 프로그램은 측정 중 `temp_dir/harmonic.png` 경로에 SA 스크린샷을
+    남긴다고 가정한다.
+    """
     raise NotImplementedError("spec TODO: send_request op name pending")
 
 
