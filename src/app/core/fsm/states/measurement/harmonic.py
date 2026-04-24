@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.states.measurement.reporting import append_and_write_report
+from app.models.measurement_result import FundamentalResult, HarmonicResult
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -20,11 +22,20 @@ class MeasureFundamentalState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.measure_fundamental(client, target_freq=...)
-        raise NotImplementedError("spec TODO")
+        # TODO(spec): 외부 프로그램의 측정 응답 스키마 확정 후 필드 매핑.
+        result = FundamentalResult()
+        return append_and_write_report(
+            ctx,
+            result,
+            lambda writer: writer.write_fundamental(ctx.current_case, result),
+            "Fundamental 리포트 작성 실패: write_fundamental returned false",
+        )
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "SetSwitchBox"
 
 
@@ -35,9 +46,18 @@ class MeasureHarmonicsState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         # calls: net.commands.measure_harmonics(client, fundamental=...)
-        raise NotImplementedError("spec TODO")
+        # TODO(spec): 외부 프로그램의 측정 응답 스키마 확정 후 필드 매핑.
+        result = HarmonicResult()
+        return append_and_write_report(
+            ctx,
+            result,
+            lambda writer: writer.write_harmonic(ctx.current_case, result),
+            "Harmonic 리포트 작성 실패: write_harmonic returned false",
+        )
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "ResetSwitchBox"

@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from app.core.events import RunnerEvents
 from app.models.measurement_result import MeasurementResult
 from app.models.test_case import TestCase
+
+if TYPE_CHECKING:
+    from app.report.report_writer import ReportWriter
 
 
 @dataclass
@@ -20,6 +23,7 @@ class SessionContext:
     commands: Any
     events: RunnerEvents
     client: Any | None = None
+    report_writer: ReportWriter | None = None
     current_index: int = 0
     results: list[MeasurementResult] = field(default_factory=list)
     paused: bool = False
