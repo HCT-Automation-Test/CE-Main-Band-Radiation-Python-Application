@@ -55,14 +55,18 @@ class FSMEngine:
 
 def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     """모든 상태를 등록한 세션 엔진을 구성한다."""
-    from app.core.fsm.states.measurement.harmonic import (
-        MeasureFundamentalState,
-        MeasureHarmonicsState,
+    from app.core.fsm.states.measurement.bilog import MeasureBilogState
+    from app.core.fsm.states.measurement.common import (
         ResetSwitchBoxState,
         RotateTurntableState,
         SetSwitchBoxState,
         SetupSpectrumAnalyzerState,
     )
+    from app.core.fsm.states.measurement.harmonic import (
+        MeasureFundamentalState,
+        MeasureHarmonicsState,
+    )
+    from app.core.fsm.states.measurement.inband import MeasureInBandState
     from app.core.fsm.states.nr_setup import (
         NRCallConnectState,
         NRCallDisconnectedState,
@@ -78,6 +82,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         DUTAxisChangeState,
         HandoverState,
         RecallChangeState,
+        TestTypeChangeState,
     )
 
     engine = FSMEngine(ctx)
@@ -97,15 +102,20 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(HandoverState())
     engine.register(RecallChangeState())
     engine.register(DUTAxisChangeState())
+    engine.register(TestTypeChangeState())
 
-    # Harmonic 측정 상태
-    engine.register(MeasureFundamentalState())
+    # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)
     engine.register(SetSwitchBoxState())
     engine.register(SetupSpectrumAnalyzerState())
     engine.register(RotateTurntableState())
-    engine.register(MeasureHarmonicsState())
     engine.register(ResetSwitchBoxState())
 
-    # TODO(spec): InBand, Bilog 측정 상태 등록
+    # Harmonic 전용 측정 상태
+    engine.register(MeasureFundamentalState())
+    engine.register(MeasureHarmonicsState())
+
+    # InBand / Bilog 측정 상태 (스켈레톤)
+    engine.register(MeasureInBandState())
+    engine.register(MeasureBilogState())
 
     return engine

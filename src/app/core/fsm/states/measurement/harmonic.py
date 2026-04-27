@@ -1,99 +1,189 @@
-"""Harmonic 측정 상태 (기존 §4 기준, SetupMT8000/CallConnect는 NRCallConnect로 통합됨)."""
+"""Harmonic 전용 측정 상태.
+
+공유 스텝(SetSwitchBox / SetupSpectrumAnalyzer / RotateTurntable / ResetSwitchBox)은
+`measurement.common`으로 분리되어 있다.
+"""
 from __future__ import annotations
 
+import logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.states.measurement.reporting import append_and_write_report
+from app.models.measurement_result import FundamentalResult, HarmonicResult
+from app.models.nr_channel_lookup import resolve_target_frequency_mhz
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
+logger = logging.getLogger(__name__)
+
+_HARMONIC_SCREENSHOT_NAME = "harmonic.png"
+
+
+def _emit_error(ctx: "SessionContext", message: str) -> None:
+    logger.error(message)
+    if ctx.events is not None:
+        ctx.events.error.emit(message)
+
+
+def _normalize_harmonic_levels(raw_levels: object) -> list[float]:
+    if isinstance(raw_levels, str | bytes):
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        )
+
+    try:
+        normalized = [float(level) for level in raw_levels]  # type: ignore[arg-type]
+    except TypeError as exc:
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        ) from exc
+    except ValueError as exc:
+        raise ValueError(
+            "Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels"
+        ) from exc
+
+    if len(normalized) != 4:
+        raise ValueError(
+            f"Harmonic 측정 응답 형식 오류: expected 4 peak levels, got {len(normalized)}"
+        )
+
+    return normalized
+
+
+def _recordable_peak(level_dbm: float, threshold_dbm: float) -> float | None:
+    if level_dbm > threshold_dbm:
+        return level_dbm
+    return None
+
+
+def _harmonic_screenshot_path(temp_dir: Path) -> Path:
+    return temp_dir / _HARMONIC_SCREENSHOT_NAME
+
 
 class MeasureFundamentalState(State):
-    """§4.3 — 기본파 주파수를 측정하여 결과에 저장한다."""
+    """§4.3 기본파 주파수를 측정하여 결과를 저장한다."""
 
     name = "MeasureFundamental"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.measure_fundamental(client, target_freq=...)
-        raise NotImplementedError("spec TODO")
+        test_case = ctx.current_case
+        try:
+            target_frequency_mhz = resolve_target_frequency_mhz(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Fundamental 측정 준비 실패: {exc}")
+            return StateResult.FAIL
+
+        if ctx.temp_dir is None:
+            _emit_error(
+                ctx,
+                "Fundamental 스크린샷 경로 생성 실패: temp_dir is not set",
+            )
+            return StateResult.FAIL
+
+        try:
+            fundamental_frequency_mhz = float(
+                ctx.commands.measure_fundamental(
+                    ctx.client,
+                    target_freq=target_frequency_mhz,
+                )
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Fundamental 측정 실패: {exc}")
+            return StateResult.FAIL
+
+        ctx.fundamental_frequency_mhz = fundamental_frequency_mhz
+        result = FundamentalResult(
+            screenshot_path=ctx.temp_dir / "fundamental.png",
+            fundamental_frequency_mhz=fundamental_frequency_mhz,
+        )
+        return append_and_write_report(
+            ctx,
+            result,
+            lambda writer: writer.write_fundamental(ctx.current_case, result),
+            "Fundamental 리포트 작성 실패: write_fundamental returned false",
+        )
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "SetSwitchBox"
 
 
-class SetSwitchBoxState(State):
-    """§4.4 — Switch Box의 입력 경로/필터를 TestRange에 맞게 전환한다."""
-
-    name = "SetSwitchBox"
-
-    def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.set_switch_box(client, input_path=..., filter_path=...)
-        raise NotImplementedError("spec TODO")
-
-    def next_state(
-        self, ctx: "SessionContext", result: StateResult
-    ) -> str | None:
-        return "SetupSpectrumAnalyzer"
-
-
-class SetupSpectrumAnalyzerState(State):
-    """§4.5 — FSV40에 TestRange(Start/Stop/RBW/VBW/Limit/SweepPoint)을 로드한다."""
-
-    name = "SetupSpectrumAnalyzer"
-
-    def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.setup_sa(client, test_range=...)
-        raise NotImplementedError("spec TODO")
-
-    def next_state(
-        self, ctx: "SessionContext", result: StateResult
-    ) -> str | None:
-        return "RotateTurntable"
-
-
-class RotateTurntableState(State):
-    """§4.6 — CO3000 턴테이블을 해당 축/각도로 회전시킨다."""
-
-    name = "RotateTurntable"
-
-    def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.rotate_turntable(client, axis=..., angle=...)
-        raise NotImplementedError("spec TODO")
-
-    def next_state(
-        self, ctx: "SessionContext", result: StateResult
-    ) -> str | None:
-        return "MeasureHarmonics"
-
-
 class MeasureHarmonicsState(State):
-    """§4.7 — 각 Range에 대해 하모닉 피크를 측정하고 스크린샷을 저장한다."""
+    """§4.7 각 Range의 고조파를 측정하고 스크린샷을 저장한다."""
 
     name = "MeasureHarmonics"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.measure_harmonics(client, ranges=..., fundamental=...)
-        raise NotImplementedError("spec TODO")
+        fundamental_frequency_mhz = ctx.fundamental_frequency_mhz
+        if fundamental_frequency_mhz is None:
+            _emit_error(
+                ctx,
+                "Harmonic 측정 실패: fundamental_frequency_mhz is not set",
+            )
+            return StateResult.FAIL
+
+        if ctx.temp_dir is None:
+            _emit_error(
+                ctx,
+                "Harmonic 스크린샷 경로 생성 실패: temp_dir is not set",
+            )
+            return StateResult.FAIL
+
+        try:
+            harmonic_levels = _normalize_harmonic_levels(
+                ctx.commands.measure_harmonics(
+                    ctx.client,
+                    fundamental=fundamental_frequency_mhz,
+                )
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Harmonic 측정 실패: {exc}")
+            return StateResult.FAIL
+
+        screenshot_path = _harmonic_screenshot_path(ctx.temp_dir)
+        if not screenshot_path.is_file():
+            _emit_error(
+                ctx,
+                f"Harmonic 스크린샷 저장 실패: {screenshot_path} does not exist",
+            )
+            return StateResult.FAIL
+
+        threshold_dbm = ctx.current_case.range_definition.limit - 10.0
+        result = HarmonicResult(
+            screenshot_path=screenshot_path,
+            harmonic_2nd_peak_level_dbm=_recordable_peak(
+                harmonic_levels[0], threshold_dbm
+            ),
+            harmonic_3rd_peak_level_dbm=_recordable_peak(
+                harmonic_levels[1], threshold_dbm
+            ),
+            harmonic_4th_peak_level_dbm=_recordable_peak(
+                harmonic_levels[2], threshold_dbm
+            ),
+            harmonic_5th_peak_level_dbm=_recordable_peak(
+                harmonic_levels[3], threshold_dbm
+            ),
+        )
+        return append_and_write_report(
+            ctx,
+            result,
+            lambda writer: writer.write_harmonic(ctx.current_case, result),
+            "Harmonic 리포트 작성 실패: write_harmonic returned false",
+        )
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "ResetSwitchBox"
-
-
-class ResetSwitchBoxState(State):
-    """§4.8 — Switch Box를 기본 경로로 복원한다(시퀀스 정리)."""
-
-    name = "ResetSwitchBox"
-
-    def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.set_switch_box(client, input_path=DEFAULT, filter_path=DEFAULT)
-        raise NotImplementedError("spec TODO")
-
-    def next_state(
-        self, ctx: "SessionContext", result: StateResult
-    ) -> str | None:
-        return "CheckNextCase"
