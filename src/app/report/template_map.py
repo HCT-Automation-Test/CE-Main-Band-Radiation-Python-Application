@@ -45,6 +45,7 @@ class BandInfoCells:
     rb_size: str
     rb_offset: str
     modulation: str
+    dut_ant_position: str
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,7 @@ LAYOUTS: dict[str, ReportLayout] = {
             rb_size="E49",
             rb_offset="F49",
             modulation="G49",
+            dut_ant_position="I49",
         ),
         fundamental_frequency_cell="J49",
         harmonic_base_row=66,
@@ -82,6 +84,7 @@ LAYOUTS: dict[str, ReportLayout] = {
             rb_size="E44",
             rb_offset="F44",
             modulation="G44",
+            dut_ant_position="I44",
         ),
         fundamental_frequency_cell="J44",
         harmonic_base_row=56,

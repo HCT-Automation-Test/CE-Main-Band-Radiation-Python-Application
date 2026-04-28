@@ -139,6 +139,7 @@ def _make_case(
         test_channel=test_channel,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
     )
 
 

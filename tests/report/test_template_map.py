@@ -35,6 +35,7 @@ def test_layout_cells_are_valid_single_cells(layout_key: str) -> None:
         layout.band_info_cells.rb_size,
         layout.band_info_cells.rb_offset,
         layout.band_info_cells.modulation,
+        layout.band_info_cells.dut_ant_position,
         layout.fundamental_frequency_cell,
         inband_level_cell(layout, DUTAxis.X, AntennaPol.V),
     ]
@@ -58,5 +59,7 @@ def test_lb_layout_is_independent_from_default_layout() -> None:
     assert default is not lb
     assert default.band_info_cells.channel == "C49"
     assert lb.band_info_cells.channel == "C44"
+    assert default.band_info_cells.dut_ant_position == "I49"
+    assert lb.band_info_cells.dut_ant_position == "I44"
     assert default.harmonic_base_row == 66
     assert lb.harmonic_base_row == 56

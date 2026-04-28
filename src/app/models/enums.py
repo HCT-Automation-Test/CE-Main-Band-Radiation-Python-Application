@@ -47,6 +47,13 @@ class DUTAxis(Enum):
     Z = "Z"
 
 
+class DUTAntPosition(Enum):
+    """DUT Ant 위치."""
+
+    UPPER = "Upper"
+    LOWER = "Lower"
+
+
 class Modulation(Enum):
     """지원하는 NR modulation 방식."""
 

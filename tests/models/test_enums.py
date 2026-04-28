@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from app.models.enums import (
+    DUTAntPosition,
     FilterMode,
     FilterPath,
     InputPath,
@@ -53,6 +54,12 @@ def test_test_channel_enum_uses_canonical_labels() -> None:
     assert ChannelEnum.MID.value == "mid"
     assert ChannelEnum.HIGH.value == "high"
     assert len(ChannelEnum) == 3
+
+
+def test_dut_ant_position_enum_uses_canonical_labels() -> None:
+    assert DUTAntPosition.UPPER.value == "Upper"
+    assert DUTAntPosition.LOWER.value == "Lower"
+    assert len(DUTAntPosition) == 2
 
 
 def test_nr_band_enum_uses_canonical_labels() -> None:

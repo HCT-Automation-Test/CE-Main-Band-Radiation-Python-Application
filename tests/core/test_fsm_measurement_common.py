@@ -63,6 +63,7 @@ def _make_case(test_type: MeasurementTestType) -> TestCase:
         test_channel=ChannelEnum.MID,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
     )
 
 

@@ -181,6 +181,9 @@ class ExcelReportWriter:
         worksheet[validate_single_cell(cells.rb_size)] = test_case.rb_size
         worksheet[validate_single_cell(cells.rb_offset)] = test_case.rb_offset
         worksheet[validate_single_cell(cells.modulation)] = test_case.modulation.value
+        worksheet[validate_single_cell(cells.dut_ant_position)] = (
+            test_case.dut_ant_position.value
+        )
         self._written_band_info.add(worksheet.title)
 
     def _save(self) -> None:

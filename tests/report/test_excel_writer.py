@@ -8,6 +8,7 @@ from openpyxl import Workbook, load_workbook
 
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
     Modulation,
     NRBand,
@@ -33,6 +34,7 @@ def _make_case(
     test_type: MeasurementTestType = MeasurementTestType.HARMONIC,
     antenna_pol: AntennaPol = AntennaPol.V,
     dut_axis: DUTAxis = DUTAxis.X,
+    dut_ant_position: DUTAntPosition = DUTAntPosition.UPPER,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -43,6 +45,7 @@ def _make_case(
         test_channel=ChannelEnum.MID,
         antenna_pol=antenna_pol,
         dut_axis=dut_axis,
+        dut_ant_position=dut_ant_position,
     )
 
 
@@ -79,6 +82,7 @@ def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) 
     assert worksheet["E49"].value == case.rb_size
     assert worksheet["F49"].value == case.rb_offset
     assert worksheet["G49"].value == "QPSK"
+    assert worksheet["I49"].value == "Upper"
     assert worksheet["J49"].value == 3550.25
     assert worksheet["A66"].value == 7100.5
     assert worksheet["A68"].value == 10650.75
@@ -111,7 +115,11 @@ def test_write_harmonic_saves_default_axis_and_pol_cells(tmp_path: Path) -> None
 def test_write_fundamental_and_harmonic_use_lb_layout(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N5)
     writer = ExcelReportWriter(path)
-    case = _make_case(band=NRBand.N5, bandwidth=20.0)
+    case = _make_case(
+        band=NRBand.N5,
+        bandwidth=20.0,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
 
     writer.write_fundamental(case, FundamentalResult(fundamental_frequency_mhz=836.5))
     writer.write_harmonic(
@@ -128,6 +136,7 @@ def test_write_fundamental_and_harmonic_use_lb_layout(tmp_path: Path) -> None:
     worksheet = workbook["Sub6 n5"]
     assert worksheet["C44"].value == "mid"
     assert worksheet["D44"].value == 20
+    assert worksheet["I44"].value == "Lower"
     assert worksheet["J44"].value == 836.5
     assert worksheet["A56"].value == 1673
     assert worksheet["A58"].value == 2509.5

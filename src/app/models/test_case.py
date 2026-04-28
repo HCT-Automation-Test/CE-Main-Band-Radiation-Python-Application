@@ -9,6 +9,7 @@ from typing import Any, TypeVar
 from app.models.band_group import find_band_group, resolve_range_id
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
     Modulation,
     NRBand,
@@ -29,6 +30,7 @@ CSV_FIELDNAMES: tuple[str, ...] = (
     "test_channel",
     "antenna_pol",
     "dut_axis",
+    "dut_ant_position",
 )
 
 EnumT = TypeVar("EnumT", bound=Enum)
@@ -102,10 +104,16 @@ class TestCase:
     test_channel: TestChannel
     antenna_pol: AntennaPol
     dut_axis: DUTAxis
+    dut_ant_position: DUTAntPosition
 
     def __post_init__(self) -> None:
         self.band = _coerce_enum_value(self.band, "band", NRBand)
         self.bandwidth = _coerce_bandwidth_value(self.bandwidth)
+        self.dut_ant_position = _coerce_enum_value(
+            self.dut_ant_position,
+            "dut_ant_position",
+            DUTAntPosition,
+        )
         self.test_channel = _coerce_enum_value(
             self.test_channel,
             "test_channel",
@@ -158,6 +166,11 @@ class TestCase:
         test_channel = _parse_enum_value(row, "test_channel", TestChannel)
         antenna_pol = _parse_enum_value(row, "antenna_pol", AntennaPol)
         dut_axis = _parse_enum_value(row, "dut_axis", DUTAxis)
+        dut_ant_position = _parse_enum_value(
+            row,
+            "dut_ant_position",
+            DUTAntPosition,
+        )
 
         return cls(
             band=band,
@@ -168,6 +181,7 @@ class TestCase:
             test_channel=test_channel,
             antenna_pol=antenna_pol,
             dut_axis=dut_axis,
+            dut_ant_position=dut_ant_position,
         )
 
     def to_csv_row(self) -> dict[str, Any]:
@@ -182,4 +196,5 @@ class TestCase:
             "test_channel": self.test_channel.value,
             "antenna_pol": self.antenna_pol.value,
             "dut_axis": self.dut_axis.value,
+            "dut_ant_position": self.dut_ant_position.value,
         }

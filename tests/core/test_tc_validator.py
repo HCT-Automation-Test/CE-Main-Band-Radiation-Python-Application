@@ -23,6 +23,7 @@ def _build_case(*, band: NRBand | str = NRBand.N78, bandwidth: float = 100.0) ->
         test_channel=ChannelEnum.MID,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
     )
 
 
