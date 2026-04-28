@@ -15,6 +15,11 @@ dist/
 
 # Test / tooling
 .pytest_cache/
+.pytest*/
+.pytest-*/
+pytest-work*/
+test-temp/
+.codex-pytest-temp/
 .tmp/
 .mypy_cache/
 .ruff_cache/
