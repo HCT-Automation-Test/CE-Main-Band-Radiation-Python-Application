@@ -11,6 +11,7 @@ dist/
 # Virtualenv / uv
 .venv/
 .uv/
+.uv-cache/
 
 # Test / tooling
 .pytest_cache/

@@ -53,9 +53,13 @@
 uv sync
 uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py
 uv run python -m app
-uv run pytest -q
-uv run pytest tests/core -k harmonic
+uv run --no-sync pytest -q
+uv run --no-sync pytest tests/core -k harmonic
 ```
+
+- 테스트 실행은 기본적으로 `uv run --no-sync pytest ...`를 사용한다.
+- 의존성 변경 후 환경 갱신이 필요할 때만 `uv sync`를 별도로 실행한다.
+- `uv` 캐시는 저장소 내부 `.uv-cache/`를 사용한다.
 
 ## Coding Rules
 
