@@ -30,6 +30,8 @@ class SessionContext:
     current_angle: float = 0.0
     fundamental_frequency_mhz: float | None = None
     temp_dir: Path | None = None
+    model_name: str = ""
+    screenshot_root_dir: Path | None = None
     # TODO(spec): equipment_state (장비 연결 상태 추적) 추가 지점
 
     @property

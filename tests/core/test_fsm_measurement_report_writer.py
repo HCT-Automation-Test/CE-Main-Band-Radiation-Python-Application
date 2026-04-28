@@ -15,6 +15,7 @@ from app.core.fsm.states.measurement.harmonic import (
 from app.core.fsm.states.measurement.inband import MeasureInBandState
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
     Modulation,
     NRBand,
@@ -42,6 +43,7 @@ class _SignalRecorder:
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.screenshot_saved = _SignalRecorder()
 
 
 class _Commands:
@@ -129,6 +131,9 @@ def _make_case(
     band: NRBand = NRBand.N78,
     bandwidth: float = 100.0,
     test_channel: ChannelEnum = ChannelEnum.MID,
+    antenna_pol: AntennaPol = AntennaPol.H,
+    dut_axis: DUTAxis = DUTAxis.X,
+    dut_ant_position: DUTAntPosition | str = DUTAntPosition.UPPER,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -137,9 +142,9 @@ def _make_case(
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
         test_channel=test_channel,
-        antenna_pol=AntennaPol.H,
-        dut_axis=DUTAxis.X,
-        dut_ant_position="Upper",
+        antenna_pol=antenna_pol,
+        dut_axis=dut_axis,
+        dut_ant_position=dut_ant_position,
     )
 
 
@@ -152,6 +157,8 @@ def _make_ctx(
     events: Any | None = None,
     temp_dir: Path | None = Path("tmp"),
     fundamental_frequency_mhz: float | None = None,
+    model_name: str = "SM-000",
+    screenshot_root_dir: Path | None = None,
 ) -> SessionContext:
     return SessionContext(
         queue=[case or _make_case(test_type)],
@@ -160,6 +167,8 @@ def _make_ctx(
         report_writer=report_writer,
         temp_dir=temp_dir,
         fundamental_frequency_mhz=fundamental_frequency_mhz,
+        model_name=model_name,
+        screenshot_root_dir=screenshot_root_dir or temp_dir,
     )
 
 
@@ -173,6 +182,19 @@ def _prepare_harmonic_measurement(
     ctx.fundamental_frequency_mhz = 3550.25
     if screenshot_exists:
         (temp_dir / "harmonic.png").write_bytes(b"png")
+
+
+def _expected_n78_final_screenshot_path(root_dir: Path) -> Path:
+    return (
+        root_dir
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n78"
+        / "UPPER"
+        / "SA"
+        / "SM-000_Traffic_5G_n78_UPPER_SA_3549.990MHz_6GHz_18GHz_XH.png"
+    )
 
 
 def test_measure_fundamental_uses_target_frequency_and_temp_dir(
@@ -227,7 +249,9 @@ def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     assert report_writer.calls[0][1] == ctx.current_case
     measured = report_writer.calls[0][2]
     assert isinstance(measured, HarmonicResult)
-    assert measured.screenshot_path == tmp_path / "harmonic.png"
+    expected_path = _expected_n78_final_screenshot_path(tmp_path)
+    assert measured.screenshot_path == expected_path
+    assert expected_path.read_bytes() == b"png"
     assert measured.harmonic_2nd_peak_level_dbm is None
     assert measured.harmonic_3rd_peak_level_dbm == -39.9
     assert measured.harmonic_4th_peak_level_dbm is None
@@ -484,13 +508,63 @@ def test_measure_harmonics_returns_fail_when_screenshot_is_missing(
     ]
 
 
-def test_measurement_state_returns_fail_when_report_writer_returns_false() -> None:
+def test_measure_harmonics_returns_fail_without_screenshot_root(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    ctx.screenshot_root_dir = None
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.messages == [
+        "Harmonic 스크린샷 최종 저장 실패: screenshot_root_dir is required"
+    ]
+
+
+def test_measure_harmonics_returns_fail_without_model_name(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        model_name="",
+        fundamental_frequency_mhz=3550.25,
+    )
+    (tmp_path / "harmonic.png").write_bytes(b"png")
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.messages == [
+        "Harmonic 스크린샷 최종 저장 실패: model_name is required"
+    ]
+
+
+def test_measurement_state_returns_fail_when_report_writer_returns_false(
+    tmp_path: Path,
+) -> None:
     report_writer = _ReportWriter(return_value=False)
     events = _Events()
+    (tmp_path / "inband.png").write_bytes(b"png")
     ctx = _make_ctx(
         MeasurementTestType.INBAND,
         report_writer=report_writer,
         events=events,
+        temp_dir=tmp_path,
     )
     state = MeasureInBandState()
 
@@ -504,13 +578,17 @@ def test_measurement_state_returns_fail_when_report_writer_returns_false() -> No
     ]
 
 
-def test_measurement_state_returns_fail_when_report_writer_raises() -> None:
+def test_measurement_state_returns_fail_when_report_writer_raises(
+    tmp_path: Path,
+) -> None:
     report_writer = _ReportWriter(exception=RuntimeError("disk full"))
     events = _Events()
+    (tmp_path / "bilog.png").write_bytes(b"png")
     ctx = _make_ctx(
         MeasurementTestType.BILOG,
         report_writer=report_writer,
         events=events,
+        temp_dir=tmp_path,
     )
     state = MeasureBilogState()
 
@@ -535,20 +613,28 @@ def test_measurement_state_returns_fail_when_report_writer_raises() -> None:
     ],
 )
 def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
+    tmp_path: Path,
     state: Any,
     test_type: MeasurementTestType,
     expected_name: str,
     expected_result_type: type,
 ) -> None:
     report_writer = _ReportWriter()
-    ctx = _make_ctx(test_type, report_writer=report_writer)
+    screenshot_name = (
+        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    )
+    (tmp_path / screenshot_name).write_bytes(b"png")
+    ctx = _make_ctx(test_type, report_writer=report_writer, temp_dir=tmp_path)
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
     assert report_writer.calls[0][0] == expected_name
     assert report_writer.calls[0][1] == ctx.current_case
-    assert isinstance(report_writer.calls[0][2], expected_result_type)
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, expected_result_type)
+    assert measured.screenshot_path is not None
+    assert measured.screenshot_path.is_file()
 
 
 def test_measure_fundamental_returns_ok_without_report_writer(
@@ -595,10 +681,15 @@ def test_measure_harmonics_returns_ok_without_report_writer(
     ],
 )
 def test_non_harmonic_measurement_states_return_ok_without_report_writer(
+    tmp_path: Path,
     state: Any,
     test_type: MeasurementTestType,
 ) -> None:
-    ctx = _make_ctx(test_type)
+    screenshot_name = (
+        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    )
+    (tmp_path / screenshot_name).write_bytes(b"png")
+    ctx = _make_ctx(test_type, temp_dir=tmp_path)
 
     result = state.run(ctx)
 

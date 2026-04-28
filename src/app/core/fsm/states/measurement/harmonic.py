@@ -13,6 +13,7 @@ from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import FundamentalResult, HarmonicResult
 from app.models.nr_channel_lookup import resolve_target_frequency_mhz
+from app.report.screenshot_store import finalize_sa_screenshot
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -158,9 +159,21 @@ class MeasureHarmonicsState(State):
             )
             return StateResult.FAIL
 
+        try:
+            final_screenshot_path = finalize_sa_screenshot(
+                source_path=screenshot_path,
+                root_dir=ctx.screenshot_root_dir,
+                model_name=ctx.model_name,
+                test_case=ctx.current_case,
+                events=ctx.events,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Harmonic 스크린샷 최종 저장 실패: {exc}")
+            return StateResult.FAIL
+
         threshold_dbm = ctx.current_case.range_definition.limit - 10.0
         result = HarmonicResult(
-            screenshot_path=screenshot_path,
+            screenshot_path=final_screenshot_path,
             harmonic_2nd_peak_level_dbm=_recordable_peak(
                 harmonic_levels[0], threshold_dbm
             ),
