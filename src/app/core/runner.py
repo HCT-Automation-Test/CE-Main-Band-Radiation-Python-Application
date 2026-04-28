@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QThread
 
@@ -24,7 +25,13 @@ class Runner(QObject):
         self._thread: QThread | None = None
         # TODO(spec): FSMEngine 인스턴스 및 TCP client 주입 방식 확정
 
-    def start(self, cases: list[TestCase]) -> None:
+    def start(
+        self,
+        cases: list[TestCase],
+        *,
+        model_name: str = "",
+        screenshot_root_dir: Path | None = None,
+    ) -> None:
         """세션 FSM 실행 시작.
 
         1. SessionContext 생성 (queue=cases, commands=..., events=self.events)
@@ -32,6 +39,7 @@ class Runner(QObject):
         3. QThread 워커에서 engine.run("SessionInit") 실행
         """
         # TODO(spec): QThread + Worker 패턴으로 구현
+        _ = (model_name, screenshot_root_dir)
         raise NotImplementedError("spec TODO")
 
     def pause(self) -> None:

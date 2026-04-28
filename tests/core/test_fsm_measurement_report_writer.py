@@ -15,6 +15,7 @@ from app.core.fsm.states.measurement.harmonic import (
 from app.core.fsm.states.measurement.inband import MeasureInBandState
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
     Modulation,
     NRBand,
@@ -42,6 +43,7 @@ class _SignalRecorder:
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.screenshot_saved = _SignalRecorder()
 
 
 class _Commands:
@@ -129,6 +131,9 @@ def _make_case(
     band: NRBand = NRBand.N78,
     bandwidth: float = 100.0,
     test_channel: ChannelEnum = ChannelEnum.MID,
+    antenna_pol: AntennaPol = AntennaPol.H,
+    dut_axis: DUTAxis = DUTAxis.X,
+    dut_ant_position: DUTAntPosition | str = DUTAntPosition.UPPER,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -137,8 +142,9 @@ def _make_case(
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
         test_channel=test_channel,
-        antenna_pol=AntennaPol.H,
-        dut_axis=DUTAxis.X,
+        antenna_pol=antenna_pol,
+        dut_axis=dut_axis,
+        dut_ant_position=dut_ant_position,
     )
 
 
@@ -151,6 +157,8 @@ def _make_ctx(
     events: Any | None = None,
     temp_dir: Path | None = Path("tmp"),
     fundamental_frequency_mhz: float | None = None,
+    model_name: str = "SM-000",
+    screenshot_root_dir: Path | None = None,
 ) -> SessionContext:
     return SessionContext(
         queue=[case or _make_case(test_type)],
@@ -159,6 +167,8 @@ def _make_ctx(
         report_writer=report_writer,
         temp_dir=temp_dir,
         fundamental_frequency_mhz=fundamental_frequency_mhz,
+        model_name=model_name,
+        screenshot_root_dir=screenshot_root_dir or temp_dir,
     )
 
 
@@ -185,6 +195,7 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
         report_writer=report_writer,
         temp_dir=tmp_path,
     )
+    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 
@@ -338,6 +349,35 @@ def test_measure_fundamental_returns_fail_when_command_raises() -> None:
     ]
 
 
+def test_measure_fundamental_returns_fail_when_screenshot_is_missing(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    report_writer = _ReportWriter()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert ctx.fundamental_frequency_mhz is None
+    assert report_writer.calls == []
+    assert commands.measure_fundamental_calls == [
+        (None, {"target_freq": 3549.99})
+    ]
+    assert events.error.messages == [
+        f"Fundamental 스크린샷 저장 실패: {tmp_path / 'fundamental.png'} does not exist"
+    ]
+
+
 def test_measure_harmonics_returns_fail_without_fundamental(
     tmp_path: Path,
 ) -> None:
@@ -483,13 +523,17 @@ def test_measure_harmonics_returns_fail_when_screenshot_is_missing(
     ]
 
 
-def test_measurement_state_returns_fail_when_report_writer_returns_false() -> None:
+def test_measurement_state_returns_fail_when_report_writer_returns_false(
+    tmp_path: Path,
+) -> None:
     report_writer = _ReportWriter(return_value=False)
     events = _Events()
+    (tmp_path / "inband.png").write_bytes(b"png")
     ctx = _make_ctx(
         MeasurementTestType.INBAND,
         report_writer=report_writer,
         events=events,
+        temp_dir=tmp_path,
     )
     state = MeasureInBandState()
 
@@ -503,13 +547,17 @@ def test_measurement_state_returns_fail_when_report_writer_returns_false() -> No
     ]
 
 
-def test_measurement_state_returns_fail_when_report_writer_raises() -> None:
+def test_measurement_state_returns_fail_when_report_writer_raises(
+    tmp_path: Path,
+) -> None:
     report_writer = _ReportWriter(exception=RuntimeError("disk full"))
     events = _Events()
+    (tmp_path / "bilog.png").write_bytes(b"png")
     ctx = _make_ctx(
         MeasurementTestType.BILOG,
         report_writer=report_writer,
         events=events,
+        temp_dir=tmp_path,
     )
     state = MeasureBilogState()
 
@@ -534,20 +582,28 @@ def test_measurement_state_returns_fail_when_report_writer_raises() -> None:
     ],
 )
 def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
+    tmp_path: Path,
     state: Any,
     test_type: MeasurementTestType,
     expected_name: str,
     expected_result_type: type,
 ) -> None:
     report_writer = _ReportWriter()
-    ctx = _make_ctx(test_type, report_writer=report_writer)
+    screenshot_name = (
+        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    )
+    (tmp_path / screenshot_name).write_bytes(b"png")
+    ctx = _make_ctx(test_type, report_writer=report_writer, temp_dir=tmp_path)
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
     assert report_writer.calls[0][0] == expected_name
     assert report_writer.calls[0][1] == ctx.current_case
-    assert isinstance(report_writer.calls[0][2], expected_result_type)
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, expected_result_type)
+    assert measured.screenshot_path is not None
+    assert measured.screenshot_path.is_file()
 
 
 def test_measure_fundamental_returns_ok_without_report_writer(
@@ -559,6 +615,7 @@ def test_measure_fundamental_returns_ok_without_report_writer(
         commands=commands,
         temp_dir=tmp_path,
     )
+    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 
@@ -594,10 +651,15 @@ def test_measure_harmonics_returns_ok_without_report_writer(
     ],
 )
 def test_non_harmonic_measurement_states_return_ok_without_report_writer(
+    tmp_path: Path,
     state: Any,
     test_type: MeasurementTestType,
 ) -> None:
-    ctx = _make_ctx(test_type)
+    screenshot_name = (
+        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    )
+    (tmp_path / screenshot_name).write_bytes(b"png")
+    ctx = _make_ctx(test_type, temp_dir=tmp_path)
 
     result = state.run(ctx)
 

@@ -5,6 +5,7 @@ import pytest
 
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
     FilterMode,
     InputPath,
@@ -36,6 +37,7 @@ def _build_case(
         test_channel=test_channel,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.UPPER,
     )
 
 
@@ -53,6 +55,7 @@ def test_test_case_instantiation() -> None:
     assert case.range_name == "range_6"
     assert case.antenna_pol is AntennaPol.H
     assert case.dut_axis is DUTAxis.X
+    assert case.dut_ant_position is DUTAntPosition.UPPER
 
 
 def test_test_case_coerces_test_channel_on_direct_instantiation() -> None:
@@ -106,6 +109,21 @@ def test_test_case_rejects_unknown_band_at_instantiation() -> None:
         _build_case(band="n99")
 
 
+def test_test_case_rejects_unknown_dut_ant_position_at_instantiation() -> None:
+    with pytest.raises(ValueError, match="Invalid dut_ant_position"):
+        TestCase(
+            band=NRBand.N78,
+            bandwidth=100.0,
+            test_type=MeasurementTestType.HARMONIC,
+            modulation=Modulation.QPSK,
+            rb_allocation=RBAllocation.INNER_FULL,
+            test_channel=ChannelEnum.MID,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.X,
+            dut_ant_position="Middle",
+        )
+
+
 def test_test_case_rejects_unsupported_band_and_test_type_at_instantiation() -> None:
     with pytest.raises(ValueError, match="Bilog not supported"):
         _build_case(band="n5", test_type=MeasurementTestType.BILOG)
@@ -147,6 +165,7 @@ def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None
             "test_channel": "mid",
             "antenna_pol": "H",
             "dut_axis": "X",
+            "dut_ant_position": "Lower",
         }
     )
 
@@ -157,6 +176,7 @@ def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None
     assert case.test_range is RangeId.RANGE_6
     assert case.rb_size == 135
     assert case.rb_offset == 67
+    assert case.dut_ant_position is DUTAntPosition.LOWER
 
 
 def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
@@ -170,6 +190,7 @@ def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
             "test_channel": "mid",
             "antenna_pol": "H",
             "dut_axis": "X",
+            "dut_ant_position": "Upper",
         }
     )
 
@@ -187,6 +208,7 @@ def test_test_case_from_csv_row_parses_band_case_insensitively() -> None:
             "test_channel": "mid",
             "antenna_pol": "H",
             "dut_axis": "X",
+            "dut_ant_position": "Upper",
         }
     )
 
@@ -204,6 +226,7 @@ def test_test_case_from_csv_row_parses_test_channel_case_insensitively() -> None
             "test_channel": "MID",
             "antenna_pol": "H",
             "dut_axis": "X",
+            "dut_ant_position": "Upper",
         }
     )
 
@@ -233,6 +256,7 @@ def test_test_case_from_csv_row_uses_representative_range_mappings(
             "test_channel": "mid",
             "antenna_pol": "H",
             "dut_axis": "X",
+            "dut_ant_position": "Upper",
         }
     )
 
@@ -247,6 +271,7 @@ def test_test_case_to_csv_row_uses_external_csv_schema_only() -> None:
     assert row["bandwidth"] == "100"
     assert row["test_type"] == "harmonic"
     assert row["test_channel"] == "mid"
+    assert row["dut_ant_position"] == "Upper"
     assert "test_range" not in row
 
 
@@ -261,6 +286,7 @@ def test_test_case_from_csv_row_rejects_missing_test_type() -> None:
                 "test_channel": "mid",
                 "antenna_pol": "H",
                 "dut_axis": "X",
+                "dut_ant_position": "Upper",
             }
         )
 
@@ -277,6 +303,7 @@ def test_test_case_from_csv_row_rejects_unknown_test_type() -> None:
                 "test_channel": "mid",
                 "antenna_pol": "H",
                 "dut_axis": "X",
+                "dut_ant_position": "Upper",
             }
         )
 
@@ -297,6 +324,23 @@ def test_test_case_from_csv_row_rejects_unknown_test_channel() -> None:
         )
 
 
+def test_test_case_from_csv_row_rejects_unknown_dut_ant_position() -> None:
+    with pytest.raises(ValueError, match="Invalid dut_ant_position"):
+        TestCase.from_csv_row(
+            {
+                "band": "n78",
+                "bandwidth": "100",
+                "test_type": "harmonic",
+                "modulation": "QPSK",
+                "rb_allocation": "Inner_Full",
+                "test_channel": "mid",
+                "antenna_pol": "H",
+                "dut_axis": "X",
+                "dut_ant_position": "Middle",
+            }
+        )
+
+
 def test_test_case_from_csv_row_rejects_unknown_band() -> None:
     with pytest.raises(ValueError, match="Invalid band"):
         TestCase.from_csv_row(
@@ -309,6 +353,7 @@ def test_test_case_from_csv_row_rejects_unknown_band() -> None:
                 "test_channel": "mid",
                 "antenna_pol": "H",
                 "dut_axis": "X",
+                "dut_ant_position": "Upper",
             }
         )
 
@@ -325,6 +370,7 @@ def test_test_case_from_csv_row_rejects_unsupported_band_and_test_type() -> None
                 "test_channel": "mid",
                 "antenna_pol": "H",
                 "dut_axis": "X",
+                "dut_ant_position": "Upper",
             }
         )
 

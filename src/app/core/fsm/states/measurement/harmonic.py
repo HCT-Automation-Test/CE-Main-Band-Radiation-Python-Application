@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _HARMONIC_SCREENSHOT_NAME = "harmonic.png"
+_FUNDAMENTAL_SCREENSHOT_NAME = "fundamental.png"
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -63,6 +64,10 @@ def _harmonic_screenshot_path(temp_dir: Path) -> Path:
     return temp_dir / _HARMONIC_SCREENSHOT_NAME
 
 
+def _fundamental_screenshot_path(temp_dir: Path) -> Path:
+    return temp_dir / _FUNDAMENTAL_SCREENSHOT_NAME
+
+
 class MeasureFundamentalState(State):
     """§4.3 기본파 주파수를 측정하여 결과를 저장한다."""
 
@@ -98,9 +103,17 @@ class MeasureFundamentalState(State):
             _emit_error(ctx, f"Fundamental 측정 실패: {exc}")
             return StateResult.FAIL
 
+        screenshot_path = _fundamental_screenshot_path(ctx.temp_dir)
+        if not screenshot_path.is_file():
+            _emit_error(
+                ctx,
+                f"Fundamental 스크린샷 저장 실패: {screenshot_path} does not exist",
+            )
+            return StateResult.FAIL
+
         ctx.fundamental_frequency_mhz = fundamental_frequency_mhz
         result = FundamentalResult(
-            screenshot_path=ctx.temp_dir / "fundamental.png",
+            screenshot_path=screenshot_path,
             fundamental_frequency_mhz=fundamental_frequency_mhz,
         )
         return append_and_write_report(

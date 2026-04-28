@@ -87,6 +87,7 @@ def _make_case(band: NRBand, test_type: MeasurementTestType, bandwidth: float) -
         test_channel=ChannelEnum.MID,
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
     )
 
 
