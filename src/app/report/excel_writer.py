@@ -73,22 +73,10 @@ class ExcelReportWriter:
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
 
         levels_by_order = {
-            2: _require_value(
-                result.harmonic_2nd_peak_level_dbm,
-                "harmonic_2nd_peak_level_dbm",
-            ),
-            3: _require_value(
-                result.harmonic_3rd_peak_level_dbm,
-                "harmonic_3rd_peak_level_dbm",
-            ),
-            4: _require_value(
-                result.harmonic_4th_peak_level_dbm,
-                "harmonic_4th_peak_level_dbm",
-            ),
-            5: _require_value(
-                result.harmonic_5th_peak_level_dbm,
-                "harmonic_5th_peak_level_dbm",
-            ),
+            2: _harmonic_level_value(result.harmonic_2nd_peak_level_dbm),
+            3: _harmonic_level_value(result.harmonic_3rd_peak_level_dbm),
+            4: _harmonic_level_value(result.harmonic_4th_peak_level_dbm),
+            5: _harmonic_level_value(result.harmonic_5th_peak_level_dbm),
         }
 
         for order, level_dbm in levels_by_order.items():
@@ -193,4 +181,10 @@ class ExcelReportWriter:
 def _require_value(value: float | None, field_name: str) -> float:
     if value is None:
         raise ValueError(f"Missing required report value: {field_name}")
+    return value
+
+
+def _harmonic_level_value(value: float | None) -> float | str:
+    if value is None:
+        return "-"
     return value

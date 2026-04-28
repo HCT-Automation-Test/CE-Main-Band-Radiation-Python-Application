@@ -112,6 +112,28 @@ def test_write_harmonic_saves_default_axis_and_pol_cells(tmp_path: Path) -> None
     assert _cell(path, sheet, "C73") == -37.5
 
 
+def test_write_harmonic_writes_dash_for_missing_levels(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    case = _make_case(antenna_pol=AntennaPol.H, dut_axis=DUTAxis.Y)
+
+    assert writer.write_harmonic(
+        case,
+        HarmonicResult(
+            harmonic_2nd_peak_level_dbm=None,
+            harmonic_3rd_peak_level_dbm=-39.5,
+            harmonic_4th_peak_level_dbm=None,
+            harmonic_5th_peak_level_dbm=-37.5,
+        ),
+    )
+
+    sheet = "Sub6 n78"
+    assert _cell(path, sheet, "C67") == "-"
+    assert _cell(path, sheet, "C69") == -39.5
+    assert _cell(path, sheet, "C71") == "-"
+    assert _cell(path, sheet, "C73") == -37.5
+
+
 def test_write_fundamental_and_harmonic_use_lb_layout(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N5)
     writer = ExcelReportWriter(path)
@@ -230,17 +252,12 @@ def test_write_fails_for_invalid_cell_coordinate(
         )
 
 
-def test_write_fails_when_required_result_value_is_missing(tmp_path: Path) -> None:
+def test_write_inband_fails_when_required_result_value_is_missing(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)
 
-    with pytest.raises(ValueError, match="harmonic_2nd_peak_level_dbm"):
-        writer.write_harmonic(
-            _make_case(),
-            HarmonicResult(
-                harmonic_2nd_peak_level_dbm=None,
-                harmonic_3rd_peak_level_dbm=-39.5,
-                harmonic_4th_peak_level_dbm=-38.0,
-                harmonic_5th_peak_level_dbm=-37.5,
-            ),
+    with pytest.raises(ValueError, match="inband_peak_level_dbm"):
+        writer.write_inband(
+            _make_case(test_type=MeasurementTestType.INBAND),
+            InbandResult(inband_peak_level_dbm=None),
         )
