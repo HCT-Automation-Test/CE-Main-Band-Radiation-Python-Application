@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import BilogResult
-from app.report.screenshot_store import finalize_sa_screenshot
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -40,16 +39,12 @@ class MeasureBilogState(State):
             _emit_error(ctx, "Bilog 스크린샷 경로 생성 실패: temp_dir is not set")
             return StateResult.FAIL
 
-        try:
-            screenshot_path = finalize_sa_screenshot(
-                source_path=ctx.temp_dir / _BILOG_SCREENSHOT_NAME,
-                root_dir=ctx.screenshot_root_dir,
-                model_name=ctx.model_name,
-                test_case=ctx.current_case,
-                events=ctx.events,
+        screenshot_path = ctx.temp_dir / _BILOG_SCREENSHOT_NAME
+        if not screenshot_path.is_file():
+            _emit_error(
+                ctx,
+                f"Bilog 스크린샷 저장 실패: {screenshot_path} does not exist",
             )
-        except Exception as exc:
-            _emit_error(ctx, f"Bilog 스크린샷 최종 저장 실패: {exc}")
             return StateResult.FAIL
 
         result = BilogResult(screenshot_path=screenshot_path)
