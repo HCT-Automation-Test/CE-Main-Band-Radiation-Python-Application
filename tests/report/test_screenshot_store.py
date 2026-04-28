@@ -15,7 +15,12 @@ from app.models.enums import (
     TestType,
 )
 from app.models.test_case import TestCase
-from app.report.screenshot_store import build_sa_screenshot_path, finalize_sa_screenshot
+from app.report.screenshot_store import (
+    build_fundamental_screenshot_path,
+    build_sa_screenshot_path,
+    finalize_fundamental_screenshot,
+    finalize_sa_screenshot,
+)
 
 
 class _SignalRecorder:
@@ -186,6 +191,63 @@ def test_finalize_sa_screenshot_copies_file_and_emits_event(tmp_path: Path) -> N
     assert events.screenshot_saved.messages == [str(destination)]
 
 
+def test_build_fundamental_screenshot_path_uses_lookup_and_fixed_suffix(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    path = build_fundamental_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n78"
+        / "UPPER"
+        / "SA"
+        / "SM-000_Traffic_5G_n78_UPPER_SA_3549.990MHz_Fundamental Frequency.png"
+    )
+
+
+def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+    source = tmp_path / "temp" / "fundamental.png"
+    source.parent.mkdir()
+    source.write_bytes(b"png")
+    events = _Events()
+
+    destination = finalize_fundamental_screenshot(
+        source_path=source,
+        root_dir=tmp_path / "out",
+        model_name="SM-000",
+        test_case=case,
+        events=events,
+    )
+
+    assert destination.read_bytes() == b"png"
+    assert source.read_bytes() == b"png"
+    assert events.screenshot_saved.messages == [str(destination)]
+
+
 def test_build_sa_screenshot_path_sanitizes_model_name(tmp_path: Path) -> None:
     case = _make_case(
         band=NRBand.N1,
@@ -196,6 +258,27 @@ def test_build_sa_screenshot_path_sanitizes_model_name(tmp_path: Path) -> None:
     )
 
     path = build_sa_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM:000",
+        test_case=case,
+    )
+
+    assert "SM_000" in path.parts
+    assert path.name.startswith("SM_000_Traffic_5G")
+
+
+def test_build_fundamental_screenshot_path_sanitizes_model_name(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    path = build_fundamental_screenshot_path(
         root_dir=tmp_path,
         model_name="SM:000",
         test_case=case,
@@ -216,6 +299,25 @@ def test_build_sa_screenshot_path_rejects_empty_model_name(tmp_path: Path) -> No
 
     with pytest.raises(ValueError, match="model_name is required"):
         build_sa_screenshot_path(
+            root_dir=tmp_path,
+            model_name=" ",
+            test_case=case,
+        )
+
+
+def test_build_fundamental_screenshot_path_rejects_empty_model_name(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    with pytest.raises(ValueError, match="model_name is required"):
+        build_fundamental_screenshot_path(
             root_dir=tmp_path,
             model_name=" ",
             test_case=case,

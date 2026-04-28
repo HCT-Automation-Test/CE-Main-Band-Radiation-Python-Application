@@ -13,6 +13,7 @@ _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TRAFFIC_DIR = "Traffic"
 _RAT_DIR = "5G"
 _SA_DIR = "SA"
+_FUNDAMENTAL_SUFFIX = "Fundamental Frequency"
 
 
 def _sanitize_path_part(value: str, *, field_name: str) -> str:
@@ -78,6 +79,41 @@ def build_sa_screenshot_path(
     )
 
 
+def build_fundamental_screenshot_path(
+    *,
+    root_dir: Path,
+    model_name: str,
+    test_case: TestCase,
+) -> Path:
+    """Fundamental SA 스크린샷의 최종 저장 경로를 만든다."""
+
+    model = _sanitize_path_part(model_name, field_name="model_name")
+    target_frequency_mhz = resolve_target_frequency_mhz(
+        test_case.band,
+        test_case.bandwidth,
+        test_case.test_channel,
+    )
+    band = test_case.band.value
+    dut_ant_position = test_case.dut_ant_position.name
+
+    filename = (
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{band}_{dut_ant_position}_"
+        f"{_SA_DIR}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{_FUNDAMENTAL_SUFFIX}.png"
+    )
+
+    return (
+        Path(root_dir)
+        / model
+        / _TRAFFIC_DIR
+        / _RAT_DIR
+        / band
+        / dut_ant_position
+        / _SA_DIR
+        / filename
+    )
+
+
 def finalize_sa_screenshot(
     *,
     source_path: Path,
@@ -94,6 +130,34 @@ def finalize_sa_screenshot(
         raise FileNotFoundError(f"{source_path} does not exist")
 
     destination = build_sa_screenshot_path(
+        root_dir=root_dir,
+        model_name=model_name,
+        test_case=test_case,
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_path, destination)
+
+    if events is not None and hasattr(events, "screenshot_saved"):
+        events.screenshot_saved.emit(str(destination))
+    return destination
+
+
+def finalize_fundamental_screenshot(
+    *,
+    source_path: Path,
+    root_dir: Path | None,
+    model_name: str,
+    test_case: TestCase,
+    events: Any | None = None,
+) -> Path:
+    """Fundamental SA 스크린샷을 최종 폴더/파일명으로 복사하고 경로를 반환한다."""
+
+    if root_dir is None:
+        raise ValueError("screenshot_root_dir is required")
+    if not source_path.is_file():
+        raise FileNotFoundError(f"{source_path} does not exist")
+
+    destination = build_fundamental_screenshot_path(
         root_dir=root_dir,
         model_name=model_name,
         test_case=test_case,

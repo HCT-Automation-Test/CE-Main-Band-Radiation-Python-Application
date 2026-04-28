@@ -197,6 +197,19 @@ def _expected_n78_final_screenshot_path(root_dir: Path) -> Path:
     )
 
 
+def _expected_n78_fundamental_screenshot_path(root_dir: Path) -> Path:
+    return (
+        root_dir
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n78"
+        / "UPPER"
+        / "SA"
+        / "SM-000_Traffic_5G_n78_UPPER_SA_3549.990MHz_Fundamental Frequency.png"
+    )
+
+
 def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     tmp_path: Path,
 ) -> None:
@@ -208,6 +221,7 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
         report_writer=report_writer,
         temp_dir=tmp_path,
     )
+    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 
@@ -221,7 +235,9 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     measured = report_writer.calls[0][2]
     assert isinstance(measured, FundamentalResult)
     assert measured.fundamental_frequency_mhz == 3550.25
-    assert measured.screenshot_path == tmp_path / "fundamental.png"
+    expected_path = _expected_n78_fundamental_screenshot_path(tmp_path)
+    assert measured.screenshot_path == expected_path
+    assert expected_path.read_bytes() == b"png"
 
 
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
@@ -360,6 +376,81 @@ def test_measure_fundamental_returns_fail_when_command_raises() -> None:
     ]
     assert events.error.messages == [
         "Fundamental 측정 실패: instrument timeout"
+    ]
+
+
+def test_measure_fundamental_returns_fail_when_screenshot_is_missing(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    report_writer = _ReportWriter()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert ctx.fundamental_frequency_mhz is None
+    assert report_writer.calls == []
+    assert commands.measure_fundamental_calls == [
+        (None, {"target_freq": 3549.99})
+    ]
+    assert events.error.messages == [
+        f"Fundamental 스크린샷 저장 실패: {tmp_path / 'fundamental.png'} does not exist"
+    ]
+
+
+def test_measure_fundamental_returns_fail_without_screenshot_root(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    ctx.screenshot_root_dir = None
+    (tmp_path / "fundamental.png").write_bytes(b"png")
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert ctx.fundamental_frequency_mhz is None
+    assert events.error.messages == [
+        "Fundamental 스크린샷 최종 저장 실패: screenshot_root_dir is required"
+    ]
+
+
+def test_measure_fundamental_returns_fail_without_model_name(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        model_name="",
+    )
+    (tmp_path / "fundamental.png").write_bytes(b"png")
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert ctx.fundamental_frequency_mhz is None
+    assert events.error.messages == [
+        "Fundamental 스크린샷 최종 저장 실패: model_name is required"
     ]
 
 
@@ -646,6 +737,7 @@ def test_measure_fundamental_returns_ok_without_report_writer(
         commands=commands,
         temp_dir=tmp_path,
     )
+    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 

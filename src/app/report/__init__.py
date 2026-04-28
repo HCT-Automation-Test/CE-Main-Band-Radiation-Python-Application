@@ -2,8 +2,16 @@
 
 from app.report.report_writer import ReportWriter
 from app.report.screenshot_store import (
+    build_fundamental_screenshot_path,
     build_sa_screenshot_path,
+    finalize_fundamental_screenshot,
     finalize_sa_screenshot,
 )
 
-__all__ = ["ReportWriter", "build_sa_screenshot_path", "finalize_sa_screenshot"]
+__all__ = [
+    "ReportWriter",
+    "build_fundamental_screenshot_path",
+    "build_sa_screenshot_path",
+    "finalize_fundamental_screenshot",
+    "finalize_sa_screenshot",
+]
