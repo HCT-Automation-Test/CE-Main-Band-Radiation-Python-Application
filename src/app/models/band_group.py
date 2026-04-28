@@ -19,6 +19,7 @@ class BandGroupProfile:
     Band 그룹 정의는 별도 JSON이 아니라 이 모듈의 상수로 유지한다.
     """
 
+    key: str
     bands: tuple[int, ...]
     test_ranges: tuple[RangeId, ...]
     sa_recall: str
@@ -29,6 +30,7 @@ class BandGroupProfile:
 
 BAND_GROUPS: tuple[BandGroupProfile, ...] = (
     BandGroupProfile(
+        key="lb",
         bands=(5, 8, 20, 26, 28, 71),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_3),
         sa_recall="1G HPF",
@@ -37,6 +39,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         turntable_speed=6,
     ),
     BandGroupProfile(
+        key="mhb_fdd",
         bands=(1, 3, 7),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         sa_recall="3G HPF",
@@ -45,6 +48,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         turntable_speed=6,
     ),
     BandGroupProfile(
+        key="mhb_tdd",
         bands=(38, 40, 41),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         sa_recall="3G HPF",
@@ -53,6 +57,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         turntable_speed=4,
     ),
     BandGroupProfile(
+        key="uhb_tdd",
         bands=(77, 78, 79),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_5, RangeId.RANGE_6),
         sa_recall="6G HPF",
