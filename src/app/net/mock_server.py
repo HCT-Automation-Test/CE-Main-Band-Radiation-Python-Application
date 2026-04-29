@@ -154,7 +154,7 @@ class MockServer:
             return scripted
         if self.response_handler is not None:
             return self.response_handler(request)
-        return Response(id=request.id, op=request.op, result={"ok": True}, error=None)
+        return Response(id=request.id, status="ok", result={"ok": True})
 
     def _wait_for_client(self, timeout: float) -> socket.socket:
         deadline = time.monotonic() + timeout

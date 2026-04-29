@@ -1,8 +1,10 @@
 """TCP 메시지 dataclass 및 length-prefix frame (de)serialize.
 
-메시지 형태(잠정):
-    {"id": "uuid", "kind": "request|response|event",
-     "op": "string", "params": {...}, "result": {...}, "error": null}
+메시지 형태:
+    Request/Event:
+        {"type": "...", "id": "...", "target": "...", "command": "...", "Params": {...}}
+    Response:
+        {"type": "response", "id": "...", "status": "...", "Error": {...}, "Result": ...}
 """
 from __future__ import annotations
 
@@ -11,7 +13,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Any, ClassVar, TypeAlias
 
-# TODO(spec): op 카탈로그 enum화 (명세 도착 후)
+# TODO(spec): command 카탈로그 enum화 (명세 도착 후)
 
 FRAME_HEADER_SIZE = 4
 MAX_PAYLOAD_BYTES = 64 * 1024 * 1024
@@ -23,23 +25,30 @@ class Request:
     """외부 프로그램에 보내는 요청."""
 
     id: str
-    op: str
+    target: str
+    command: str
     params: dict[str, Any] = field(default_factory=dict)
-    kind: ClassVar[str] = "request"
+    message_type: ClassVar[str] = "request"
 
     def to_json(self) -> str:
-        payload = {
-            "kind": self.kind,
+        payload: dict[str, Any] = {
+            "type": self.message_type,
             "id": self.id,
-            "op": self.op,
-            "params": self.params,
+            "target": self.target,
+            "command": self.command,
+            "Params": self.params,
         }
         return json.dumps(payload, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, s: str) -> "Request":
         data = json.loads(s)
-        return cls(id=str(data["id"]), op=str(data["op"]), params=dict(data.get("params") or {}))
+        return cls(
+            id=str(data["id"]),
+            target=str(data["target"]),
+            command=str(data["command"]),
+            params=_params_from_data(data),
+        )
 
 
 @dataclass
@@ -47,26 +56,32 @@ class Response:
     """외부 프로그램이 보낸 응답."""
 
     id: str
-    op: str
-    result: dict[str, Any] | None = None
-    error: dict[str, Any] | None = None
-    kind: ClassVar[str] = "response"
+    status: str
+    result: Any | None = None
+    error: Any | None = None
+    message_type: ClassVar[str] = "response"
 
     def to_json(self) -> str:
-        payload = {
-            "kind": self.kind,
+        payload: dict[str, Any] = {
+            "type": self.message_type,
             "id": self.id,
-            "op": self.op,
-            "result": self.result,
-            "error": self.error,
+            "status": self.status,
         }
+        if self.error is not None:
+            payload["Error"] = self.error
+        if self.result is not None:
+            payload["Result"] = self.result
         return json.dumps(payload, ensure_ascii=False)
 
     @classmethod
     def from_json(cls, s: str) -> "Response":
         data = json.loads(s)
-        return cls(id=str(data["id"]), op=str(data["op"]),
-                   result=data.get("result"), error=data.get("error"))
+        return cls(
+            id=str(data["id"]),
+            status=str(data["status"]),
+            result=data.get("Result"),
+            error=data.get("Error"),
+        )
 
 
 @dataclass
@@ -74,25 +89,33 @@ class Event:
     """외부 프로그램이 비동기로 푸시하는 이벤트."""
 
     id: str
-    op: str
+    target: str
+    command: str
     params: dict[str, Any] = field(default_factory=dict)
-    kind: ClassVar[str] = "event"
+    message_type: ClassVar[str] = "event"
 
     def to_json(self) -> str:
+        payload: dict[str, Any] = {
+            "type": self.message_type,
+            "id": self.id,
+            "target": self.target,
+            "command": self.command,
+            "Params": self.params,
+        }
         return json.dumps(
-            {
-                "kind": self.kind,
-                "id": self.id,
-                "op": self.op,
-                "params": self.params,
-            },
+            payload,
             ensure_ascii=False,
         )
 
     @classmethod
     def from_json(cls, s: str) -> "Event":
         data = json.loads(s)
-        return cls(id=str(data["id"]), op=str(data["op"]), params=dict(data.get("params") or {}))
+        return cls(
+            id=str(data["id"]),
+            target=str(data["target"]),
+            command=str(data["command"]),
+            params=_params_from_data(data),
+        )
 
 
 Message: TypeAlias = Request | Response | Event
@@ -102,8 +125,18 @@ class ProtocolError(ValueError):
     """TCP/JSON 프로토콜 위반."""
 
 
+def _params_from_data(data: dict[str, Any]) -> dict[str, Any]:
+    """wire JSON의 Params 객체를 Python dict로 변환한다."""
+    raw_params = data.get("Params")
+    if raw_params is None:
+        return {}
+    if not isinstance(raw_params, dict):
+        raise TypeError("Params must be an object")
+    return dict(raw_params)
+
+
 def message_from_json(s: str) -> Message:
-    """JSON 문자열을 kind에 맞는 메시지 dataclass로 변환한다."""
+    """JSON 문자열을 type에 맞는 메시지 dataclass로 변환한다."""
     try:
         data = json.loads(s)
     except json.JSONDecodeError as exc:
@@ -112,31 +145,33 @@ def message_from_json(s: str) -> Message:
     if not isinstance(data, dict):
         raise ProtocolError("JSON payload must be an object")
 
-    kind = data.get("kind")
+    message_type = data.get("type")
     try:
-        if kind == Request.kind:
+        if message_type == Request.message_type:
             return Request(
                 id=str(data["id"]),
-                op=str(data["op"]),
-                params=dict(data.get("params") or {}),
+                target=str(data["target"]),
+                command=str(data["command"]),
+                params=_params_from_data(data),
             )
-        if kind == Response.kind:
+        if message_type == Response.message_type:
             return Response(
                 id=str(data["id"]),
-                op=str(data["op"]),
-                result=data.get("result"),
-                error=data.get("error"),
+                status=str(data["status"]),
+                result=data.get("Result"),
+                error=data.get("Error"),
             )
-        if kind == Event.kind:
+        if message_type == Event.message_type:
             return Event(
                 id=str(data["id"]),
-                op=str(data["op"]),
-                params=dict(data.get("params") or {}),
+                target=str(data["target"]),
+                command=str(data["command"]),
+                params=_params_from_data(data),
             )
     except (KeyError, TypeError, ValueError) as exc:
-        raise ProtocolError(f"invalid {kind!r} message payload") from exc
+        raise ProtocolError(f"invalid {message_type!r} message payload") from exc
 
-    raise ProtocolError(f"unknown message kind: {kind!r}")
+    raise ProtocolError(f"unknown message type: {message_type!r}")
 
 
 def encode_frame(message: Message | str | bytes) -> bytes:

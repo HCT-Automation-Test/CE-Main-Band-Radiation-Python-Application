@@ -57,8 +57,14 @@ class _FakeClient:
 
 
 class _FakeEvent:
-    def __init__(self, op: str, params: dict[str, Any] | None = None) -> None:
-        self.op = op
+    def __init__(
+        self,
+        command: str,
+        params: dict[str, Any] | None = None,
+        target: str = common_module._TARGET_TURNTABLE,
+    ) -> None:
+        self.target = target
+        self.command = command
         self.params = params or {}
 
 
@@ -143,7 +149,9 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
     ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
     state = RotateTurntableState()
 
-    thread = _emit_after(client, 0.05, _FakeEvent(common_module._OP_TURNTABLE_COMPLETE))
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
@@ -164,7 +172,9 @@ def test_rotate_360_to_zero_toggle() -> None:
     ctx, _ = _make_ctx(case, commands=commands, client=client, current_angle=360.0)
     state = RotateTurntableState()
 
-    thread = _emit_after(client, 0.05, _FakeEvent(common_module._OP_TURNTABLE_COMPLETE))
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
@@ -182,7 +192,9 @@ def test_band_group_speed_for_n78() -> None:
     ctx, _ = _make_ctx(case, commands=commands, client=client)
     state = RotateTurntableState()
 
-    thread = _emit_after(client, 0.05, _FakeEvent(common_module._OP_TURNTABLE_COMPLETE))
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
     _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
@@ -235,7 +247,7 @@ def test_error_event_marks_failure() -> None:
     state = RotateTurntableState()
 
     err_event = _FakeEvent(
-        common_module._OP_TURNTABLE_ERROR, {"message": "stalled"}
+        common_module._COMMAND_EQUIPMENT_ERROR, {"message": "stalled"}
     )
     thread = _emit_after(client, 0.05, err_event)
     result = _drive_state(state, ctx)
@@ -268,7 +280,9 @@ def test_inband_routes_to_measure_inband() -> None:
     ctx, _ = _make_ctx(case, commands=commands, client=client)
     state = RotateTurntableState()
 
-    thread = _emit_after(client, 0.05, _FakeEvent(common_module._OP_TURNTABLE_COMPLETE))
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
@@ -285,15 +299,21 @@ def test_progress_events_are_ignored_until_complete() -> None:
     def emit_sequence() -> None:
         time.sleep(0.02)
         client.event_received.emit(
-            _FakeEvent(common_module._OP_TURNTABLE_PROGRESS, {"current_angle": 90.0})
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"current_angle": 90.0},
+            )
         )
         time.sleep(0.02)
         client.event_received.emit(
-            _FakeEvent(common_module._OP_TURNTABLE_PROGRESS, {"current_angle": 270.0})
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"current_angle": 270.0},
+            )
         )
         time.sleep(0.02)
         client.event_received.emit(
-            _FakeEvent(common_module._OP_TURNTABLE_COMPLETE)
+            _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
         )
 
     thread = threading.Thread(target=emit_sequence, daemon=True)

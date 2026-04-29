@@ -13,9 +13,12 @@ def test_tcp_client_loopback_roundtrip(qtbot) -> None:
     def handle_request(request: Request) -> Response:
         return Response(
             id=request.id,
-            op=request.op,
-            result={"received": request.params},
-            error=None,
+            status="ok",
+            result={
+                "target": request.target,
+                "command": request.command,
+                "received": request.params,
+            },
         )
 
     server = MockServer(response_handler=handle_request)
@@ -26,11 +29,16 @@ def test_tcp_client_loopback_roundtrip(qtbot) -> None:
         with qtbot.waitSignal(client.connected_changed, timeout=1000):
             client.connect_to(server.host, server.port)
 
-        response = client.send_request("ping", {"value": 7}, timeout=1.0)
+        response = client.send_request("fsv", "ping", {"value": 7}, timeout=1.0)
 
-        assert response.op == "ping"
-        assert response.result == {"received": {"value": 7}}
-        assert server.received_requests[0].op == "ping"
+        assert response.status == "ok"
+        assert response.result == {
+            "target": "fsv",
+            "command": "ping",
+            "received": {"value": 7},
+        }
+        assert server.received_requests[0].target == "fsv"
+        assert server.received_requests[0].command == "ping"
         assert server.received_requests[0].params == {"value": 7}
     finally:
         client.disconnect_from_host()
@@ -45,7 +53,12 @@ def test_tcp_client_emits_event(qtbot) -> None:
     try:
         client.connect_to(server.host, server.port)
 
-        event = Event(id="evt-1", op="turntable_complete", params={"angle": 360})
+        event = Event(
+            id="evt-1",
+            target="co3000",
+            command="turntable_complete",
+            params={"angle": 360},
+        )
         with qtbot.waitSignal(client.event_received, timeout=1000) as blocker:
             server.send_event(event)
 
@@ -66,7 +79,7 @@ def test_tcp_client_response_timeout(qtbot) -> None:
         client.connect_to(server.host, server.port)
 
         with pytest.raises(TcpClientTimeoutError, match="TCP response timeout"):
-            client.send_request("silent", {}, timeout=0.1)
+            client.send_request("fsv", "silent", {}, timeout=0.1)
     finally:
         client.disconnect_from_host()
         server.stop()

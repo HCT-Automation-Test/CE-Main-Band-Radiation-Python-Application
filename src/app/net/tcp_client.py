@@ -148,7 +148,9 @@ class _SocketThread(QThread):
 
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise TcpClientTimeoutError(f"TCP response timeout: {request.op}")
+                raise TcpClientTimeoutError(
+                    f"TCP response timeout: {request.target}.{request.command}"
+                )
 
             wait_msec = min(50, _timeout_msec(remaining))
             if socket.bytesAvailable() <= 0 and not socket.waitForReadyRead(wait_msec):
@@ -194,7 +196,7 @@ class _SocketThread(QThread):
             elif isinstance(message, Response):
                 responses[message.id] = message
             else:
-                self._emit_error(f"예상하지 않은 request 수신: {message.op}")
+                self._emit_error(f"예상하지 않은 request 수신: {message.command}")
 
     def _close_socket(self, socket: QTcpSocket) -> None:
         if socket.state() == QAbstractSocket.SocketState.UnconnectedState:
@@ -272,18 +274,24 @@ class TcpClient(QObject):
 
     def send_request(
         self,
-        op: str,
+        target: str,
+        command: str,
         params: dict[str, Any] | None = None,
         timeout: float = 10.0,
     ) -> Response:
         """Request 전송 후 matching id의 Response를 동기 반환한다."""
         self._ensure_thread()
-        request = Request(id=str(uuid.uuid4()), op=op, params=params or {})
-        command = _SocketCommand(action="send", request=request, timeout=timeout)
-        self._submit_and_wait(command, timeout)
-        if command.response is None:
+        request = Request(
+            id=str(uuid.uuid4()),
+            target=target,
+            command=command,
+            params=params or {},
+        )
+        socket_command = _SocketCommand(action="send", request=request, timeout=timeout)
+        self._submit_and_wait(socket_command, timeout)
+        if socket_command.response is None:
             raise TcpClientError("TCP response is empty")
-        return command.response
+        return socket_command.response
 
     def close(self) -> None:
         """명시적 정리용 alias."""
