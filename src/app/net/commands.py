@@ -11,6 +11,12 @@ from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import TestRange
 
 
+def connect_equipment(client: Any) -> bool:
+    """LabVIEW 프로그램을 통해 장비 연결/상태 확인을 수행한다."""
+    # TODO(spec): 장비별 연결 응답 스키마 확정 필요
+    raise NotImplementedError("spec TODO: send_request op name pending")
+
+
 def setup_mt8000(
     client: Any,
     *,

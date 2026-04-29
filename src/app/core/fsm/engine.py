@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
-from app.core.fsm.base import State
+from app.core.fsm.base import State, StateResult
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
 logger = logging.getLogger(__name__)
+
+_POLL_INTERVAL_SEC = 0.1
 
 
 class FSMEngine:
@@ -49,8 +52,50 @@ class FSMEngine:
            f. _current_state_name = state.next_state(ctx, result)
         3. 루프 종료 시 세션 완료
         """
-        # TODO(spec): pause/stop 체크, RETRY 루프, 에러 핸들링
-        raise NotImplementedError("spec TODO")
+        if initial_state not in self._states:
+            raise ValueError(f"등록되지 않은 초기 State: {initial_state!r}")
+
+        self._current_state_name = initial_state
+        while self._current_state_name is not None:
+            self._wait_if_paused()
+            if self._ctx.stopped:
+                break
+
+            state_name = self._current_state_name
+            try:
+                state = self._states[state_name]
+            except KeyError as exc:
+                raise ValueError(f"등록되지 않은 State: {state_name!r}") from exc
+
+            if self._ctx.events is not None:
+                self._ctx.events.state_changed.emit(state.name)
+
+            result = self._run_state(state)
+            if self._ctx.stopped:
+                break
+            if result is StateResult.RETRY:
+                continue
+            if result is StateResult.WAIT_USER:
+                self._ctx.paused = True
+                continue
+
+            self._current_state_name = state.next_state(self._ctx, result)
+
+        self._current_state_name = None
+
+    def _run_state(self, state: State) -> StateResult:
+        entered = False
+        try:
+            state.enter(self._ctx)
+            entered = True
+            return state.run(self._ctx)
+        finally:
+            if entered:
+                state.exit(self._ctx)
+
+    def _wait_if_paused(self) -> None:
+        while self._ctx.paused and not self._ctx.stopped:
+            time.sleep(_POLL_INTERVAL_SEC)
 
 
 def build_session_engine(ctx: "SessionContext") -> FSMEngine:
