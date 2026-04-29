@@ -68,6 +68,14 @@ def _fundamental_screenshot_path(temp_dir: Path) -> Path:
     return temp_dir / _FUNDAMENTAL_SCREENSHOT_NAME
 
 
+def _remove_stale_screenshot(path: Path) -> None:
+    """측정 전 기존 스크린샷을 지워 stale 파일 오판을 막는다."""
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise ValueError(f"stale 스크린샷 삭제 실패: {path}") from exc
+
+
 class MeasureFundamentalState(State):
     """§4.3 기본파 주파수를 측정하여 결과를 저장한다."""
 
@@ -92,7 +100,9 @@ class MeasureFundamentalState(State):
             )
             return StateResult.FAIL
 
+        screenshot_path = _fundamental_screenshot_path(ctx.temp_dir)
         try:
+            _remove_stale_screenshot(screenshot_path)
             fundamental_frequency_mhz = float(
                 ctx.commands.measure_fundamental(
                     ctx.client,
@@ -103,7 +113,6 @@ class MeasureFundamentalState(State):
             _emit_error(ctx, f"Fundamental 측정 실패: {exc}")
             return StateResult.FAIL
 
-        screenshot_path = _fundamental_screenshot_path(ctx.temp_dir)
         if not screenshot_path.is_file():
             _emit_error(
                 ctx,
@@ -152,7 +161,9 @@ class MeasureHarmonicsState(State):
             )
             return StateResult.FAIL
 
+        screenshot_path = _harmonic_screenshot_path(ctx.temp_dir)
         try:
+            _remove_stale_screenshot(screenshot_path)
             harmonic_levels = _normalize_harmonic_levels(
                 ctx.commands.measure_harmonics(
                     ctx.client,
@@ -163,7 +174,6 @@ class MeasureHarmonicsState(State):
             _emit_error(ctx, f"Harmonic 측정 실패: {exc}")
             return StateResult.FAIL
 
-        screenshot_path = _harmonic_screenshot_path(ctx.temp_dir)
         if not screenshot_path.is_file():
             _emit_error(
                 ctx,

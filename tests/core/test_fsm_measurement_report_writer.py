@@ -54,11 +54,15 @@ class _Commands:
         harmonic_levels: object = (-41.0, -39.5, -40.0, -37.0),
         fundamental_exception: Exception | None = None,
         harmonics_exception: Exception | None = None,
+        fundamental_screenshot_path: Path | None = None,
+        harmonic_screenshot_path: Path | None = None,
     ) -> None:
         self.fundamental_frequency_mhz = fundamental_frequency_mhz
         self.harmonic_levels = harmonic_levels
         self.fundamental_exception = fundamental_exception
         self.harmonics_exception = harmonics_exception
+        self.fundamental_screenshot_path = fundamental_screenshot_path
+        self.harmonic_screenshot_path = harmonic_screenshot_path
         self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
 
@@ -68,6 +72,8 @@ class _Commands:
         )
         if self.fundamental_exception is not None:
             raise self.fundamental_exception
+        if self.fundamental_screenshot_path is not None:
+            self.fundamental_screenshot_path.write_bytes(b"fresh fundamental")
         return self.fundamental_frequency_mhz
 
     def measure_harmonics(self, client: Any, *, fundamental: float) -> object:
@@ -76,6 +82,8 @@ class _Commands:
         )
         if self.harmonics_exception is not None:
             raise self.harmonics_exception
+        if self.harmonic_screenshot_path is not None:
+            self.harmonic_screenshot_path.write_bytes(b"fresh harmonic")
         return self.harmonic_levels
 
 
@@ -188,14 +196,18 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     tmp_path: Path,
 ) -> None:
     report_writer = _ReportWriter()
-    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    screenshot_path = tmp_path / "fundamental.png"
+    screenshot_path.write_bytes(b"stale")
+    commands = _Commands(
+        fundamental_frequency_mhz=3550.25,
+        fundamental_screenshot_path=screenshot_path,
+    )
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
         commands=commands,
         report_writer=report_writer,
         temp_dir=tmp_path,
     )
-    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 
@@ -210,14 +222,18 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     assert isinstance(measured, FundamentalResult)
     assert measured.fundamental_frequency_mhz == 3550.25
     assert measured.screenshot_path == tmp_path / "fundamental.png"
+    assert screenshot_path.read_bytes() == b"fresh fundamental"
 
 
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     tmp_path: Path,
 ) -> None:
     report_writer = _ReportWriter()
+    screenshot_path = tmp_path / "harmonic.png"
+    screenshot_path.write_bytes(b"stale")
     commands = _Commands(
-        harmonic_levels=(-41.0, -39.9, -40.0, -37.5)
+        harmonic_levels=(-41.0, -39.9, -40.0, -37.5),
+        harmonic_screenshot_path=screenshot_path,
     )
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
@@ -242,14 +258,17 @@ def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     assert measured.harmonic_3rd_peak_level_dbm == -39.9
     assert measured.harmonic_4th_peak_level_dbm is None
     assert measured.harmonic_5th_peak_level_dbm == -37.5
+    assert screenshot_path.read_bytes() == b"fresh harmonic"
 
 
 def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
     tmp_path: Path,
 ) -> None:
     report_writer = _ReportWriter()
+    screenshot_path = tmp_path / "harmonic.png"
     commands = _Commands(
-        harmonic_levels=(-45.0, -40.0, -42.0, -50.0)
+        harmonic_levels=(-45.0, -40.0, -42.0, -50.0),
+        harmonic_screenshot_path=screenshot_path,
     )
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
@@ -609,13 +628,15 @@ def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
 def test_measure_fundamental_returns_ok_without_report_writer(
     tmp_path: Path,
 ) -> None:
-    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    commands = _Commands(
+        fundamental_frequency_mhz=3550.25,
+        fundamental_screenshot_path=tmp_path / "fundamental.png",
+    )
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
         commands=commands,
         temp_dir=tmp_path,
     )
-    (tmp_path / "fundamental.png").write_bytes(b"png")
 
     result = MeasureFundamentalState().run(ctx)
 
@@ -626,14 +647,13 @@ def test_measure_fundamental_returns_ok_without_report_writer(
 def test_measure_harmonics_returns_ok_without_report_writer(
     tmp_path: Path,
 ) -> None:
-    commands = _Commands()
+    commands = _Commands(harmonic_screenshot_path=tmp_path / "harmonic.png")
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
         commands=commands,
         temp_dir=tmp_path,
         fundamental_frequency_mhz=3550.25,
     )
-    (tmp_path / "harmonic.png").write_bytes(b"png")
 
     result = MeasureHarmonicsState().run(ctx)
 

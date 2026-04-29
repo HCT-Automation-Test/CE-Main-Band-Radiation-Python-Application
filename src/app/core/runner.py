@@ -3,13 +3,69 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QThread
+from PySide6.QtCore import QObject, QThread, Signal, Slot
 
 from app.core.events import RunnerEvents
+from app.core.fsm.context import SessionContext
+from app.core.fsm.engine import FSMEngine, build_session_engine
 from app.models.test_case import TestCase
+from app.net import commands as default_commands
+from app.net.tcp_client import TcpClient
+from app.report.excel_writer import ExcelReportWriter
+from app.report.report_writer import ReportWriter
 
 logger = logging.getLogger(__name__)
+
+EngineFactory = Callable[[SessionContext], FSMEngine]
+ReportWriterFactory = Callable[[Path, Path, str, RunnerEvents], ReportWriter]
+
+_TEMP_DIR = Path("temp")
+_START_READY_STATE = "Idle"
+
+
+def _default_report_writer_factory(
+    template_path: Path,
+    screenshot_root_dir: Path,
+    model_name: str,
+    events: RunnerEvents,
+) -> ReportWriter:
+    return ReportWriter(
+        excel_writer=ExcelReportWriter(template_path),
+        screenshot_root_dir=screenshot_root_dir,
+        model_name=model_name,
+        events=events,
+    )
+
+
+class _RunnerWorker(QObject):
+    """QThread 안에서 FSMEngine을 실행하는 worker."""
+
+    finished = Signal()
+
+    def __init__(
+        self,
+        ctx: SessionContext,
+        engine_factory: EngineFactory,
+        parent: QObject | None = None,
+    ) -> None:
+        super().__init__(parent)
+        self._ctx = ctx
+        self._engine_factory = engine_factory
+        self.engine: FSMEngine | None = None
+
+    @Slot()
+    def run(self) -> None:
+        try:
+            self.engine = self._engine_factory(self._ctx)
+            self.engine.run("SessionInit")
+        except Exception as exc:
+            logger.exception("FSM 실행 실패")
+            if self._ctx.events is not None:
+                self._ctx.events.error.emit(f"FSM 실행 실패: {exc}")
+        finally:
+            self.finished.emit()
 
 
 class Runner(QObject):
@@ -19,35 +75,167 @@ class Runner(QObject):
     UI는 `events` 시그널만 구독.
     """
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        client: Any | None = None,
+        commands: Any = default_commands,
+        engine_factory: EngineFactory = build_session_engine,
+        report_writer_factory: ReportWriterFactory = _default_report_writer_factory,
+        tcp_host: str = "127.0.0.1",
+        tcp_port: int = 5025,
+        temp_dir: Path = _TEMP_DIR,
+    ) -> None:
         super().__init__(parent)
         self.events = RunnerEvents(self)
         self._thread: QThread | None = None
-        # TODO(spec): FSMEngine 인스턴스 및 TCP client 주입 방식 확정
+        self._worker: _RunnerWorker | None = None
+        self._ctx: SessionContext | None = None
+        self._client = client if client is not None else TcpClient(self)
+        self._commands = commands
+        self._engine_factory = engine_factory
+        self._report_writer_factory = report_writer_factory
+        self._tcp_host = tcp_host
+        self._tcp_port = tcp_port
+        self._temp_dir = Path(temp_dir)
+
+    @property
+    def is_running(self) -> bool:
+        """FSM worker thread 실행 여부."""
+        return self._thread is not None and self._thread.isRunning()
+
+    @property
+    def context(self) -> SessionContext | None:
+        """테스트/상위 조립 코드에서 현재 컨텍스트를 확인하기 위한 접근자."""
+        return self._ctx
+
+    def initialize(self) -> None:
+        """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
+        if self.is_running:
+            return
+
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        self._ctx = SessionContext(
+            queue=[],
+            commands=self._commands,
+            events=self.events,
+            client=self._client,
+            tcp_host=self._tcp_host,
+            tcp_port=self._tcp_port,
+            temp_dir=self._temp_dir,
+        )
+
+        self._thread = QThread(self)
+        self._worker = _RunnerWorker(self._ctx, self._engine_factory)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(self._worker.deleteLater)
+        self._thread.finished.connect(self._thread.deleteLater)
+        self._thread.finished.connect(self._on_thread_finished)
+        self._thread.start()
+
+    def connect_equipment(self) -> None:
+        """UI 장비 연결 버튼에서 호출한다."""
+        if not self.is_running:
+            self.initialize()
+        if self._ctx is None:
+            self._emit_error("장비 연결 실패: SessionContext is not initialized")
+            return
+        self._ctx.equipment_connect_requested.set()
 
     def start(
         self,
         cases: list[TestCase],
         *,
         model_name: str = "",
+        template_path: Path | None = None,
         screenshot_root_dir: Path | None = None,
     ) -> None:
-        """세션 FSM 실행 시작.
+        """Idle 상태에서 시험 실행 요청을 주입한다."""
+        if self._ctx is None or not self.is_running:
+            self._emit_error("시험 시작 실패: Runner is not initialized")
+            return
+        if not self._is_waiting_for_start():
+            self._emit_error("시험 시작 실패: Runner is not idle")
+            return
+        if not cases:
+            self._emit_error("시험 시작 실패: TestCase queue is empty")
+            return
+        normalized_model_name = model_name.strip()
+        if not normalized_model_name:
+            self._emit_error("시험 시작 실패: model_name is required")
+            return
+        if template_path is None:
+            self._emit_error("시험 시작 실패: template_path is required")
+            return
+        if screenshot_root_dir is None:
+            self._emit_error("시험 시작 실패: screenshot_root_dir is required")
+            return
 
-        1. SessionContext 생성 (queue=cases, commands=..., events=self.events)
-        2. build_session_engine(ctx)로 FSMEngine 구성
-        3. QThread 워커에서 engine.run("SessionInit") 실행
-        """
-        # TODO(spec): QThread + Worker 패턴으로 구현
-        _ = (model_name, screenshot_root_dir)
-        raise NotImplementedError("spec TODO")
+        template = Path(template_path)
+        screenshot_root = Path(screenshot_root_dir)
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            report_writer = self._report_writer_factory(
+                template,
+                screenshot_root,
+                normalized_model_name,
+                self.events,
+            )
+        except Exception as exc:
+            self._emit_error(f"시험 시작 실패: report writer 생성 실패: {exc}")
+            return
+
+        ctx = self._ctx
+        ctx.queue = list(cases)
+        ctx.report_writer = report_writer
+        ctx.current_index = 0
+        ctx.paused = False
+        ctx.stopped = False
+        ctx.current_angle = 0.0
+        ctx.fundamental_frequency_mhz = None
+        ctx.temp_dir = self._temp_dir
+        ctx.model_name = normalized_model_name
+        ctx.template_path = template
+        ctx.screenshot_root_dir = screenshot_root
+        ctx.test_start_requested.set()
 
     def pause(self) -> None:
         """실행 일시정지. ctx.paused = True."""
-        # TODO(spec): 인터럽션 토큰/플래그 정책 확정
-        raise NotImplementedError("spec TODO")
+        if self._ctx is not None:
+            self._ctx.paused = True
+
+    def resume(self) -> None:
+        """일시정지 해제."""
+        if self._ctx is not None:
+            self._ctx.paused = False
 
     def stop(self) -> None:
         """실행 중단. ctx.stopped = True."""
-        # TODO(spec): 안전 중단(현재 State exit 보장) 구현
-        raise NotImplementedError("spec TODO")
+        if self._ctx is None:
+            return
+        self._ctx.stopped = True
+        self._ctx.paused = False
+        self._ctx.equipment_connect_requested.set()
+        self._ctx.test_start_requested.set()
+        self._ctx.user_action_completed.set()
+
+    def user_action_completed(self) -> None:
+        """수동 조작 요청 상태에서 UI 확인 완료를 전달한다."""
+        if self._ctx is not None:
+            self._ctx.user_action_completed.set()
+
+    def _emit_error(self, message: str) -> None:
+        logger.error(message)
+        self.events.error.emit(message)
+
+    def _is_waiting_for_start(self) -> bool:
+        if self._worker is None or self._worker.engine is None:
+            return False
+        return self._worker.engine.current_state_name == _START_READY_STATE
+
+    def _on_thread_finished(self) -> None:
+        self._thread = None
+        self._worker = None

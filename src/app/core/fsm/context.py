@@ -1,7 +1,8 @@
 """통합 세션 FSM 실행 컨텍스트."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -24,6 +25,8 @@ class SessionContext:
     events: RunnerEvents
     client: Any | None = None
     report_writer: ReportWriter | None = None
+    tcp_host: str = "127.0.0.1"
+    tcp_port: int = 5025
     current_index: int = 0
     paused: bool = False
     stopped: bool = False
@@ -31,8 +34,14 @@ class SessionContext:
     fundamental_frequency_mhz: float | None = None
     temp_dir: Path | None = None
     model_name: str = ""
+    template_path: Path | None = None
     screenshot_root_dir: Path | None = None
-    # TODO(spec): equipment_state (장비 연결 상태 추적) 추가 지점
+    equipment_state: dict[str, Any] = field(default_factory=dict)
+    equipment_connect_requested: threading.Event = field(
+        default_factory=threading.Event
+    )
+    test_start_requested: threading.Event = field(default_factory=threading.Event)
+    user_action_completed: threading.Event = field(default_factory=threading.Event)
 
     @property
     def current_case(self) -> TestCase:

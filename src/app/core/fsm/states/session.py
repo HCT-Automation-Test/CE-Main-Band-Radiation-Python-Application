@@ -1,12 +1,33 @@
 """세션 제어 상태: Init, Idle, CheckNextCase, TestEnd."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.states.measurement.common import measurement_start_state_for
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
+
+logger = logging.getLogger(__name__)
+
+_WAIT_INTERVAL_SEC = 0.1
+
+
+def _emit_error(ctx: "SessionContext", message: str) -> None:
+    logger.error(message)
+    if ctx.events is not None:
+        ctx.events.error.emit(message)
+
+
+def _wait_for_event(ctx: "SessionContext", event_name: str) -> bool:
+    event = getattr(ctx, event_name)
+    while not ctx.stopped:
+        if event.wait(_WAIT_INTERVAL_SEC):
+            event.clear()
+            return True
+    return False
 
 
 class SessionInitState(State):
@@ -15,12 +36,42 @@ class SessionInitState(State):
     name = "SessionInit"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 장비 4종(MT8000A, FSV40, SwitchBox, CO3000) 연결 확인
-        raise NotImplementedError("spec TODO")
+        if not _wait_for_event(ctx, "equipment_connect_requested"):
+            return StateResult.FAIL
+
+        if ctx.client is None:
+            _emit_error(ctx, "장비 연결 실패: TCP client is not set")
+            return StateResult.RETRY
+
+        try:
+            connect_to = getattr(ctx.client, "connect_to", None)
+            if connect_to is not None:
+                connect_to(ctx.tcp_host, ctx.tcp_port)
+            response = ctx.commands.connect_equipment(ctx.client)
+        except Exception as exc:
+            _emit_error(ctx, f"장비 연결 실패: {exc}")
+            return StateResult.RETRY
+
+        if isinstance(response, dict):
+            ctx.equipment_state = response
+            connected = bool(response) and all(
+                bool(value) for value in response.values()
+            )
+        else:
+            connected = bool(response)
+            ctx.equipment_state = {"connected": connected}
+
+        if connected:
+            return StateResult.OK
+
+        _emit_error(ctx, "장비 연결 실패: connect_equipment returned false")
+        return StateResult.RETRY
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "Idle"
 
 
@@ -30,12 +81,40 @@ class IdleState(State):
     name = "Idle"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 사용자 시험 시작 이벤트 대기
-        raise NotImplementedError("spec TODO")
+        if not _wait_for_event(ctx, "test_start_requested"):
+            return StateResult.FAIL
+
+        if not ctx.queue:
+            _emit_error(ctx, "시험 시작 실패: TestCase queue is empty")
+            return StateResult.RETRY
+        if ctx.report_writer is None:
+            _emit_error(ctx, "시험 시작 실패: report_writer is not set")
+            return StateResult.RETRY
+        if ctx.temp_dir is None:
+            _emit_error(ctx, "시험 시작 실패: temp_dir is not set")
+            return StateResult.RETRY
+        if not ctx.model_name:
+            _emit_error(ctx, "시험 시작 실패: model_name is required")
+            return StateResult.RETRY
+        if ctx.template_path is None:
+            _emit_error(ctx, "시험 시작 실패: template_path is required")
+            return StateResult.RETRY
+        if ctx.screenshot_root_dir is None:
+            _emit_error(ctx, "시험 시작 실패: screenshot_root_dir is required")
+            return StateResult.RETRY
+
+        ctx.current_index = 0
+        ctx.fundamental_frequency_mhz = None
+        ctx.stopped = False
+        if ctx.events is not None:
+            ctx.events.tc_started.emit(ctx.current_index)
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"
 
 
@@ -44,22 +123,49 @@ class CheckNextCaseState(State):
 
     name = "CheckNextCase"
 
+    def __init__(self) -> None:
+        self._previous_case = None
+        self._advanced = False
+
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 현재 TC 결과 저장, 다음 TC 존재 여부 확인
-        raise NotImplementedError("spec TODO")
+        self._previous_case = ctx.current_case
+        self._advanced = False
+        if ctx.events is not None:
+            ctx.events.tc_finished.emit(ctx.current_index)
+
+        if not ctx.has_next_case:
+            return StateResult.OK
+
+        ctx.current_index += 1
+        ctx.fundamental_frequency_mhz = None
+        self._advanced = True
+        if ctx.events is not None:
+            ctx.events.tc_started.emit(ctx.current_index)
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): prev/curr TC 비교 후 분기 (위에서부터 우선순위)
-        # - 큐 종료 → "TestEnd"
-        # - Band 변경 + Recall 필요 → "RecallChange"
-        # - Band 변경 → "Handover"
-        # - DUT Axis 변경 → "DUTAxisChange"
-        # - AntPol 변경 → "AntPolChange"
-        # - test_type만 변경 → "TestTypeChange"
-        # - 모두 동일 → TODO(spec): 동일 설정 재측정 시나리오
-        raise NotImplementedError("spec TODO")
+        if result is not StateResult.OK:
+            return None
+        if not self._advanced:
+            return "TestEnd"
+
+        prev_case = self._previous_case
+        current_case = ctx.current_case
+        if prev_case is None:
+            return measurement_start_state_for(current_case.test_type)
+
+        # TODO(spec): Band 변경 + Recall 필요 판정 규칙 확정
+        if prev_case.band != current_case.band:
+            return "Handover"
+        if prev_case.dut_axis != current_case.dut_axis:
+            return "DUTAxisChange"
+        if prev_case.antenna_pol != current_case.antenna_pol:
+            return "AntPolChange"
+        if prev_case.test_type != current_case.test_type:
+            return "TestTypeChange"
+        return measurement_start_state_for(current_case.test_type)
 
 
 class TestEndState(State):
@@ -68,10 +174,14 @@ class TestEndState(State):
     name = "TestEnd"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 최종 결과 집계, 리포트 생성 트리거
-        raise NotImplementedError("spec TODO")
+        ctx.queue = []
+        ctx.current_index = 0
+        ctx.fundamental_frequency_mhz = None
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "Idle"
