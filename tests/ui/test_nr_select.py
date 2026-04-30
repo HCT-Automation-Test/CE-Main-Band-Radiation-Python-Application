@@ -1,9 +1,16 @@
 """NR Select 팝업 동작 테스트."""
 from __future__ import annotations
 
-from PySide6.QtGui import QPalette
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QCheckBox, QComboBox, QPushButton, QTableWidget, QWidget
+from PySide6.QtGui import QPalette
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QMessageBox,
+    QPushButton,
+    QTableWidget,
+    QWidget,
+)
 
 from app.models.enums import (
     AntennaPol,
@@ -16,7 +23,11 @@ from app.models.enums import (
     TestType as NRTestType,
 )
 from app.models.test_case import TestCase
-from app.ui.nr_select import NRParameterDialog, NRSelectDialog
+from app.ui.nr_select import (
+    NRGroupSettings,
+    NRParameterDialog,
+    NRSelectDialog,
+)
 from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
 
 
@@ -32,6 +43,16 @@ def _make_case() -> TestCase:
         dut_axis=DUTAxis.X,
         dut_ant_position=DUTAntPosition.UPPER,
     )
+
+
+def _make_dialog_with_position() -> NRSelectDialog:
+    dialog = NRSelectDialog()
+    dialog._group_settings["lb"] = NRGroupSettings(
+        selected_test_types=(NRTestType.INBAND, NRTestType.HARMONIC),
+        axis_sequence=(DUTAxis.X, DUTAxis.Y, DUTAxis.Z),
+        antenna_pol_sequence=(AntennaPol.V, AntennaPol.H),
+    )
+    return dialog
 
 
 def test_nr_select_dialog_renders_band_groups_and_actions(qtbot) -> None:
@@ -77,59 +98,253 @@ def test_nr_select_all_reset_toggles_group_checkboxes(qtbot) -> None:
     assert not any(checkbox.isChecked() for checkbox in lb_checks)
 
 
-def test_nr_parameter_dialog_exposes_band_parameter_table(qtbot) -> None:
-    """Table 팝업이 전체 Band의 파라미터 입력 행을 제공한다."""
+def test_nr_parameter_dialog_exposes_planned_table_shape(qtbot) -> None:
+    """Table 팝업이 첨부 화면 형태의 전체 Band 표를 제공한다."""
 
     select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(select_dialog.parameters_by_band)
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
     qtbot.addWidget(parameter_dialog)
 
     table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
+
     assert table is not None
     assert table.rowCount() == 15
-    assert table.columnCount() == 9
-    assert table.item(0, 0).text() == "B5"
+    assert table.columnCount() == 14
+    assert [table.horizontalHeaderItem(index).text() for index in range(14)] == [
+        "",
+        "NR Band",
+        "SCS",
+        "BW",
+        "MOD",
+        "RB Allocation",
+        "Channel",
+        "EUT ANT",
+        "NARFCN",
+        "Frequency",
+        "RB Size",
+        "RB Offset",
+        "Test 대역",
+        "Position",
+    ]
+    assert table.item(0, 0).text() == "LB"
+    assert table.item(0, 1).text() == "N5"
+    assert table.rowSpan(0, 0) == 6
+    assert table.rowSpan(0, 12) == 6
+    assert table.rowSpan(0, 13) == 6
+    assert table.item(6, 0).text() == "MHB_FDD"
+    assert table.item(12, 0).text() == "UHB_TDD"
 
-    bandwidth_combo = parameter_dialog.findChild(QComboBox, "nrParamBandwidth_n5")
-    test_type_combo = parameter_dialog.findChild(QComboBox, "nrParamTestType_n5")
 
-    assert bandwidth_combo is not None
-    assert [
-        bandwidth_combo.itemText(index)
-        for index in range(bandwidth_combo.count())
-    ] == ["5", "10", "15", "20"]
-    assert test_type_combo is not None
-    assert [
-        test_type_combo.itemText(index)
-        for index in range(test_type_combo.count())
-    ] == ["harmonic", "inband"]
-
-
-def test_nr_parameter_dialog_collects_changed_parameters(qtbot) -> None:
-    """Table 팝업에서 변경한 값이 band별 파라미터로 수집된다."""
+def test_nr_parameter_dialog_distributes_spanned_widget_height_by_group(
+    qtbot,
+) -> None:
+    """span 위젯 높이가 각 그룹 첫 Band 행에만 몰리지 않는다."""
 
     select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(select_dialog.parameters_by_band)
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
+
+    assert table is not None
+    assert table.rowHeight(0) == table.rowHeight(1)
+    assert table.rowHeight(6) == table.rowHeight(7)
+    assert table.rowHeight(9) == table.rowHeight(10)
+    assert table.rowHeight(12) == table.rowHeight(13)
+
+
+def test_nr_parameter_dialog_uses_compact_column_widths(qtbot) -> None:
+    """Table 컬럼 폭을 첨부표처럼 조밀한 기본값으로 맞춘다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
+
+    assert table is not None
+    assert parameter_dialog.width() < 1360
+    assert parameter_dialog.height() < 780
+    assert table.columnWidth(0) == 76
+    assert table.columnWidth(5) == 120
+    assert table.columnWidth(12) == 105
+    assert table.columnWidth(13) == 210
+
+    axis_sequence = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X_to_Y_to_Z")
+    pol_sequence = parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_V_to_H")
+    assert axis_sequence is not None
+    assert pol_sequence is not None
+    assert axis_sequence.minimumWidth() == 86
+    assert pol_sequence.minimumWidth() == 86
+
+    parameter_dialog.show()
+    qtbot.wait(0)
+
+    assert table.horizontalScrollBar().maximum() == 0
+    assert table.verticalScrollBar().maximum() == 0
+    visible_columns_width = sum(
+        table.columnWidth(column)
+        for column in range(table.columnCount())
+    )
+    assert abs(table.viewport().width() - visible_columns_width) <= 2
+    visible_rows_height = sum(
+        table.rowHeight(row)
+        for row in range(table.rowCount())
+    )
+    assert abs(table.viewport().height() - visible_rows_height) <= 2
+
+
+def test_nr_parameter_dialog_defaults_ranges_checked_and_positions_unchecked(
+    qtbot,
+) -> None:
+    """Test 대역은 전체 체크, Position은 미체크로 시작한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    for object_name in (
+        "nrRangeCheck_lb_inband",
+        "nrRangeCheck_lb_harmonic",
+        "nrRangeCheck_mhb_fdd_bilog",
+        "nrRangeCheck_mhb_fdd_inband",
+        "nrRangeCheck_mhb_fdd_harmonic",
+        "nrRangeCheck_uhb_tdd_bilog",
+        "nrRangeCheck_uhb_tdd_inband",
+        "nrRangeCheck_uhb_tdd_harmonic",
+    ):
+        checkbox = parameter_dialog.findChild(QCheckBox, object_name)
+        assert checkbox is not None
+        assert checkbox.isChecked()
+
+    for object_name in (
+        "nrAxisCheck_lb_X",
+        "nrAxisCheck_lb_X_to_Y_to_Z",
+        "nrPolCheck_lb_H",
+        "nrPolCheck_lb_V_to_H",
+    ):
+        checkbox = parameter_dialog.findChild(QCheckBox, object_name)
+        assert checkbox is not None
+        assert not checkbox.isChecked()
+
+
+def test_nr_parameter_dialog_keeps_position_choices_exclusive(qtbot) -> None:
+    """Axis/Pol Position은 그룹 안에서 각각 1개만 선택한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    axis_x = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X")
+    axis_y = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_Y")
+    pol_h = parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_H")
+    pol_v = parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_V")
+    assert axis_x is not None
+    assert axis_y is not None
+    assert pol_h is not None
+    assert pol_v is not None
+
+    axis_x.click()
+    axis_y.click()
+    pol_h.click()
+    pol_v.click()
+
+    assert not axis_x.isChecked()
+    assert axis_y.isChecked()
+    assert not pol_h.isChecked()
+    assert pol_v.isChecked()
+
+
+def test_nr_parameter_dialog_updates_preview_when_bandwidth_changes(qtbot) -> None:
+    """BW 변경 시 NARFCN/Frequency/RB 미리보기를 갱신한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
+    bandwidth_combo = parameter_dialog.findChild(QComboBox, "nrParamBandwidth_n78")
+    channel_combo = parameter_dialog.findChild(QComboBox, "nrParamTestChannel_n78")
+    assert table is not None
+    assert bandwidth_combo is not None
+    assert channel_combo is not None
+
+    bandwidth_combo.setCurrentText("100")
+    channel_combo.setCurrentText("mid")
+
+    assert table.item(13, 8).text() == "636666"
+    assert table.item(13, 9).text() == "3549.99"
+    assert table.item(13, 10).text() == "135"
+    assert table.item(13, 11).text() == "67"
+
+
+def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
+    """Table 팝업에서 변경한 band별 주요 조건을 수집한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
     qtbot.addWidget(parameter_dialog)
 
     bandwidth_combo = parameter_dialog.findChild(QComboBox, "nrParamBandwidth_n78")
-    test_type_combo = parameter_dialog.findChild(QComboBox, "nrParamTestType_n78")
+    eut_ant_combo = parameter_dialog.findChild(QComboBox, "nrParamDutAntPosition_n78")
     assert bandwidth_combo is not None
-    assert test_type_combo is not None
+    assert eut_ant_combo is not None
 
     bandwidth_combo.setCurrentText("100")
-    test_type_combo.setCurrentText("inband")
+    eut_ant_combo.setCurrentText("Lower")
 
     parameters = parameter_dialog.parameters_by_band()[NRBand.N78]
 
     assert parameters.bandwidth == 100.0
-    assert parameters.test_type is NRTestType.INBAND
+    assert parameters.dut_ant_position is DUTAntPosition.LOWER
 
 
-def test_nr_select_add_emits_selected_band_test_cases(qtbot) -> None:
-    """Add 버튼이 선택 Band와 Table 파라미터로 TestCase를 만든다."""
+def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
+    """Table 팝업에서 선택한 Test 대역과 Position 설정을 수집한다."""
 
-    dialog = NRSelectDialog()
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    parameter_dialog.findChild(QCheckBox, "nrRangeCheck_lb_inband").setChecked(False)
+    parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X_to_Y_to_Z").click()
+    parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_V_to_H").click()
+
+    settings = parameter_dialog.group_settings()["lb"]
+
+    assert settings.selected_test_types == (NRTestType.HARMONIC,)
+    assert settings.axis_sequence == (DUTAxis.X, DUTAxis.Y, DUTAxis.Z)
+    assert settings.antenna_pol_sequence == (AntennaPol.V, AntennaPol.H)
+
+
+def test_nr_select_add_expands_ranges_axis_and_pol_sequences(qtbot) -> None:
+    """Add 버튼이 Test 대역, Axis, Pol 시퀀스 조합을 모두 펼친다."""
+
+    dialog = _make_dialog_with_position()
     qtbot.addWidget(dialog)
 
     checkbox = dialog.findChild(QCheckBox, "nrBandCheck_n5")
@@ -143,10 +358,35 @@ def test_nr_select_add_emits_selected_band_test_cases(qtbot) -> None:
 
     cases = signal.args[0]
 
-    assert len(cases) == 1
-    assert cases[0].band is NRBand.N5
-    assert cases[0].bandwidth == 5.0
-    assert cases[0].test_type is NRTestType.HARMONIC
+    assert len(cases) == 12
+    assert {case.band for case in cases} == {NRBand.N5}
+    assert {case.test_type for case in cases} == {
+        NRTestType.INBAND,
+        NRTestType.HARMONIC,
+    }
+    assert {case.dut_axis for case in cases} == {DUTAxis.X, DUTAxis.Y, DUTAxis.Z}
+    assert {case.antenna_pol for case in cases} == {AntennaPol.H, AntennaPol.V}
+
+
+def test_nr_select_add_warns_when_position_is_missing(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """Position 미선택 상태에서는 Add가 생성하지 않고 경고한다."""
+
+    dialog = NRSelectDialog()
+    qtbot.addWidget(dialog)
+    warnings: list[tuple[str, str]] = []
+
+    def fake_warning(parent, title, message) -> None:
+        assert parent is dialog
+        warnings.append((title, message))
+
+    monkeypatch.setattr(QMessageBox, "warning", fake_warning)
+    dialog.findChild(QCheckBox, "nrBandCheck_n5").setChecked(True)
+    dialog.findChild(QPushButton, "nrAddButton").click()
+
+    assert warnings == [("NR Select", "LB Axis Position을 선택하세요.")]
 
 
 def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
