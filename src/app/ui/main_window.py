@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import logging
+import sys
+import ctypes
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, QSize, Qt
+from PySide6.QtGui import QShowEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
-    QLabel,
     QMainWindow,
     QPushButton,
     QSizePolicy,
@@ -27,6 +29,16 @@ from app.ui.test_plot_screenshot_panel import TestPlotScreenshotPanel
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_WINDOW_SIZE = QSize(1280, 800)
+_UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
+_GWL_STYLE = -16
+_WS_THICKFRAME = 0x00040000
+_WS_MAXIMIZEBOX = 0x00010000
+_SWP_NOSIZE = 0x0001
+_SWP_NOMOVE = 0x0002
+_SWP_NOZORDER = 0x0004
+_SWP_FRAMECHANGED = 0x0020
+
 
 class MainWindow(QMainWindow):
     """최상위 메인 윈도우. 생성된 Ui_MainWindow를 컴포지션으로 보유."""
@@ -35,8 +47,8 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._ui = Ui_MainWindow()
         self._ui.setupUi(self)
-        self.resize(1280, 800)
-        self.setMinimumSize(1100, 700)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        self._lock_default_window_size()
         self._setup_main_layout()
         self._connect_signals()
 
@@ -80,7 +92,6 @@ class MainWindow(QMainWindow):
             index=0,
             button_text="Instrument\nCheck",
             object_name="instrumentCheck",
-            page_title="Instrument Check",
             page_widget=InstrumentCheckPanel(self._page_stack),
         )
         self._add_navigation_page(
@@ -88,7 +99,6 @@ class MainWindow(QMainWindow):
             index=1,
             button_text="Manual\nTest",
             object_name="manualTest",
-            page_title="Manual Test",
             page_widget=ManualTestPanel(self._page_stack),
         )
         self._add_navigation_page(
@@ -96,7 +106,6 @@ class MainWindow(QMainWindow):
             index=2,
             button_text="RF Filter\nBox",
             object_name="rfFilterBox",
-            page_title="RF Filter Box",
             page_widget=RFFilterBoxPanel(self._page_stack),
         )
         self._add_navigation_page(
@@ -104,7 +113,6 @@ class MainWindow(QMainWindow):
             index=3,
             button_text="Test\nManager",
             object_name="testManager",
-            page_title="Test Manager",
             page_widget=TestManagerPanel(self._page_stack),
         )
         self._add_navigation_page(
@@ -112,7 +120,6 @@ class MainWindow(QMainWindow):
             index=4,
             button_text="Test Plot\nScreenshot",
             object_name="testPlotScreenshot",
-            page_title="Test Plot Screenshot",
             page_widget=TestPlotScreenshotPanel(self._page_stack),
         )
 
@@ -150,12 +157,6 @@ class MainWindow(QMainWindow):
             QWidget#navigationPanel QPushButton[navigationButton="true"]:hover {
                 background: #f1f7ff;
             }
-
-            QLabel#subWindowTitleLabel {
-                color: #222222;
-                font-size: 20px;
-                font-weight: 600;
-            }
             """
         )
 
@@ -166,7 +167,6 @@ class MainWindow(QMainWindow):
         index: int,
         button_text: str,
         object_name: str,
-        page_title: str,
         page_widget: QWidget,
     ) -> None:
         """내비게이션 버튼과 연결된 스택 페이지를 추가한다."""
@@ -184,24 +184,17 @@ class MainWindow(QMainWindow):
         self._navigation_button_group.addButton(button, index)
         navigation_layout.addWidget(button)
 
-        page = self._create_page(page_title, page_widget)
+        page = self._create_page(page_widget)
         page.setObjectName(f"{object_name}Page")
         self._page_stack.addWidget(page)
 
-    def _create_page(self, title: str, content_widget: QWidget) -> QWidget:
+    def _create_page(self, content_widget: QWidget) -> QWidget:
         """서브 윈도우 페이지 공통 외곽을 만든다."""
 
         page = QWidget(self._page_stack)
         page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(18, 14, 18, 18)
-        page_layout.setSpacing(12)
-
-        title_label = QLabel(title, page)
-        title_label.setObjectName("subWindowTitleLabel")
-        title_label.setAlignment(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
-        )
-        page_layout.addWidget(title_label)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.setSpacing(0)
 
         content_widget.setParent(page)
         content_widget.setSizePolicy(
@@ -215,3 +208,80 @@ class MainWindow(QMainWindow):
         """내비게이션 버튼 클릭 시 우측 서브 윈도우를 전환한다."""
 
         self._page_stack.setCurrentIndex(index)
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""
+
+        super().showEvent(event)
+        if self.isMaximized() or self.isFullScreen():
+            self._unlock_window_size()
+            return
+        self._lock_default_window_size()
+
+    def showMaximized(self) -> None:  # noqa: N802
+        """최대화 진입 전 크기 제한을 해제한다."""
+
+        self._unlock_window_size()
+        super().showMaximized()
+
+    def showFullScreen(self) -> None:  # noqa: N802
+        """전체화면 진입 전 크기 제한을 해제한다."""
+
+        self._unlock_window_size()
+        super().showFullScreen()
+
+    def showNormal(self) -> None:  # noqa: N802
+        """일반 창으로 돌아올 때 기본 크기로 다시 고정한다."""
+
+        super().showNormal()
+        self._lock_default_window_size()
+
+    def changeEvent(self, event: QEvent) -> None:  # noqa: N802
+        """타이틀바 상태 전환 시 크기 제한을 갱신한다."""
+
+        super().changeEvent(event)
+        if event.type() != QEvent.Type.WindowStateChange:
+            return
+        if self.isMaximized() or self.isFullScreen():
+            self._unlock_window_size()
+            return
+        self._lock_default_window_size()
+
+    def _lock_default_window_size(self) -> None:
+        """일반 상태에서 창 크기를 기본 크기로 고정한다."""
+
+        self.resize(_DEFAULT_WINDOW_SIZE)
+        self.setMinimumSize(_DEFAULT_WINDOW_SIZE)
+        self.setMaximumSize(_UNBOUNDED_WINDOW_SIZE)
+        self._set_windows_resize_frame_enabled(False)
+
+    def _unlock_window_size(self) -> None:
+        """최대화/전체화면 전환을 위해 크기 제한을 해제한다."""
+
+        self.setMinimumSize(0, 0)
+        self.setMaximumSize(_UNBOUNDED_WINDOW_SIZE)
+        self._set_windows_resize_frame_enabled(True)
+
+    def _set_windows_resize_frame_enabled(self, enabled: bool) -> None:
+        """Windows에서 드래그 resize 테두리만 켜고 끈다."""
+
+        if sys.platform != "win32":
+            return
+
+        hwnd = int(self.winId())
+        style = ctypes.windll.user32.GetWindowLongPtrW(hwnd, _GWL_STYLE)
+        if enabled:
+            style |= _WS_THICKFRAME | _WS_MAXIMIZEBOX
+        else:
+            style = (style & ~_WS_THICKFRAME) | _WS_MAXIMIZEBOX
+
+        ctypes.windll.user32.SetWindowLongPtrW(hwnd, _GWL_STYLE, style)
+        ctypes.windll.user32.SetWindowPos(
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER | _SWP_FRAMECHANGED,
+        )

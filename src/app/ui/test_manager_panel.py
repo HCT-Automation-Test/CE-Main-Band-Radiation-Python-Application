@@ -21,6 +21,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.log_panel import LogPanel
+
 
 _TABLE_HEADERS: tuple[str, ...] = (
     "Generation",
@@ -65,6 +67,11 @@ _INFO_FIELDS: tuple[tuple[str, str], ...] = (
     ("Next Peak Search Level", "nextPeakSearchLevelEdit"),
 )
 
+_TECHNOLOGY_BUTTON_WIDTH = 120
+_TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
+_ACTION_BODY_SPACING = 12
+_LOG_PANEL_WIDTH = 280
+
 
 class TestManagerPanel(QWidget):
     """테스트 케이스 생성, 실행, 로그 출력의 중심 패널."""
@@ -102,21 +109,33 @@ class TestManagerPanel(QWidget):
     def _setup_layout(self) -> None:
         """초안 기준 Test Manager 레이아웃을 구성한다."""
 
-        root_layout = QVBoxLayout(self)
+        root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(8)
+        root_layout.setSpacing(10)
+
+        content_panel = QWidget(self)
+        content_panel.setObjectName("testManagerContentPanel")
+        content_layout = QVBoxLayout(content_panel)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(8)
 
         self._test_case_table = self._create_test_case_table()
-        root_layout.addWidget(self._test_case_table, 1)
+        content_layout.addWidget(self._test_case_table, 1)
 
         bottom_layout = QHBoxLayout()
         bottom_layout.setContentsMargins(0, 0, 0, 0)
         bottom_layout.setSpacing(10)
-        root_layout.addLayout(bottom_layout)
+        content_layout.addLayout(bottom_layout)
 
         bottom_layout.addWidget(self._create_left_panel(), 3)
-        bottom_layout.addWidget(self._create_center_panel(), 3)
-        bottom_layout.addWidget(self._create_technology_panel())
+        bottom_layout.addWidget(self._create_center_panel(), 4)
+
+        self._log_panel = LogPanel(self)
+        self._log_panel.setObjectName("testManagerLogPanel")
+        self._log_panel.setFixedWidth(_LOG_PANEL_WIDTH)
+
+        root_layout.addWidget(content_panel, 1)
+        root_layout.addWidget(self._log_panel)
 
     def _create_test_case_table(self) -> QTableWidget:
         """확장 실행용 Test Case 표를 만든다."""
@@ -306,7 +325,7 @@ class TestManagerPanel(QWidget):
         panel = QWidget(self)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(_ACTION_BODY_SPACING)
 
         action_layout = QHBoxLayout()
         action_layout.setContentsMargins(0, 0, 0, 0)
@@ -324,7 +343,12 @@ class TestManagerPanel(QWidget):
             action_layout.addWidget(button)
         layout.addLayout(action_layout)
 
-        layout.addWidget(self._create_info_group(), 1)
+        body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(10)
+        body_layout.addWidget(self._create_info_group(), 1)
+        body_layout.addWidget(self._create_technology_panel())
+        layout.addLayout(body_layout, 1)
         return panel
 
     def _create_info_group(self) -> QGroupBox:
@@ -354,7 +378,7 @@ class TestManagerPanel(QWidget):
 
         panel = QWidget(self)
         panel.setObjectName("technologyButtonPanel")
-        panel.setFixedWidth(154)
+        panel.setFixedWidth(_TECHNOLOGY_BUTTON_WIDTH)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
@@ -368,10 +392,14 @@ class TestManagerPanel(QWidget):
         ):
             button = QPushButton(text, panel)
             button.setObjectName(object_name)
-            button.setMinimumHeight(48)
+            button.setFixedWidth(_TECHNOLOGY_BUTTON_WIDTH)
+            button.setMinimumHeight(_TECHNOLOGY_BUTTON_MIN_HEIGHT)
+            button.setSizePolicy(
+                QSizePolicy.Policy.Fixed,
+                QSizePolicy.Policy.Expanding,
+            )
             layout.addWidget(button)
 
-        layout.addStretch(1)
         return panel
 
     def _create_labeled_edit(

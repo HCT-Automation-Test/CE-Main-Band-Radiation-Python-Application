@@ -1,10 +1,14 @@
 """MainWindow 서브 패널 스캐폴드 테스트."""
 from __future__ import annotations
 
+import logging
+
+from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QLineEdit,
+    QPlainTextEdit,
     QPushButton,
     QStackedWidget,
     QTableWidget,
@@ -12,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.instrument_check_panel import InstrumentCheckPanel
+from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.nr_select import NRSelectDialog
@@ -20,6 +25,9 @@ from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
 from app.ui.test_plot_screenshot_panel import (
     TestPlotScreenshotPanel as PlotScreenshotPanel,
 )
+
+DEFAULT_WINDOW_SIZE = QSize(1280, 800)
+UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
 
 
 def test_main_window_has_five_navigation_buttons_and_pages(qtbot) -> None:
@@ -70,6 +78,115 @@ def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
     for index, panel_class in enumerate(expected_panels):
         page = stack.widget(index)
         assert page.findChild(panel_class) is not None
+
+
+def test_main_window_page_content_aligns_with_navigation_panel(qtbot) -> None:
+    """좌측 버튼 영역과 우측 서브패널 content 영역의 위치/크기를 맞춘다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.resize(1280, 800)
+    window.show()
+    qtbot.wait(0)
+
+    navigation_panel = window.findChild(QWidget, "navigationPanel")
+    stack = window.findChild(QStackedWidget, "subWindowStack")
+
+    assert navigation_panel is not None
+    assert stack is not None
+    assert window.findChild(QWidget, "subWindowTitleLabel") is None
+
+    navigation_origin = navigation_panel.mapTo(window, QPoint(0, 0))
+    stack_origin = stack.mapTo(window, QPoint(0, 0))
+
+    assert stack_origin.y() == navigation_origin.y()
+    assert stack.height() == navigation_panel.height()
+
+    expected_panels = [
+        InstrumentCheckPanel,
+        ManualTestPanel,
+        RFFilterBoxPanel,
+        ManagerPanel,
+        PlotScreenshotPanel,
+    ]
+
+    for index, panel_class in enumerate(expected_panels):
+        stack.setCurrentIndex(index)
+        qtbot.wait(0)
+
+        page = stack.widget(index)
+        panel = page.findChild(panel_class)
+        assert panel is not None
+
+        panel_origin = panel.mapTo(window, QPoint(0, 0))
+        assert panel_origin.x() == stack_origin.x()
+        assert panel_origin.y() == navigation_origin.y()
+        assert panel.width() == stack.width()
+        assert panel.height() == navigation_panel.height()
+
+
+def test_main_window_uses_fixed_default_size_in_normal_state(qtbot) -> None:
+    """일반 창 상태에서는 기본 크기보다 작아지지 않게 한다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.wait(0)
+
+    assert window.size() == DEFAULT_WINDOW_SIZE
+    assert window.minimumSize() == DEFAULT_WINDOW_SIZE
+    assert window.maximumSize() == UNBOUNDED_WINDOW_SIZE
+
+    window.resize(1180, 740)
+    qtbot.wait(0)
+
+    assert window.size() == DEFAULT_WINDOW_SIZE
+
+
+def test_main_window_allows_maximized_state(qtbot) -> None:
+    """최대화 상태는 기본 크기 복귀 예외로 허용한다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.wait(0)
+
+    window.showMaximized()
+    qtbot.waitUntil(window.isMaximized, timeout=1000)
+    assert window.windowState() & Qt.WindowState.WindowMaximized
+    assert window.maximumSize() == UNBOUNDED_WINDOW_SIZE
+
+    window.showNormal()
+    qtbot.waitUntil(lambda: not window.isMaximized(), timeout=1000)
+    qtbot.waitUntil(
+        lambda: window.size() == DEFAULT_WINDOW_SIZE,
+        timeout=1000,
+    )
+    assert window.minimumSize() == DEFAULT_WINDOW_SIZE
+    assert window.maximumSize() == UNBOUNDED_WINDOW_SIZE
+
+
+def test_main_window_allows_fullscreen_state(qtbot) -> None:
+    """전체화면 상태는 기본 크기 복귀 예외로 허용한다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.wait(0)
+
+    window.showFullScreen()
+    qtbot.waitUntil(window.isFullScreen, timeout=1000)
+    assert window.windowState() & Qt.WindowState.WindowFullScreen
+    assert window.maximumSize() == UNBOUNDED_WINDOW_SIZE
+
+    window.showNormal()
+    qtbot.waitUntil(lambda: not window.isFullScreen(), timeout=1000)
+    qtbot.waitUntil(
+        lambda: window.size() == DEFAULT_WINDOW_SIZE,
+        timeout=1000,
+    )
+    assert window.minimumSize() == DEFAULT_WINDOW_SIZE
+    assert window.maximumSize() == UNBOUNDED_WINDOW_SIZE
 
 
 def test_main_window_session_inputs_are_moved_to_test_manager(qtbot) -> None:
@@ -159,6 +276,67 @@ def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
     assert panel.findChild(QWidget, "technologyButtonPanel") is not None
 
 
+def test_log_panel_mirrors_logging_messages(qtbot) -> None:
+    """LogPanel이 logging 메시지를 QPlainTextEdit에 표시한다."""
+
+    logger = logging.getLogger("tests.ui.log_panel")
+    original_level = logger.level
+    original_propagate = logger.propagate
+    original_handlers = list(logger.handlers)
+    for handler in original_handlers:
+        logger.removeHandler(handler)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+    panel = LogPanel(logger=logger)
+    qtbot.addWidget(panel)
+
+    try:
+        logger.info("hello ui log")
+
+        qtbot.waitUntil(
+            lambda: "hello ui log" in panel.text_edit.toPlainText(),
+            timeout=1000,
+        )
+
+        log_edit = panel.findChild(QPlainTextEdit, "logTextEdit")
+        assert log_edit is not None
+        assert log_edit.isReadOnly()
+    finally:
+        panel.detach_logging()
+        logger.setLevel(original_level)
+        logger.propagate = original_propagate
+        for handler in list(logger.handlers):
+            logger.removeHandler(handler)
+        for handler in original_handlers:
+            logger.addHandler(handler)
+
+
+def test_test_manager_panel_has_right_log_panel(qtbot) -> None:
+    """Test Manager 오른쪽 전체 높이에 로그 패널을 배치한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.resize(1100, 700)
+    panel.show()
+    qtbot.wait(0)
+
+    content_panel = panel.findChild(QWidget, "testManagerContentPanel")
+    log_panel = panel.findChild(LogPanel, "testManagerLogPanel")
+    log_edit = panel.findChild(QPlainTextEdit, "logTextEdit")
+
+    assert content_panel is not None
+    assert log_panel is not None
+    assert log_edit is not None
+    assert log_panel.x() > content_panel.x()
+    assert log_panel.y() == 0
+    assert log_panel.width() == 280
+    assert log_panel.height() == panel.height()
+    assert log_edit.y() == 0
+    assert log_edit.height() == log_panel.height()
+    assert log_edit.isReadOnly()
+
+
 def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
     """Test Manager 주요 버튼이 화면에 표시할 문구를 가진다."""
 
@@ -187,6 +365,52 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         assert button is not None
         assert button.text().strip()
         assert button.text() == expected_text
+
+
+def test_test_manager_panel_technology_buttons_match_info_group_height(
+    qtbot,
+) -> None:
+    """우측 RAT/Case 버튼 영역을 Info 박스 높이에 맞춘다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.resize(1100, 700)
+    panel.show()
+    qtbot.wait(0)
+
+    action_button = panel.findChild(QPushButton, "startButton")
+    save_button = panel.findChild(QPushButton, "saveItemButton")
+    info_group = panel.findChild(QGroupBox, "infoGroupBox")
+    technology_panel = panel.findChild(QWidget, "technologyButtonPanel")
+
+    assert action_button is not None
+    assert save_button is not None
+    assert info_group is not None
+    assert technology_panel is not None
+    assert action_button.height() == 38
+    assert technology_panel.y() == info_group.y()
+    assert technology_panel.height() == info_group.height()
+    assert technology_panel.y() - (save_button.y() + save_button.height()) == 12
+
+    button_heights = []
+    for object_name in (
+        "nrButton",
+        "lteButton",
+        "wcdmaButton",
+        "gsmButton",
+        "caseConfirmButton",
+    ):
+        button = panel.findChild(QPushButton, object_name)
+
+        assert button is not None
+        assert button.width() == 120
+        assert button.height() >= action_button.height()
+        assert button.minimumWidth() == 120
+        assert button.maximumWidth() == 120
+        assert button.minimumHeight() == 38
+        button_heights.append(button.height())
+
+    assert sum(button_heights) + (8 * 4) == technology_panel.height()
 
 
 def test_test_manager_panel_excel_browse_button_sets_selected_path(
