@@ -5,6 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QBrush, QColor, QPalette
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -79,6 +80,8 @@ _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
 _ACTION_BODY_SPACING = 12
 _LOG_PANEL_WIDTH = 280
+_TABLE_TEXT_COLOR = QColor("#111111")
+_TABLE_SELECTION_COLOR = QColor("#dcecff")
 
 
 class TestManagerPanel(QWidget):
@@ -158,6 +161,8 @@ class TestManagerPanel(QWidget):
         table = QTableWidget(0, len(_TABLE_HEADERS), self)
         table.setObjectName("testCaseTable")
         table.setHorizontalHeaderLabels(_TABLE_HEADERS)
+        self._apply_test_case_table_palette(table)
+        self._apply_test_case_header_colors(table)
         table.setAlternatingRowColors(True)
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -173,6 +178,24 @@ class TestManagerPanel(QWidget):
         horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.verticalHeader().setVisible(False)
         return table
+
+    def _apply_test_case_table_palette(self, table: QTableWidget) -> None:
+        """TestCase 표의 셀 텍스트를 테마와 무관하게 읽히도록 고정한다."""
+
+        palette = table.palette()
+        palette.setColor(QPalette.ColorRole.Text, _TABLE_TEXT_COLOR)
+        palette.setColor(QPalette.ColorRole.WindowText, _TABLE_TEXT_COLOR)
+        palette.setColor(QPalette.ColorRole.HighlightedText, _TABLE_TEXT_COLOR)
+        palette.setColor(QPalette.ColorRole.Highlight, _TABLE_SELECTION_COLOR)
+        table.setPalette(palette)
+
+    def _apply_test_case_header_colors(self, table: QTableWidget) -> None:
+        """TestCase 표 헤더 글자색을 셀과 맞춘다."""
+
+        for column in range(table.columnCount()):
+            header_item = table.horizontalHeaderItem(column)
+            if header_item is not None:
+                header_item.setForeground(QBrush(_TABLE_TEXT_COLOR))
 
     def _connect_signals(self) -> None:
         """경로 선택 버튼 시그널을 연결한다."""
@@ -549,6 +572,7 @@ class TestManagerPanel(QWidget):
         for column, value in enumerate(self._row_values_for_case(case)):
             item = QTableWidgetItem(value)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            item.setForeground(QBrush(_TABLE_TEXT_COLOR))
             self._test_case_table.setItem(row, column, item)
 
     def _row_values_for_case(self, case: TestCase) -> tuple[str, ...]:

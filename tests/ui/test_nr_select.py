@@ -1,6 +1,7 @@
 """NR Select 팝업 동작 테스트."""
 from __future__ import annotations
 
+from PySide6.QtGui import QPalette
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QCheckBox, QComboBox, QPushButton, QTableWidget, QWidget
 
@@ -169,6 +170,9 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert table.item(0, 12).text() == "harmonic"
     assert table.item(0, 13).text() == "6000"
     assert table.item(0, 14).text() == "18000"
+    assert table.item(0, 0).foreground().color().name() == "#111111"
+    assert table.palette().color(QPalette.ColorRole.Text).name() == "#111111"
+    assert table.palette().color(QPalette.ColorRole.HighlightedText).name() == "#111111"
 
 
 def test_test_manager_nr_button_opens_dialog_and_appends_cases(
