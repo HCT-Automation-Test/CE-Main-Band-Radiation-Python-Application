@@ -1,9 +1,12 @@
 """Test Manager 서브 패널."""
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QFileDialog,
     QFrame,
     QGridLayout,
     QGroupBox,
@@ -69,7 +72,32 @@ class TestManagerPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._setup_layout()
+        self._connect_signals()
         self._apply_styles()
+
+    @property
+    def eut_name(self) -> str:
+        """UI에 입력된 EUT 이름을 반환한다."""
+
+        return self._eut_name_edit.text().strip()
+
+    @property
+    def excel_template_path(self) -> Path | None:
+        """UI에서 선택한 Excel 양식 경로를 반환한다."""
+
+        value = self._excel_template_path_edit.text().strip()
+        if not value:
+            return None
+        return Path(value)
+
+    @property
+    def screenshot_root_dir(self) -> Path | None:
+        """UI에서 선택한 스크린샷 저장 루트 디렉터리를 반환한다."""
+
+        value = self._screenshot_root_edit.text().strip()
+        if not value:
+            return None
+        return Path(value)
 
     def _setup_layout(self) -> None:
         """초안 기준 Test Manager 레이아웃을 구성한다."""
@@ -112,6 +140,16 @@ class TestManagerPanel(QWidget):
         table.verticalHeader().setVisible(False)
         return table
 
+    def _connect_signals(self) -> None:
+        """경로 선택 버튼 시그널을 연결한다."""
+
+        self._excel_template_browse_button.clicked.connect(
+            self.on_excel_template_browse_clicked,
+        )
+        self._screenshot_root_browse_button.clicked.connect(
+            self.on_screenshot_root_browse_clicked,
+        )
+
     def _create_left_panel(self) -> QWidget:
         """EUT 입력과 좌측 하단 제어 영역을 만든다."""
 
@@ -136,6 +174,7 @@ class TestManagerPanel(QWidget):
         current_factor_label = QLabel("Current Factor", panel)
         self._current_factor_edit = QLineEdit(panel)
         self._current_factor_edit.setObjectName("currentFactorEdit")
+        self._current_factor_edit.setReadOnly(True)
         current_factor_layout.addWidget(current_factor_label)
         current_factor_layout.addWidget(self._current_factor_edit, 1)
         layout.addLayout(current_factor_layout)
@@ -163,6 +202,10 @@ class TestManagerPanel(QWidget):
                 label.setProperty("summaryLabel", True)
             edit = QLineEdit(panel)
             edit.setObjectName(object_name)
+            if object_name == "eutNameEdit":
+                self._eut_name_edit = edit
+            else:
+                edit.setReadOnly(True)
             layout.addWidget(label, 0, column)
             layout.addWidget(edit, 1, column)
             layout.setColumnStretch(column, 1)
@@ -180,12 +223,14 @@ class TestManagerPanel(QWidget):
 
         self._excel_template_path_edit = QLineEdit(panel)
         self._excel_template_path_edit.setObjectName("excelTemplatePathEdit")
-        self._excel_template_browse_button = QPushButton("...", panel)
+        self._excel_template_path_edit.setReadOnly(True)
+        self._excel_template_browse_button = QPushButton("찾기", panel)
         self._excel_template_browse_button.setObjectName("excelTemplateBrowseButton")
 
         self._screenshot_root_edit = QLineEdit(panel)
         self._screenshot_root_edit.setObjectName("screenshotRootEdit")
-        self._screenshot_root_browse_button = QPushButton("...", panel)
+        self._screenshot_root_edit.setReadOnly(True)
+        self._screenshot_root_browse_button = QPushButton("찾기", panel)
         self._screenshot_root_browse_button.setObjectName("screenshotRootBrowseButton")
 
         layout.addWidget(QLabel("Excel Template", panel), 0, 0)
@@ -267,12 +312,12 @@ class TestManagerPanel(QWidget):
         action_layout.setContentsMargins(0, 0, 0, 0)
         action_layout.setSpacing(6)
         for text, object_name in (
-            ("Start", "startButton"),
-            ("Pause", "pauseButton"),
-            ("Delete", "deleteButton"),
-            ("Clear", "clearButton"),
-            ("Load Item", "loadItemButton"),
-            ("Save Item", "saveItemButton"),
+            ("시작", "startButton"),
+            ("일시정지", "pauseButton"),
+            ("삭제", "deleteButton"),
+            ("초기화", "clearButton"),
+            ("불러오기", "loadItemButton"),
+            ("저장", "saveItemButton"),
         ):
             button = QPushButton(text, panel)
             button.setObjectName(object_name)
@@ -345,6 +390,7 @@ class TestManagerPanel(QWidget):
         label = QLabel(label_text, field)
         edit = QLineEdit(field)
         edit.setObjectName(object_name)
+        edit.setReadOnly(True)
         layout.addWidget(label)
         layout.addWidget(edit)
         return field
@@ -390,8 +436,10 @@ class TestManagerPanel(QWidget):
             QPushButton {
                 border: 1px solid #3f73a8;
                 background: #f8f8f8;
+                color: #111111;
+                font-size: 14px;
                 min-height: 28px;
-                padding: 3px 8px;
+                padding: 4px 10px;
             }
 
             QPushButton:hover {
@@ -409,3 +457,26 @@ class TestManagerPanel(QWidget):
             }
             """
         )
+
+    def on_excel_template_browse_clicked(self) -> None:
+        """Excel 양식 파일을 선택해 입력칸에 반영한다."""
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Excel 양식 선택",
+            self._excel_template_path_edit.text().strip(),
+            "Excel Files (*.xlsx *.xlsm);;All Files (*)",
+        )
+        if file_path:
+            self._excel_template_path_edit.setText(str(Path(file_path)))
+
+    def on_screenshot_root_browse_clicked(self) -> None:
+        """스크린샷 저장 루트 디렉터리를 선택해 입력칸에 반영한다."""
+
+        directory = QFileDialog.getExistingDirectory(
+            self,
+            "스크린샷 저장 경로 선택",
+            self._screenshot_root_edit.text().strip(),
+        )
+        if directory:
+            self._screenshot_root_edit.setText(str(Path(directory)))
