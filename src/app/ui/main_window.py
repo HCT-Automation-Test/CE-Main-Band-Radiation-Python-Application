@@ -29,7 +29,7 @@ from app.ui.test_plot_screenshot_panel import TestPlotScreenshotPanel
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_WINDOW_SIZE = QSize(1280, 800)
+_DEFAULT_WINDOW_SIZE = QSize(1600, 900)
 _UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
 _GWL_STYLE = -16
 _WS_THICKFRAME = 0x00040000

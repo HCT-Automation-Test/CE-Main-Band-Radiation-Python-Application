@@ -26,7 +26,7 @@ from app.ui.test_plot_screenshot_panel import (
     TestPlotScreenshotPanel as PlotScreenshotPanel,
 )
 
-DEFAULT_WINDOW_SIZE = QSize(1280, 800)
+DEFAULT_WINDOW_SIZE = QSize(1600, 900)
 UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
 
 
@@ -238,6 +238,51 @@ def test_test_manager_panel_has_extended_test_case_table(qtbot) -> None:
         "Axis",
         "Pol",
     ]
+    assert not table.horizontalHeader().stretchLastSection()
+
+
+def test_test_manager_panel_test_case_table_fits_default_window(qtbot) -> None:
+    """기본 창 크기에서 TestCase 표가 가로로 잘리지 않는다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    stack = window.findChild(QStackedWidget, "subWindowStack")
+    assert stack is not None
+    stack.setCurrentIndex(3)
+
+    window.show()
+    qtbot.wait(0)
+
+    table = window.findChild(QTableWidget, "testCaseTable")
+
+    assert window.size() == DEFAULT_WINDOW_SIZE
+    assert table is not None
+    assert table.horizontalScrollBar().maximum() == 0
+
+
+def test_test_manager_panel_test_case_table_distributes_extra_width(qtbot) -> None:
+    """넓은 화면에서 마지막 열만 과하게 늘어나지 않게 폭을 배분한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.resize(1700, 760)
+    panel.show()
+    qtbot.wait(0)
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    generation_width = table.columnWidth(0)
+    modulation_width = table.columnWidth(5)
+    rb_allocation_width = table.columnWidth(6)
+    arfc_width = table.columnWidth(10)
+    pol_width = table.columnWidth(16)
+
+    assert table.horizontalScrollBar().maximum() == 0
+    assert pol_width < modulation_width
+    assert pol_width < rb_allocation_width
+    assert pol_width < arfc_width
+    assert modulation_width > generation_width
 
 
 def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:

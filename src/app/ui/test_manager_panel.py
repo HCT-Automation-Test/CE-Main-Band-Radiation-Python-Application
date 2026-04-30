@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QBrush, QColor, QPalette
+from PySide6.QtGui import QBrush, QColor, QPalette, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -82,6 +82,46 @@ _ACTION_BODY_SPACING = 12
 _LOG_PANEL_WIDTH = 280
 _TABLE_TEXT_COLOR = QColor("#111111")
 _TABLE_SELECTION_COLOR = QColor("#dcecff")
+_TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
+    82,  # Generation
+    50,  # Band
+    70,  # EUT ANT
+    42,  # SCS
+    44,  # BW
+    86,  # Modulation
+    96,  # RB Allocation
+    62,  # RB Size
+    74,  # RB Offset
+    38,  # CH
+    70,  # ARFCN
+    70,  # CH_No.
+    58,  # Case
+    78,  # Start Freq
+    78,  # Stop Freq
+    42,  # Axis
+    42,  # Pol
+)
+_TABLE_COLUMN_STRETCH_WEIGHTS: tuple[int, ...] = (
+    2,  # Generation
+    0,  # Band
+    2,  # EUT ANT
+    0,  # SCS
+    0,  # BW
+    4,  # Modulation
+    4,  # RB Allocation
+    2,  # RB Size
+    2,  # RB Offset
+    0,  # CH
+    4,  # ARFCN
+    4,  # CH_No.
+    2,  # Case
+    4,  # Start Freq
+    4,  # Stop Freq
+    0,  # Axis
+    0,  # Pol
+)
+_TABLE_COLUMN_BASE_TOTAL = sum(_TABLE_COLUMN_BASE_WIDTHS)
+_TABLE_COLUMN_STRETCH_TOTAL = sum(_TABLE_COLUMN_STRETCH_WEIGHTS)
 
 
 class TestManagerPanel(QWidget):
@@ -174,10 +214,51 @@ class TestManagerPanel(QWidget):
         )
 
         horizontal_header = table.horizontalHeader()
-        horizontal_header.setStretchLastSection(True)
-        horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        horizontal_header.setStretchLastSection(False)
+        horizontal_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        horizontal_header.setMinimumSectionSize(32)
+        horizontal_header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         table.verticalHeader().setVisible(False)
+        self._apply_test_case_column_widths(table)
         return table
+
+    def _apply_test_case_column_widths(self, table: QTableWidget | None = None) -> None:
+        """남는 표 폭을 긴 정보 컬럼 위주로 가중 배분한다."""
+
+        target_table = table
+        if target_table is None:
+            if not hasattr(self, "_test_case_table"):
+                return
+            target_table = self._test_case_table
+
+        viewport_width = target_table.viewport().width()
+        if viewport_width <= 0:
+            viewport_width = target_table.width() - (target_table.frameWidth() * 2)
+        available_width = max(viewport_width, _TABLE_COLUMN_BASE_TOTAL)
+        extra_width = max(0, available_width - _TABLE_COLUMN_BASE_TOTAL)
+        widths = list(_TABLE_COLUMN_BASE_WIDTHS)
+
+        if extra_width and _TABLE_COLUMN_STRETCH_TOTAL:
+            distributed = 0
+            for column, weight in enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS):
+                extra_for_column = (extra_width * weight) // _TABLE_COLUMN_STRETCH_TOTAL
+                widths[column] += extra_for_column
+                distributed += extra_for_column
+
+            weighted_columns = [
+                column
+                for column, weight in sorted(
+                    enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS),
+                    key=lambda item: (-item[1], item[0]),
+                )
+                if weight > 0
+            ]
+            remaining = extra_width - distributed
+            for index in range(remaining):
+                widths[weighted_columns[index % len(weighted_columns)]] += 1
+
+        for column, width in enumerate(widths):
+            target_table.setColumnWidth(column, width)
 
     def _apply_test_case_table_palette(self, table: QTableWidget) -> None:
         """TestCase 표의 셀 텍스트를 테마와 무관하게 읽히도록 고정한다."""
@@ -526,6 +607,12 @@ class TestManagerPanel(QWidget):
             }
             """
         )
+
+    def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
+        """패널 폭 변경 시 TestCase 표 컬럼 폭을 다시 배분한다."""
+
+        super().resizeEvent(event)
+        self._apply_test_case_column_widths()
 
     def on_excel_template_browse_clicked(self) -> None:
         """Excel 양식 파일을 선택해 입력칸에 반영한다."""
