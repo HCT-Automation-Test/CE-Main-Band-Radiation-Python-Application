@@ -1,6 +1,7 @@
 """Test Manager 서브 패널."""
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 
 from PySide6.QtCore import Qt
@@ -17,11 +18,18 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from app.models.nr_channel_lookup import (
+    resolve_call_channel,
+    resolve_target_frequency_mhz,
+)
+from app.models.test_case import TestCase
 from app.ui.log_panel import LogPanel
+from app.ui.nr_select import NRSelectDialog
 
 
 _TABLE_HEADERS: tuple[str, ...] = (
@@ -78,6 +86,7 @@ class TestManagerPanel(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._test_cases: list[TestCase] = []
         self._setup_layout()
         self._connect_signals()
         self._apply_styles()
@@ -105,6 +114,12 @@ class TestManagerPanel(QWidget):
         if not value:
             return None
         return Path(value)
+
+    @property
+    def test_cases(self) -> tuple[TestCase, ...]:
+        """Test Manager 표에 추가된 TestCase 목록을 반환한다."""
+
+        return tuple(self._test_cases)
 
     def _setup_layout(self) -> None:
         """초안 기준 Test Manager 레이아웃을 구성한다."""
@@ -168,6 +183,7 @@ class TestManagerPanel(QWidget):
         self._screenshot_root_browse_button.clicked.connect(
             self.on_screenshot_root_browse_clicked,
         )
+        self._nr_button.clicked.connect(self.on_nr_button_clicked)
 
     def _create_left_panel(self) -> QWidget:
         """EUT 입력과 좌측 하단 제어 영역을 만든다."""
@@ -398,6 +414,8 @@ class TestManagerPanel(QWidget):
                 QSizePolicy.Policy.Fixed,
                 QSizePolicy.Policy.Expanding,
             )
+            if object_name == "nrButton":
+                self._nr_button = button
             layout.addWidget(button)
 
         return panel
@@ -508,3 +526,76 @@ class TestManagerPanel(QWidget):
         )
         if directory:
             self._screenshot_root_edit.setText(str(Path(directory)))
+
+    def on_nr_button_clicked(self) -> None:
+        """NR 버튼 클릭 시 TestCase 선택 팝업을 연다."""
+
+        dialog = NRSelectDialog(self)
+        dialog.test_cases_created.connect(self.add_test_cases)
+        dialog.exec()
+
+    def add_test_cases(self, cases: Iterable[TestCase]) -> None:
+        """생성된 TestCase를 내부 목록과 표에 추가한다."""
+
+        for case in cases:
+            self._test_cases.append(case)
+            self._append_test_case_row(case)
+
+    def _append_test_case_row(self, case: TestCase) -> None:
+        """TestCase 하나를 실행 표에 표시한다."""
+
+        row = self._test_case_table.rowCount()
+        self._test_case_table.insertRow(row)
+        for column, value in enumerate(self._row_values_for_case(case)):
+            item = QTableWidgetItem(value)
+            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            self._test_case_table.setItem(row, column, item)
+
+    def _row_values_for_case(self, case: TestCase) -> tuple[str, ...]:
+        """확장 TestCase 표 컬럼 순서에 맞춰 표시값을 만든다."""
+
+        test_range = case.range_definition
+        return (
+            "NR",
+            self._format_band_label(case),
+            case.dut_ant_position.value,
+            str(case.scs_khz),
+            self._format_number(case.bandwidth),
+            case.modulation.value,
+            case.rb_allocation.value,
+            str(case.rb_size),
+            str(case.rb_offset),
+            case.test_channel.value,
+            self._safe_call_channel(case),
+            # TODO(spec): CH_No. 컬럼 의미가 확정되면 표시값을 조정한다.
+            self._safe_target_frequency(case),
+            case.test_type.value,
+            self._format_number(test_range.start_freq),
+            self._format_number(test_range.stop_freq),
+            case.dut_axis.value,
+            case.antenna_pol.value,
+        )
+
+    def _format_band_label(self, case: TestCase) -> str:
+        return f"B{case.band.value[1:]}"
+
+    def _format_number(self, value: float) -> str:
+        return format(float(value), ".15g")
+
+    def _safe_call_channel(self, case: TestCase) -> str:
+        try:
+            return str(resolve_call_channel(case.band, case.bandwidth, case.test_channel))
+        except ValueError:
+            return ""
+
+    def _safe_target_frequency(self, case: TestCase) -> str:
+        try:
+            return self._format_number(
+                resolve_target_frequency_mhz(
+                    case.band,
+                    case.bandwidth,
+                    case.test_channel,
+                ),
+            )
+        except ValueError:
+            return ""
