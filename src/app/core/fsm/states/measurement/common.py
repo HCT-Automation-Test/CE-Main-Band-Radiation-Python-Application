@@ -29,7 +29,7 @@ _POLL_INTERVAL_SEC = 0.2
 _SETTLING_SEC = 5.0
 
 # TODO(spec): 외부 프로그램과 합의 후 command 이름 확정
-_TARGET_TURNTABLE = "co3000"
+_TARGET_TURNTABLE = "CO3000"
 _COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
 _COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
@@ -22,6 +23,7 @@ _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
 _COMMAND_NR_CALL = "NR Call"
+_COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
@@ -42,11 +44,80 @@ class CommandError(RuntimeError):
     """외부 프로그램 command 응답 오류."""
 
 
-def connect_equipment(client: Any) -> dict[str, bool]:
+@dataclass(frozen=True)
+class EquipmentConnectionConfig:
+    """장비 연결에 필요한 Python 내부 설정값."""
+
+    fsv40_visa_resource: str
+    mt8000a_visa_resource: str
+    co3000_visa_resource: str
+    controller_3d_visa_resource: str
+    switch_box_ip_address: str
+    switch_box_port: int
+
+
+def _normalize_modulation(modulation: Modulation | str) -> str:
+    value = modulation.value if isinstance(modulation, Modulation) else str(modulation)
+    if value == "pi/2 BPSK":
+        return "PI/2 BPSK"
+    return value
+
+
+def _build_mt8000_params(
+    *,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+    max_retry_count: int,
+    waiting_time: int,
+) -> dict[str, Any]:
+    return {
+        "Band": int(band),
+        "BandWidth": int(bw),
+        "Center Channel": int(channel),
+        "RB Size": int(rb_size),
+        "RB Offset": int(rb_offset),
+        "Modulation": _normalize_modulation(modulation),
+        "Max Retry Count": int(max_retry_count),
+        "Waiting Time": int(waiting_time),
+    }
+
+
+def _build_connect_params(
+    config: EquipmentConnectionConfig | None,
+    target: str,
+) -> dict[str, Any]:
+    if config is None:
+        return {}
+    if target == _TARGET_FSV40:
+        return {"VISA Resource": config.fsv40_visa_resource}
+    if target == _TARGET_MT8000A:
+        return {"VISA Resource": config.mt8000a_visa_resource}
+    if target == _TARGET_CO3000:
+        return {"VISA Resource": config.co3000_visa_resource}
+    if target == _TARGET_SWITCH_BOX:
+        return {
+            "ip address": config.switch_box_ip_address,
+            "port": int(config.switch_box_port),
+        }
+    if target == _TARGET_3D_CONTROLLER:
+        return {"VISA Resource": config.controller_3d_visa_resource}
+    return {}
+
+
+def connect_equipment(
+    client: Any,
+    *,
+    config: EquipmentConnectionConfig | None = None,
+) -> dict[str, bool]:
     """LabVIEW 프로그램을 통해 장비 연결/상태 확인을 수행한다."""
     states: dict[str, bool] = {}
     for target in _CONNECT_TARGETS:
-        response = _send_request(client, target, _COMMAND_CONNECT)
+        params = _build_connect_params(config, target)
+        response = _send_request(client, target, _COMMAND_CONNECT, params)
         states[target] = _action_ok(response, target, _COMMAND_CONNECT)
     return states
 
@@ -57,10 +128,12 @@ def setup_mt8000(
     *,
     band: int,
     bw: int,
-    modulation: Modulation,
+    modulation: Modulation | str,
     rb_size: int,
     rb_offset: int,
     channel: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
 ) -> bool:
     """MT8000A 셋업. §4.1.
 
@@ -72,21 +145,49 @@ def setup_mt8000(
         client,
         _TARGET_MT8000A,
         _COMMAND_NR_CALL,
-        {
-            "band": int(band),
-            "bw": int(bw),
-            "modulation": modulation.value,
-            "rb_size": int(rb_size),
-            "rb_offset": int(rb_offset),
-            "channel": int(channel),
-        },
+        _build_mt8000_params(
+            band=band,
+            bw=bw,
+            modulation=modulation,
+            rb_size=rb_size,
+            rb_offset=rb_offset,
+            channel=channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_CALL)
 
 
-def call_connect(client: Any) -> bool:
-    """Call Connect 수행. §4.2."""
-    raise NotImplementedError("spec TODO: send_request command name pending")
+def call_handover(
+    client: Any,
+    *,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
+) -> bool:
+    """Call Handover 수행."""
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_NR_HANDOVER,
+        _build_mt8000_params(
+            band=band,
+            bw=bw,
+            modulation=modulation,
+            rb_size=rb_size,
+            rb_offset=rb_offset,
+            channel=channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
+    )
+    return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_HANDOVER)
 
 
 def measure_fundamental(client: Any, *, target_freq: float) -> float:
@@ -95,7 +196,7 @@ def measure_fundamental(client: Any, *, target_freq: float) -> float:
         client,
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
-        {"target_freq_mhz": float(target_freq)},
+        {"Center Frequency": float(target_freq)},
     )
     result = _result_dict(
         response,
@@ -104,7 +205,7 @@ def measure_fundamental(client: Any, *, target_freq: float) -> float:
     )
     return _number(
         result,
-        "frequency_mhz",
+        "Fundamental Frequency",
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
     )
@@ -116,7 +217,7 @@ def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPat
         client,
         _TARGET_SWITCH_BOX,
         _COMMAND_SET_INPUT,
-        {"input_path": int(input_path)},
+        {"Input Path": int(input_path)},
     )
     input_ok = _action_ok(input_response, _TARGET_SWITCH_BOX, _COMMAND_SET_INPUT)
     if not input_ok:
@@ -126,7 +227,7 @@ def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPat
         client,
         _TARGET_SWITCH_BOX,
         _COMMAND_SET_FILTER,
-        {"filter_path": int(filter_path)},
+        {"Filter Path": int(filter_path)},
     )
     return _action_ok(filter_response, _TARGET_SWITCH_BOX, _COMMAND_SET_FILTER)
 
@@ -138,14 +239,14 @@ def setup_sa(client: Any, test_range: TestRange) -> bool:
         _TARGET_FSV40,
         _COMMAND_LOAD_SA_RANGE_SETTING,
         {
-            "range_id": int(test_range.id),
-            "range_name": test_range.name,
-            "start_freq_mhz": float(test_range.start_freq),
-            "stop_freq_mhz": float(test_range.stop_freq),
-            "rbw_mhz": float(test_range.rbw),
-            "vbw_mhz": float(test_range.vbw),
-            "limit_dbm": float(test_range.limit),
-            "sweep_point": int(test_range.sweep_point),
+            "SA Range Param": {
+                "Start Frequency": float(test_range.start_freq),
+                "Stop Frequency": float(test_range.stop_freq),
+                "RBW": float(test_range.rbw),
+                "VBW": float(test_range.vbw),
+                "Sweep Point": int(test_range.sweep_point),
+                "Limit": float(test_range.limit),
+            },
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_RANGE_SETTING)
@@ -157,7 +258,13 @@ def rotate_turntable(client: Any, *, angle: float, turntable_speed: int) -> None
         client,
         _TARGET_CO3000,
         _COMMAND_MOVE_TURNTABLE,
-        {"angle": float(angle), "turntable_speed": int(turntable_speed)},
+        {
+            "Turn Table Info": {
+                "Target Angle": float(angle),
+                "Turn Table Speed": int(turntable_speed),
+                "Fetch Interval": 10,
+            },
+        },
     )
     _require_action_ok(response, _TARGET_CO3000, _COMMAND_MOVE_TURNTABLE)
 
@@ -182,20 +289,20 @@ def measure_harmonics(
         client,
         _TARGET_FSV40,
         _COMMAND_MARK_HARMONIC,
-        {"fundamental_mhz": float(fundamental)},
+        {"Fundamental Frequency": float(fundamental)},
     )
     result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_HARMONIC)
-    levels = result.get("levels_dbm")
+    levels = result.get("Amplitude")
     if isinstance(levels, str | bytes) or not isinstance(levels, Sequence):
-        raise CommandError("FSV40 / Mark Harmonic Result.levels_dbm must be a list")
+        raise CommandError("FSV40 / Mark Harmonic Result.Amplitude must be a list")
 
     normalized = [
-        _coerce_number(level, _TARGET_FSV40, _COMMAND_MARK_HARMONIC, "levels_dbm")
+        _coerce_number(level, _TARGET_FSV40, _COMMAND_MARK_HARMONIC, "Amplitude")
         for level in levels
     ]
     if len(normalized) != 4:
         raise CommandError(
-            "FSV40 / Mark Harmonic Result.levels_dbm must contain "
+            "FSV40 / Mark Harmonic Result.Amplitude must contain "
             f"4 values, got {len(normalized)}"
         )
     return normalized
@@ -265,8 +372,7 @@ def _result_dict(response: Any, target: str, command: str) -> dict[str, Any]:
 
 
 def _action_ok(response: Any, target: str, command: str) -> bool:
-    result = _result_dict(response, target, command)
-    return _boolean(result, "ok", target, command)
+    return getattr(response, "status", None) == "ok"
 
 
 def _require_action_ok(response: Any, target: str, command: str) -> None:
