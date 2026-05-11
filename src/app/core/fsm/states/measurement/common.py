@@ -28,10 +28,11 @@ _ROTATION_TIMEOUT_SEC = 60.0
 _POLL_INTERVAL_SEC = 0.2
 _SETTLING_SEC = 5.0
 
-# TODO(spec): 외부 프로그램과 합의 후 op 이름 확정
-_OP_TURNTABLE_PROGRESS = "turntable_progress"
-_OP_TURNTABLE_COMPLETE = "turntable_complete"
-_OP_TURNTABLE_ERROR = "turntable_error"
+# TODO(spec): 외부 프로그램과 합의 후 command 이름 확정
+_TARGET_TURNTABLE = "CO3000"
+_COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
+_COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
+_COMMAND_EQUIPMENT_ERROR = "equipment_error"
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -180,12 +181,17 @@ class RotateTurntableState(State):
         return measurement_start_state_for(ctx.current_case.test_type, after_rotate=True)
 
     def _on_event_received(self, event: Any) -> None:
-        if event.op == _OP_TURNTABLE_PROGRESS:
+        if getattr(event, "target", None) != _TARGET_TURNTABLE:
             return
-        if event.op == _OP_TURNTABLE_COMPLETE:
+
+        command = getattr(event, "command", None)
+        if command == _COMMAND_TURNTABLE_PROGRESS:
+            return
+        if command == _COMMAND_TURNTABLE_COMPLETE:
             self._completed.set()
-        elif event.op == _OP_TURNTABLE_ERROR:
-            self._failed_reason = str(event.params.get("message", "unknown"))
+        elif command == _COMMAND_EQUIPMENT_ERROR:
+            params = getattr(event, "params", {}) or {}
+            self._failed_reason = str(params.get("message", "unknown"))
             self._completed.set()
 
     def _send_stop(self, ctx: "SessionContext") -> None:
