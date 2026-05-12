@@ -6,7 +6,7 @@ import sys
 import ctypes
 
 from PySide6.QtCore import QEvent, QSize, Qt
-from PySide6.QtGui import QShowEvent
+from PySide6.QtGui import QCloseEvent, QShowEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
@@ -217,6 +217,34 @@ class MainWindow(QMainWindow):
             self._unlock_window_size()
             return
         self._lock_default_window_size()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        """윈도우 종료 전에 worker를 가진 하위 패널을 정리한다."""
+
+        self._shutdown_child_panels()
+        super().closeEvent(event)
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Destroy:
+            self._shutdown_child_panels()
+        return super().event(event)
+
+    def _shutdown_child_panels(self) -> None:
+        seen: set[int] = set()
+        for widget in self.findChildren(QWidget):
+            identifier = id(widget)
+            if identifier in seen:
+                continue
+            seen.add(identifier)
+
+            shutdown = getattr(widget, "shutdown", None)
+            if callable(shutdown):
+                shutdown()
+                continue
+
+            dispose = getattr(widget, "dispose", None)
+            if callable(dispose):
+                dispose()
 
     def showMaximized(self) -> None:  # noqa: N802
         """최대화 진입 전 크기 제한을 해제한다."""
