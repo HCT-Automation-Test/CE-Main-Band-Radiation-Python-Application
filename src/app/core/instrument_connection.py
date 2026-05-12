@@ -19,9 +19,21 @@ VisaResourceProvider = Callable[[], Sequence[str]]
 ClientFactory = Callable[[], Any]
 
 
+def _disconnect_safely(signal: Any, slot: Any) -> None:
+    try:
+        signal.disconnect(slot)
+    except (RuntimeError, TypeError):
+        pass
+
+
 def _forget_detached_thread(thread: QThread) -> None:
     if thread in _DETACHED_THREADS:
         _DETACHED_THREADS.remove(thread)
+
+
+def _delete_detached_thread(thread: QThread) -> None:
+    _forget_detached_thread(thread)
+    thread.deleteLater()
 
 
 def build_equipment_connection_config(
@@ -195,29 +207,37 @@ class InstrumentConnectionService(QObject):
         self._connection_thread: QThread | None = None
         self._discovery_worker: _VisaDiscoveryWorker | None = None
         self._connection_worker: _ConnectionWorker | None = None
+        self._shutting_down = False
 
     def refresh_visa_resources(self) -> None:
         """VISA Resource 목록 탐색을 시작한다."""
 
-        if self._discovery_thread is not None:
+        if self._shutting_down or self._discovery_thread is not None:
             return
 
         thread = QThread(self)
         worker = _VisaDiscoveryWorker(self._visa_resource_provider)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.finished.connect(self.visa_resources_discovered.emit)
-        worker.failed.connect(self.visa_discovery_failed.emit)
+        worker.finished.connect(self._on_visa_resources_discovered)
+        worker.failed.connect(self._on_visa_discovery_failed)
         worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        worker.done.connect(
+            self._on_discovery_worker_done,
+            Qt.ConnectionType.DirectConnection,
+        )
         worker.done.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._on_discovery_finished)
+        thread.finished.connect(thread.deleteLater)
         self._discovery_thread = thread
         self._discovery_worker = worker
         thread.start()
 
     def connect_equipment(self, config: EquipmentConnectionConfig) -> None:
         """LabVIEW TCP 서버에 장비 연결 요청을 보낸다."""
+
+        if self._shutting_down:
+            return
 
         if self._connection_thread is not None:
             self.error_occurred.emit("장비 연결 요청이 이미 진행 중입니다.")
@@ -233,13 +253,17 @@ class InstrumentConnectionService(QObject):
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.started.connect(self.connection_started.emit)
-        worker.finished.connect(self.connection_finished.emit)
-        worker.failed.connect(self.error_occurred.emit)
+        worker.started.connect(self._on_connection_started)
+        worker.finished.connect(self._on_connection_worker_finished)
+        worker.failed.connect(self._on_connection_failed)
         worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        worker.done.connect(
+            self._on_connection_worker_done,
+            Qt.ConnectionType.DirectConnection,
+        )
         worker.done.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._on_connection_finished)
+        thread.finished.connect(thread.deleteLater)
         self._connection_thread = thread
         self._connection_worker = worker
         thread.start()
@@ -247,8 +271,14 @@ class InstrumentConnectionService(QObject):
     def shutdown(self) -> None:
         """패널 종료 시 실행 중인 worker thread를 정리한다."""
 
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+
         if self._connection_worker is not None:
             self._connection_worker.cancel()
+
+        self._detach_worker_signals()
 
         for thread in (self._discovery_thread, self._connection_thread):
             if thread is None:
@@ -259,13 +289,102 @@ class InstrumentConnectionService(QObject):
                 thread.setParent(None)
                 _DETACHED_THREADS.append(thread)
                 thread.finished.connect(
-                    lambda thread=thread: _forget_detached_thread(thread),
+                    lambda thread=thread: _delete_detached_thread(thread),
                 )
+            else:
+                thread.deleteLater()
+
+        self._discovery_thread = None
+        self._connection_thread = None
+        self._discovery_worker = None
+        self._connection_worker = None
+
+    @Slot(list)
+    def _on_visa_resources_discovered(self, resources: list[str]) -> None:
+        if not self._shutting_down:
+            self.visa_resources_discovered.emit(resources)
+
+    @Slot(str)
+    def _on_visa_discovery_failed(self, message: str) -> None:
+        if not self._shutting_down:
+            self.visa_discovery_failed.emit(message)
+
+    @Slot()
+    def _on_connection_started(self) -> None:
+        if not self._shutting_down:
+            self.connection_started.emit()
+
+    @Slot(dict)
+    def _on_connection_worker_finished(self, states: dict[str, bool]) -> None:
+        if not self._shutting_down:
+            self.connection_finished.emit(states)
+
+    @Slot(str)
+    def _on_connection_failed(self, message: str) -> None:
+        if not self._shutting_down:
+            self.error_occurred.emit(message)
+
+    def _detach_worker_signals(self) -> None:
+        if self._discovery_worker is not None:
+            _disconnect_safely(
+                self._discovery_worker.finished,
+                self._on_visa_resources_discovered,
+            )
+            _disconnect_safely(
+                self._discovery_worker.failed,
+                self._on_visa_discovery_failed,
+            )
+            _disconnect_safely(
+                self._discovery_worker.done,
+                self._on_discovery_worker_done,
+            )
+
+        if self._connection_worker is not None:
+            _disconnect_safely(
+                self._connection_worker.started,
+                self._on_connection_started,
+            )
+            _disconnect_safely(
+                self._connection_worker.finished,
+                self._on_connection_worker_finished,
+            )
+            _disconnect_safely(
+                self._connection_worker.failed,
+                self._on_connection_failed,
+            )
+            _disconnect_safely(
+                self._connection_worker.done,
+                self._on_connection_worker_done,
+            )
+
+        if self._discovery_thread is not None:
+            _disconnect_safely(
+                self._discovery_thread.finished,
+                self._on_discovery_finished,
+            )
+            _disconnect_safely(
+                self._discovery_thread.finished,
+                self._discovery_thread.deleteLater,
+            )
+
+        if self._connection_thread is not None:
+            _disconnect_safely(
+                self._connection_thread.finished,
+                self._on_connection_finished,
+            )
+            _disconnect_safely(
+                self._connection_thread.finished,
+                self._connection_thread.deleteLater,
+            )
 
     def _on_discovery_finished(self) -> None:
         self._discovery_thread = None
+
+    def _on_discovery_worker_done(self) -> None:
         self._discovery_worker = None
 
     def _on_connection_finished(self) -> None:
         self._connection_thread = None
+
+    def _on_connection_worker_done(self) -> None:
         self._connection_worker = None

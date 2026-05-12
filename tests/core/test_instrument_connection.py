@@ -5,6 +5,7 @@ from typing import Any
 
 from app.core.instrument_connection import (
     InstrumentConnectionService,
+    _DETACHED_THREADS,
     build_equipment_connection_config,
     discover_visa_resources,
 )
@@ -218,3 +219,60 @@ def test_instrument_connection_service_shutdown_cancels_running_connection(
     assert commands.calls == 1
     assert finished_states == []
     assert errors == []
+
+
+def test_instrument_connection_service_shutdown_detaches_blocking_discovery(
+    qtbot,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    discovered = []
+    failures = []
+
+    def provider() -> tuple[str]:
+        started.set()
+        assert release.wait(2.0)
+        return ("ASRL1::INSTR",)
+
+    service = InstrumentConnectionService(visa_resource_provider=provider)
+    service.visa_resources_discovered.connect(discovered.append)
+    service.visa_discovery_failed.connect(failures.append)
+
+    service.refresh_visa_resources()
+    qtbot.waitUntil(started.is_set, timeout=1000)
+
+    service.shutdown()
+
+    assert service._discovery_thread is None
+    assert service._discovery_worker is None
+    assert _DETACHED_THREADS
+
+    release.set()
+    qtbot.waitUntil(lambda: not _DETACHED_THREADS, timeout=3000)
+    qtbot.wait(0)
+
+    assert discovered == []
+    assert failures == []
+
+
+def test_instrument_connection_service_ignores_requests_after_shutdown() -> None:
+    calls = 0
+
+    def provider() -> tuple[str]:
+        nonlocal calls
+        calls += 1
+        return ("ASRL1::INSTR",)
+
+    commands = _Commands({"FSV40": True})
+    service = InstrumentConnectionService(
+        client_factory=_Client,
+        commands=commands,
+        visa_resource_provider=provider,
+    )
+
+    service.shutdown()
+    service.refresh_visa_resources()
+    service.connect_equipment(_connection_config())
+
+    assert calls == 0
+    assert commands.calls == []

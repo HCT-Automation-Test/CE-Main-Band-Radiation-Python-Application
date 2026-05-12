@@ -5,8 +5,8 @@ from ipaddress import IPv4Address
 import logging
 from typing import Any
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QHideEvent, QIntValidator, QShowEvent
+from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtGui import QCloseEvent, QHideEvent, QIntValidator, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -61,6 +61,7 @@ _RESOURCE_INPUT_WIDTH = 250
 _STATUS_WIDTH = 90
 _SWITCH_BOX_IP_INPUT_WIDTH = 150
 _SWITCH_BOX_PORT_INPUT_WIDTH = 54
+_VISA_INITIAL_REFRESH_DELAY_MSEC = 250
 _VISA_REFRESH_INTERVAL_MSEC = 5000
 
 logger = logging.getLogger(__name__)
@@ -81,30 +82,46 @@ class InstrumentCheckPanel(QWidget):
         self._resource_combos: dict[str, QComboBox] = {}
         self._status_labels: dict[str, QLabel] = {}
         self._visa_discovery_started = False
+        self._shutdown_started = False
+        self._visa_initial_refresh_timer = QTimer(self)
+        self._visa_initial_refresh_timer.setSingleShot(True)
+        self._visa_initial_refresh_timer.setInterval(_VISA_INITIAL_REFRESH_DELAY_MSEC)
         self._visa_refresh_timer = QTimer(self)
         self._visa_refresh_timer.setObjectName("visaAutoRefreshTimer")
         self._visa_refresh_timer.setInterval(_VISA_REFRESH_INTERVAL_MSEC)
         self._setup_layout()
         self._connect_signals()
         self._apply_styles()
-        self.destroyed.connect(self._shutdown_service)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """화면이 처음 표시될 때 VISA Resource를 자동 탐색한다."""
 
         super().showEvent(event)
+        if self._shutdown_started:
+            return
         if self._visa_discovery_started:
             self._visa_refresh_timer.start()
             return
-        self._visa_discovery_started = True
-        self._refresh_visa_resources()
+        self._visa_initial_refresh_timer.start()
         self._visa_refresh_timer.start()
 
     def hideEvent(self, event: QHideEvent) -> None:  # noqa: N802
         """화면이 숨겨진 동안에는 VISA 자동 탐색을 멈춘다."""
 
         self._visa_refresh_timer.stop()
+        self._visa_initial_refresh_timer.stop()
         super().hideEvent(event)
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        """패널이 닫히기 전에 worker thread를 명시적으로 정리한다."""
+
+        self.shutdown()
+        super().closeEvent(event)
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Destroy:
+            self.shutdown()
+        return super().event(event)
 
     def _setup_layout(self) -> None:
         """Instrument Check 화면을 구성한다."""
@@ -218,6 +235,7 @@ class InstrumentCheckPanel(QWidget):
         """버튼과 서비스 시그널을 연결한다."""
 
         self._connect_button.clicked.connect(self.on_connect_clicked)
+        self._visa_initial_refresh_timer.timeout.connect(self._refresh_visa_resources)
         self._visa_refresh_timer.timeout.connect(self._refresh_visa_resources)
         self._service.visa_resources_discovered.connect(
             self.on_visa_resources_discovered,
@@ -229,9 +247,14 @@ class InstrumentCheckPanel(QWidget):
         self._service.connection_finished.connect(self.on_connection_finished)
         self._service.error_occurred.connect(self.on_service_error)
 
-    def _shutdown_service(self) -> None:
+    def shutdown(self) -> None:
         """패널 제거 시 자동 탐색/연결 worker를 정리한다."""
 
+        if self._shutdown_started:
+            return
+        self._shutdown_started = True
+        self._visa_initial_refresh_timer.stop()
+        self._visa_refresh_timer.stop()
         shutdown = getattr(self._service, "shutdown", None)
         if shutdown is not None:
             shutdown()
@@ -320,6 +343,9 @@ class InstrumentCheckPanel(QWidget):
     def _refresh_visa_resources(self) -> None:
         """화면 초기화 시 VISA Resource 탐색을 요청한다."""
 
+        if self._shutdown_started:
+            return
+        self._visa_discovery_started = True
         self._service.refresh_visa_resources()
 
     def on_connect_clicked(self) -> None:

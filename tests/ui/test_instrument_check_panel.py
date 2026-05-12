@@ -25,12 +25,16 @@ class _Service(QObject):
         super().__init__()
         self.refresh_calls = 0
         self.connect_configs = []
+        self.shutdown_calls = 0
 
     def refresh_visa_resources(self) -> None:
         self.refresh_calls += 1
 
     def connect_equipment(self, config) -> None:
         self.connect_configs.append(config)
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
 
 
 def _fill_valid_connection_fields(panel: InstrumentCheckPanel) -> None:
@@ -142,6 +146,40 @@ def test_instrument_check_panel_periodically_refreshes_visa_resources(qtbot) -> 
 
     panel.hide()
     assert not timer.isActive()
+
+
+def test_instrument_check_panel_shutdown_stops_timer_once(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    timer = panel.findChild(QTimer, "visaAutoRefreshTimer")
+    assert timer is not None
+    assert timer.isActive()
+
+    panel.shutdown()
+    timer.timeout.emit()
+    panel.show()
+    qtbot.wait(0)
+    panel.shutdown()
+
+    assert not timer.isActive()
+    assert service.shutdown_calls == 1
+    assert service.refresh_calls == 1
+
+
+def test_instrument_check_panel_close_event_shuts_down_service(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    panel.close()
+
+    assert service.shutdown_calls == 1
 
 
 def test_instrument_check_panel_missing_fields_warns_without_connect(
