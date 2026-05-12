@@ -33,6 +33,15 @@ class _Service(QObject):
         self.connect_configs.append(config)
 
 
+def _fill_valid_connection_fields(panel: InstrumentCheckPanel) -> None:
+    panel.set_resource_text("mt8000a", "TCPIP0::192.168.0.3::inst0::INSTR")
+    panel.set_resource_text("fsv40", "TCPIP0::192.168.0.2::inst0::INSTR")
+    panel.set_resource_text("co3000", "ASRL1::INSTR")
+    panel.set_resource_text("controller_3d", "ASRL2::INSTR")
+    panel.findChild(QLineEdit, "switchBoxIpEdit").setText("192.168.0.10")
+    panel.findChild(QLineEdit, "switchBoxPortEdit").setText("5000")
+
+
 def test_instrument_check_panel_exposes_expected_widgets(qtbot) -> None:
     service = _Service()
     panel = InstrumentCheckPanel(service=service)
@@ -158,18 +167,63 @@ def test_instrument_check_panel_missing_fields_warns_without_connect(
     assert "MT8000A VISA Resource" in warnings[0]
 
 
+def test_instrument_check_panel_rejects_invalid_switch_box_ip(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    warnings = []
+
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    _fill_valid_connection_fields(panel)
+
+    for ip_address in ("11.3.123", "999.1.1.1"):
+        warnings.clear()
+        panel.findChild(QLineEdit, "switchBoxIpEdit").setText(ip_address)
+
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+
+        assert service.connect_configs == []
+        assert warnings
+        assert "Switch Box IP" in warnings[0]
+
+
+def test_instrument_check_panel_rejects_invalid_switch_box_port(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    warnings = []
+
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    _fill_valid_connection_fields(panel)
+
+    for port in ("0", "70000"):
+        warnings.clear()
+        panel.findChild(QLineEdit, "switchBoxPortEdit").setText(port)
+
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+
+        assert service.connect_configs == []
+        assert warnings
+        assert "Switch Box Port" in warnings[0]
+
+
 def test_instrument_check_panel_connects_and_updates_statuses(qtbot) -> None:
     service = _Service()
     panel = InstrumentCheckPanel(service=service)
     qtbot.addWidget(panel)
     panel.show()
     qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
-    panel.set_resource_text("mt8000a", "TCPIP0::192.168.0.3::inst0::INSTR")
-    panel.set_resource_text("fsv40", "TCPIP0::192.168.0.2::inst0::INSTR")
-    panel.set_resource_text("co3000", "ASRL1::INSTR")
-    panel.set_resource_text("controller_3d", "ASRL2::INSTR")
-    panel.findChild(QLineEdit, "switchBoxIpEdit").setText("192.168.0.10")
-    panel.findChild(QLineEdit, "switchBoxPortEdit").setText("5000")
+    _fill_valid_connection_fields(panel)
 
     panel.findChild(QPushButton, "connectInstrumentButton").click()
     service.connection_started.emit()

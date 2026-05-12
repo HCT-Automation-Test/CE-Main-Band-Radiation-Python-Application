@@ -1,6 +1,7 @@
 """Instrument Check 서브 패널."""
 from __future__ import annotations
 
+from ipaddress import IPv4Address
 import logging
 from typing import Any
 
@@ -390,14 +391,22 @@ class InstrumentCheckPanel(QWidget):
             )
             return None
 
+        switch_box_ip = self._validated_switch_box_ip_or_warn()
+        if switch_box_ip is None:
+            return None
+
+        switch_box_port = self._validated_switch_box_port_or_warn()
+        if switch_box_port is None:
+            return None
+
         try:
             return build_equipment_connection_config(
                 mt8000a_visa_resource=self._combo_text("mt8000a"),
                 fsv40_visa_resource=self._combo_text("fsv40"),
                 co3000_visa_resource=self._combo_text("co3000"),
                 controller_3d_visa_resource=self._combo_text("controller_3d"),
-                switch_box_ip_address=self._switch_box_ip_edit.text(),
-                switch_box_port=self._switch_box_port_edit.text(),
+                switch_box_ip_address=switch_box_ip,
+                switch_box_port=switch_box_port,
             )
         except ValueError:
             self._show_warning(
@@ -421,6 +430,32 @@ class InstrumentCheckPanel(QWidget):
         if not self._switch_box_port_edit.text().strip():
             missing.append("Switch Box Port")
         return missing
+
+    def _validated_switch_box_ip_or_warn(self) -> str | None:
+        value = self._switch_box_ip_edit.text().strip()
+        try:
+            IPv4Address(value)
+        except ValueError:
+            self._show_warning("Switch Box IP는 IPv4 형식으로 입력하세요.")
+            return None
+        return value
+
+    def _validated_switch_box_port_or_warn(self) -> int | None:
+        value = self._switch_box_port_edit.text().strip()
+        try:
+            port = int(value)
+        except ValueError:
+            self._show_warning(
+                "Switch Box Port는 1~65535 사이의 숫자로 입력하세요.",
+            )
+            return None
+
+        if not 1 <= port <= 65535:
+            self._show_warning(
+                "Switch Box Port는 1~65535 사이의 숫자로 입력하세요.",
+            )
+            return None
+        return port
 
     def _combo_text(self, key: str) -> str:
         return self._resource_combos[key].currentText().strip()
