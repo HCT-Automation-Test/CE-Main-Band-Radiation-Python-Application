@@ -10,6 +10,13 @@ from PySide6.QtCore import QObject, QThread, Signal, Slot
 from app.core.events import RunnerEvents
 from app.core.fsm.context import SessionContext
 from app.core.fsm.engine import FSMEngine, build_session_engine
+from app.core.instrument_connection import (
+    InstrumentConnectionService,
+    describe_equipment_not_ready,
+    is_required_equipment_ready,
+    normalize_equipment_state,
+    should_preserve_equipment_state_on_connection_error,
+)
 from app.models.test_case import TestCase
 from app.net import commands as default_commands
 from app.net.tcp_client import TcpClient
@@ -23,6 +30,9 @@ ReportWriterFactory = Callable[[Path, Path, str, RunnerEvents], ReportWriter]
 
 _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
+INSTRUMENT_CONNECTION_BLOCK_MESSAGE = (
+    "시험 실행 중에는 Instrument Check 연결을 시작할 수 없습니다."
+)
 
 
 def _default_report_writer_factory(
@@ -69,11 +79,13 @@ class _RunnerWorker(QObject):
 
 
 class Runner(QObject):
-    """TC 큐를 통합 세션 FSM으로 실행하는 오케스트레이터.
+    """측정 세션 전체를 조립하고 TC 큐를 FSM으로 실행하는 컨트롤러.
 
     내부에서 `QThread`에 워커를 올려 FSMEngine을 돌린다.
     UI는 `events` 시그널만 구독.
     """
+
+    measurement_active_changed = Signal(bool)
 
     def __init__(
         self,
@@ -81,6 +93,7 @@ class Runner(QObject):
         *,
         client: Any | None = None,
         commands: Any = default_commands,
+        instrument_connection_service: InstrumentConnectionService | None = None,
         engine_factory: EngineFactory = build_session_engine,
         report_writer_factory: ReportWriterFactory = _default_report_writer_factory,
         tcp_host: str = "127.0.0.1",
@@ -92,6 +105,7 @@ class Runner(QObject):
         self._thread: QThread | None = None
         self._worker: _RunnerWorker | None = None
         self._ctx: SessionContext | None = None
+        self._owns_client = client is None
         self._client = client if client is not None else TcpClient(self)
         self._commands = commands
         self._engine_factory = engine_factory
@@ -99,6 +113,28 @@ class Runner(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._temp_dir = Path(temp_dir)
+        self._equipment_state: dict[str, bool] = {}
+        self._measurement_active = False
+        self._shutting_down = False
+        self._instrument_connection_service = (
+            instrument_connection_service
+            if instrument_connection_service is not None
+            else InstrumentConnectionService(
+                self,
+                client=self._client,
+                commands=self._commands,
+                tcp_host=self._tcp_host,
+                tcp_port=self._tcp_port,
+                connection_guard=self._instrument_connection_block_reason,
+            )
+        )
+        self.events.state_changed.connect(self._on_state_changed)
+        self._instrument_connection_service.connection_finished.connect(
+            self._on_instrument_connection_finished
+        )
+        self._instrument_connection_service.error_occurred.connect(
+            self._on_instrument_connection_error
+        )
 
     @property
     def is_running(self) -> bool:
@@ -109,6 +145,36 @@ class Runner(QObject):
     def context(self) -> SessionContext | None:
         """테스트/상위 조립 코드에서 현재 컨텍스트를 확인하기 위한 접근자."""
         return self._ctx
+
+    @property
+    def instrument_connection_service(self) -> InstrumentConnectionService:
+        """Instrument Check UI가 사용할 Runner 소유 연결 서비스를 반환한다."""
+
+        return self._instrument_connection_service
+
+    @property
+    def equipment_state(self) -> dict[str, bool]:
+        """마지막으로 확인된 장비 연결 상태를 반환한다."""
+
+        return dict(self._equipment_state)
+
+    @property
+    def is_equipment_ready(self) -> bool:
+        """모든 장비가 연결 완료 상태인지 반환한다."""
+
+        return is_required_equipment_ready(self._equipment_state)
+
+    @property
+    def is_measurement_active(self) -> bool:
+        """측정 실행이 진행 중인지 반환한다."""
+
+        return self._measurement_active
+
+    @property
+    def is_equipment_connecting(self) -> bool:
+        """Instrument Check 연결 작업이 진행 중인지 반환한다."""
+
+        return bool(getattr(self._instrument_connection_service, "is_connecting", False))
 
     def initialize(self) -> None:
         """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
@@ -125,6 +191,7 @@ class Runner(QObject):
             tcp_port=self._tcp_port,
             temp_dir=self._temp_dir,
         )
+        self._ctx.equipment_state = dict(self._equipment_state)
 
         self._thread = QThread(self)
         self._worker = _RunnerWorker(self._ctx, self._engine_factory)
@@ -137,12 +204,32 @@ class Runner(QObject):
         self._thread.start()
 
     def connect_equipment(self) -> None:
-        """UI 장비 연결 버튼에서 호출한다."""
+        """기존 호출부 호환용 장비 준비 상태 재통지 shim."""
+
+        if not self.is_equipment_ready:
+            self._emit_error(
+                "장비 준비 상태 통지 실패: "
+                + describe_equipment_not_ready(self._equipment_state)
+            )
+            return
+        self.mark_equipment_ready(self._equipment_state)
+
+    def mark_equipment_ready(self, states: dict[str, bool]) -> None:
+        """Instrument Check에서 확인된 장비 준비 상태를 FSM gate에 전달한다."""
+
+        self._equipment_state = normalize_equipment_state(states)
+        if not self.is_equipment_ready:
+            self._emit_error(
+                "장비 준비 상태 통지 실패: "
+                + describe_equipment_not_ready(self._equipment_state)
+            )
+            return
         if not self.is_running:
             self.initialize()
         if self._ctx is None:
-            self._emit_error("장비 연결 실패: SessionContext is not initialized")
+            self._emit_error("장비 준비 상태 통지 실패: SessionContext is not initialized")
             return
+        self._ctx.equipment_state = dict(self._equipment_state)
         self._ctx.equipment_connect_requested.set()
 
     def start(
@@ -154,6 +241,12 @@ class Runner(QObject):
         screenshot_root_dir: Path | None = None,
     ) -> None:
         """Idle 상태에서 시험 실행 요청을 주입한다."""
+        if self.is_equipment_connecting:
+            self._emit_error("시험 시작 실패: 장비 연결이 진행 중입니다")
+            return
+        if not self.is_equipment_ready:
+            self._emit_error("시험 시작 실패: Instrument Check 연결을 완료하세요")
+            return
         if self._ctx is None or not self.is_running:
             self._emit_error("시험 시작 실패: Runner is not initialized")
             return
@@ -200,6 +293,7 @@ class Runner(QObject):
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
+        self._set_measurement_active(True)
         ctx.test_start_requested.set()
 
     def pause(self) -> None:
@@ -227,6 +321,27 @@ class Runner(QObject):
         if self._ctx is not None:
             self._ctx.user_action_completed.set()
 
+    def shutdown(self) -> None:
+        """Runner가 소유한 worker, 연결 서비스, TCP client를 정리한다."""
+
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+
+        shutdown = getattr(self._instrument_connection_service, "shutdown", None)
+        if shutdown is not None:
+            shutdown()
+
+        thread = self._thread
+        self.stop()
+        if thread is not None and thread.isRunning() and not thread.wait(1000):
+            logger.error("Runner worker thread did not stop cleanly")
+
+        if self._owns_client:
+            close = getattr(self._client, "close", None)
+            if close is not None:
+                close()
+
     def _emit_error(self, message: str) -> None:
         logger.error(message)
         self.events.error.emit(message)
@@ -236,6 +351,43 @@ class Runner(QObject):
             return False
         return self._worker.engine.current_state_name == _START_READY_STATE
 
+    def _instrument_connection_block_reason(self) -> str | None:
+        if self.is_measurement_active:
+            return INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+        return None
+
+    def _set_measurement_active(self, active: bool) -> None:
+        if self._measurement_active == active:
+            return
+        self._measurement_active = active
+        self.measurement_active_changed.emit(active)
+
     def _on_thread_finished(self) -> None:
+        self._set_measurement_active(False)
         self._thread = None
         self._worker = None
+
+    @Slot(str)
+    def _on_state_changed(self, state_name: str) -> None:
+        if state_name == _START_READY_STATE:
+            self._set_measurement_active(False)
+
+    @Slot(dict)
+    def _on_instrument_connection_finished(self, states: dict[str, bool]) -> None:
+        self._equipment_state = normalize_equipment_state(states)
+        if self.is_equipment_ready:
+            self.mark_equipment_ready(self._equipment_state)
+            return
+        self._emit_error(
+            "장비 연결 실패: "
+            + describe_equipment_not_ready(self._equipment_state)
+        )
+
+    @Slot(str)
+    def _on_instrument_connection_error(self, message: str) -> None:
+        if not should_preserve_equipment_state_on_connection_error(
+            message,
+            block_reason=INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
+        ):
+            self._equipment_state = {}
+        self._emit_error(f"장비 연결 실패: {message}")

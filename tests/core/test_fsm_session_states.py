@@ -56,6 +56,16 @@ class _Commands:
         return self.response
 
 
+def _ready_states() -> dict[str, bool]:
+    return {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
+
+
 def _make_case(
     test_type: TestType = TestType.HARMONIC,
     *,
@@ -76,10 +86,10 @@ def _make_case(
     )
 
 
-def test_session_init_connects_client_and_equipment() -> None:
+def test_session_init_accepts_ready_equipment_state_without_connecting() -> None:
     events = _Events()
     client = _Client()
-    commands = _Commands(response={"mt8000a": True, "fsv40": True})
+    commands = _Commands(response=_ready_states())
     ctx = SessionContext(
         queue=[],
         commands=commands,
@@ -88,21 +98,22 @@ def test_session_init_connects_client_and_equipment() -> None:
         tcp_host="127.0.0.1",
         tcp_port=5025,
     )
+    ctx.equipment_state = _ready_states()
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.OK
-    assert client.connect_calls == [("127.0.0.1", 5025)]
-    assert commands.connect_calls == [client]
-    assert ctx.equipment_state == {"mt8000a": True, "fsv40": True}
+    assert client.connect_calls == []
+    assert commands.connect_calls == []
+    assert ctx.equipment_state == _ready_states()
 
 
-def test_session_init_retries_when_connection_fails() -> None:
+def test_session_init_retries_when_equipment_state_is_empty() -> None:
     events = _Events()
     ctx = SessionContext(
         queue=[],
-        commands=_Commands(response=False),
+        commands=_Commands(response=True),
         events=events,  # type: ignore[arg-type]
         client=_Client(),
     )
@@ -112,26 +123,72 @@ def test_session_init_retries_when_connection_fails() -> None:
 
     assert result is StateResult.RETRY
     assert events.error.values == [
-        "장비 연결 실패: connect_equipment returned false"
+        "장비 연결 확인 실패: equipment_state is empty"
+    ]
+
+
+def test_session_init_retries_when_client_is_missing() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=_Commands(response=True),
+        events=events,  # type: ignore[arg-type]
+        client=None,
+    )
+    ctx.equipment_state = _ready_states()
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values == [
+        "장비 연결 확인 실패: TCP client is not set"
     ]
 
 
 def test_session_init_retries_when_any_equipment_status_is_false() -> None:
     events = _Events()
+    states = _ready_states()
+    states["FSV40"] = False
+    commands = _Commands(response=states)
     ctx = SessionContext(
         queue=[],
-        commands=_Commands(response={"mt8000a": True, "fsv40": False}),
+        commands=commands,
         events=events,  # type: ignore[arg-type]
         client=_Client(),
     )
+    ctx.equipment_state = states
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert ctx.equipment_state == {"mt8000a": True, "fsv40": False}
+    assert ctx.equipment_state == states
+    assert commands.connect_calls == []
     assert events.error.values == [
-        "장비 연결 실패: connect_equipment returned false"
+        "장비 연결 확인 실패: disconnected equipment: FSV40"
+    ]
+
+
+def test_session_init_retries_when_required_equipment_is_missing() -> None:
+    events = _Events()
+    commands = _Commands(response={"FSV40": True})
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=_Client(),
+    )
+    ctx.equipment_state = {"FSV40": True}
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert commands.connect_calls == []
+    assert events.error.values == [
+        "장비 연결 확인 실패: missing equipment: "
+        "MT8000A, CO3000, Switch Box, 3D Controller"
     ]
 
 

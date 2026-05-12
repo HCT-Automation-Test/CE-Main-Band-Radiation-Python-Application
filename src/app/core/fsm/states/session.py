@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.core.instrument_connection import (
+    describe_equipment_not_ready,
+    is_required_equipment_ready,
+)
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -40,32 +44,22 @@ class SessionInitState(State):
             return StateResult.FAIL
 
         if ctx.client is None:
-            _emit_error(ctx, "장비 연결 실패: TCP client is not set")
+            _emit_error(ctx, "장비 연결 확인 실패: TCP client is not set")
             return StateResult.RETRY
 
-        try:
-            connect_to = getattr(ctx.client, "connect_to", None)
-            if connect_to is not None:
-                connect_to(ctx.tcp_host, ctx.tcp_port)
-            response = ctx.commands.connect_equipment(ctx.client)
-        except Exception as exc:
-            _emit_error(ctx, f"장비 연결 실패: {exc}")
+        if not ctx.equipment_state:
+            _emit_error(ctx, "장비 연결 확인 실패: equipment_state is empty")
             return StateResult.RETRY
 
-        if isinstance(response, dict):
-            ctx.equipment_state = response
-            connected = bool(response) and all(
-                bool(value) for value in response.values()
+        if not is_required_equipment_ready(ctx.equipment_state):
+            _emit_error(
+                ctx,
+                "장비 연결 확인 실패: "
+                + describe_equipment_not_ready(ctx.equipment_state),
             )
-        else:
-            connected = bool(response)
-            ctx.equipment_state = {"connected": connected}
+            return StateResult.RETRY
 
-        if connected:
-            return StateResult.OK
-
-        _emit_error(ctx, "장비 연결 실패: connect_equipment returned false")
-        return StateResult.RETRY
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
