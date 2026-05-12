@@ -158,12 +158,22 @@ class InstrumentConnectionService(QObject):
     def refresh_visa_resources(self) -> None:
         """VISA Resource 목록 탐색을 시작한다."""
 
-        try:
-            self.visa_resources_discovered.emit(
-                discover_visa_resources(self._visa_resource_provider),
-            )
-        except Exception as exc:
-            self.visa_discovery_failed.emit(str(exc))
+        if self._discovery_thread is not None:
+            return
+
+        thread = QThread(self)
+        worker = _VisaDiscoveryWorker(self._visa_resource_provider)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self.visa_resources_discovered.emit)
+        worker.failed.connect(self.visa_discovery_failed.emit)
+        worker.done.connect(thread.quit)
+        worker.done.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(self._on_discovery_finished)
+        self._discovery_thread = thread
+        self._discovery_worker = worker
+        thread.start()
 
     def connect_equipment(self, config: EquipmentConnectionConfig) -> None:
         """LabVIEW TCP 서버에 장비 연결 요청을 보낸다."""
@@ -196,7 +206,7 @@ class InstrumentConnectionService(QObject):
     def shutdown(self) -> None:
         """패널 종료 시 실행 중인 worker thread를 정리한다."""
 
-        for thread in (self._connection_thread,):
+        for thread in (self._discovery_thread, self._connection_thread):
             if thread is None:
                 continue
             thread.quit()

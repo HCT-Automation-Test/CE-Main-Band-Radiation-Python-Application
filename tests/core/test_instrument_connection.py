@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from app.core.instrument_connection import (
@@ -55,6 +56,66 @@ def test_discover_visa_resources_uses_provider_and_sorts_values() -> None:
     )
 
     assert resources == ["ASRL2::INSTR", "TCPIP0::192.168.0.2::inst0::INSTR"]
+
+
+def test_instrument_connection_service_discovers_visa_resources_async(qtbot) -> None:
+    service = InstrumentConnectionService(
+        visa_resource_provider=lambda: (
+            "TCPIP0::192.168.0.2::inst0::INSTR",
+            "ASRL2::INSTR",
+        ),
+    )
+
+    with qtbot.waitSignal(service.visa_resources_discovered, timeout=1000) as blocker:
+        service.refresh_visa_resources()
+    qtbot.waitUntil(lambda: service._discovery_thread is None, timeout=1000)
+
+    assert blocker.args == [
+        ["ASRL2::INSTR", "TCPIP0::192.168.0.2::inst0::INSTR"]
+    ]
+
+
+def test_instrument_connection_service_ignores_duplicate_discovery_refresh(
+    qtbot,
+) -> None:
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def provider() -> tuple[str]:
+        nonlocal calls
+        calls += 1
+        started.set()
+        assert release.wait(1.0)
+        return ("ASRL1::INSTR",)
+
+    service = InstrumentConnectionService(visa_resource_provider=provider)
+
+    service.refresh_visa_resources()
+    qtbot.waitUntil(started.is_set, timeout=1000)
+    service.refresh_visa_resources()
+
+    assert calls == 1
+
+    with qtbot.waitSignal(service.visa_resources_discovered, timeout=1000) as blocker:
+        release.set()
+    qtbot.waitUntil(lambda: service._discovery_thread is None, timeout=1000)
+
+    assert blocker.args == [["ASRL1::INSTR"]]
+    assert calls == 1
+
+
+def test_instrument_connection_service_emits_discovery_failure(qtbot) -> None:
+    def provider() -> tuple[str]:
+        raise RuntimeError("boom")
+
+    service = InstrumentConnectionService(visa_resource_provider=provider)
+
+    with qtbot.waitSignal(service.visa_discovery_failed, timeout=1000) as blocker:
+        service.refresh_visa_resources()
+    qtbot.waitUntil(lambda: service._discovery_thread is None, timeout=1000)
+
+    assert blocker.args == ["boom"]
 
 
 def test_instrument_connection_service_connects_with_config(qtbot) -> None:
