@@ -1,6 +1,5 @@
 """Test Manager 서브 패널."""
 from __future__ import annotations
-
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QTableWidget,
@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.tc_loader import load_csv, save_csv
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
@@ -31,7 +32,6 @@ from app.models.nr_channel_lookup import (
 from app.models.test_case import TestCase
 from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRSelectDialog
-
 
 _TABLE_HEADERS: tuple[str, ...] = (
     "Generation",
@@ -290,6 +290,10 @@ class TestManagerPanel(QWidget):
             self.on_screenshot_root_browse_clicked,
         )
         self._nr_button.clicked.connect(self.on_nr_button_clicked)
+        self._delete_button.clicked.connect(self.on_delete_button_clicked)
+        self._clear_button.clicked.connect(self.on_clear_button_clicked)
+        self._load_item_button.clicked.connect(self.on_load_item_button_clicked)
+        self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
 
     def _create_left_panel(self) -> QWidget:
@@ -465,6 +469,14 @@ class TestManagerPanel(QWidget):
             button.setObjectName(object_name)
             if object_name == "startButton":
                 self._start_button = button
+            elif object_name == "deleteButton":
+                self._delete_button = button
+            elif object_name == "clearButton":
+                self._clear_button = button
+            elif object_name == "loadItemButton":
+                self._load_item_button = button
+            elif object_name == "saveItemButton":
+                self._save_item_button = button
             action_layout.addWidget(button)
         layout.addLayout(action_layout)
 
@@ -648,6 +660,77 @@ class TestManagerPanel(QWidget):
         dialog = NRSelectDialog(self)
         dialog.test_cases_created.connect(self.add_test_cases)
         dialog.exec()
+
+    def on_delete_button_clicked(self) -> None:
+        """선택한 TestCase 하나를 삭제한다."""
+
+        row = self._test_case_table.currentRow()
+        if row < 0 or row >= len(self._test_cases):
+            return
+
+        self._test_cases.pop(row)
+        self._test_case_table.removeRow(row)
+
+    def on_clear_button_clicked(self) -> None:
+        """모든 TestCase를 삭제한다."""
+
+        if not self._test_cases and self._test_case_table.rowCount() == 0:
+            return
+
+        self._test_cases.clear()
+        self._test_case_table.setRowCount(0)
+
+    def on_load_item_button_clicked(self) -> None:
+        """CSV 파일에서 TestCase를 읽어 기존 목록 뒤에 추가한다."""
+
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Test Case CSV 불러오기",
+            "",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+        if path.suffix.lower() != ".csv":
+            self._show_warning("CSV 파일만 불러올 수 있습니다.")
+            return
+
+        try:
+            cases = load_csv(path)
+        except (OSError, ValueError) as exc:
+            self._show_warning(f"CSV 불러오기에 실패했습니다.\n{exc}")
+            return
+
+        self.add_test_cases(cases)
+
+    def on_save_item_button_clicked(self) -> None:
+        """현재 TestCase 목록을 CSV 파일로 저장한다."""
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Test Case CSV 저장",
+            "",
+            "CSV Files (*.csv);;All Files (*)",
+        )
+        if not file_path:
+            return
+
+        path = Path(file_path)
+        if not path.suffix:
+            path = path.with_suffix(".csv")
+
+        try:
+            save_csv(path, self._test_cases)
+        except OSError as exc:
+            self._show_warning(f"CSV 저장에 실패했습니다.\n{exc}")
+            return
+
+    def _show_warning(self, message: str) -> None:
+        """Test Manager 경고 메시지를 표시한다."""
+
+        QMessageBox.warning(self, "Test Manager", message)
 
     def add_test_cases(self, cases: Iterable[TestCase]) -> None:
         """생성된 TestCase를 내부 목록과 표에 추가한다."""
