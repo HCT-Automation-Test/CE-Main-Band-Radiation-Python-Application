@@ -2,19 +2,26 @@
 from __future__ import annotations
 
 import logging
+import threading
 from collections.abc import Callable, Sequence
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 from app.net import commands as default_commands
 from app.net.commands import EquipmentConnectionConfig
 from app.net.tcp_client import TcpClient
 
 logger = logging.getLogger(__name__)
+_DETACHED_THREADS: list[QThread] = []
 
 VisaResourceProvider = Callable[[], Sequence[str]]
 ClientFactory = Callable[[], Any]
+
+
+def _forget_detached_thread(thread: QThread) -> None:
+    if thread in _DETACHED_THREADS:
+        _DETACHED_THREADS.remove(thread)
 
 
 def build_equipment_connection_config(
@@ -104,25 +111,59 @@ class _ConnectionWorker(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._config = config
+        self._lock = threading.Lock()
+        self._client: Any | None = None
+        self._cancel_requested = False
+
+    def cancel(self) -> None:
+        """실행 중인 연결 작업에 취소를 요청하고 client를 닫는다."""
+
+        with self._lock:
+            self._cancel_requested = True
+            client = self._client
+        self._close_client(client)
 
     @Slot()
     def run(self) -> None:
-        client = self._client_factory()
-        self.started.emit()
+        client = None
         try:
+            client = self._client_factory()
+            with self._lock:
+                self._client = client
+                cancel_requested = self._cancel_requested
+            if cancel_requested:
+                return
+
+            self.started.emit()
             connect_to = getattr(client, "connect_to", None)
             if connect_to is not None:
                 connect_to(self._tcp_host, self._tcp_port)
             states = self._commands.connect_equipment(client, config=self._config)
+            if self._is_cancel_requested():
+                return
             self.finished.emit(dict(states))
         except Exception as exc:
+            if self._is_cancel_requested():
+                return
             logger.exception("장비 연결 실패")
             self.failed.emit(str(exc))
         finally:
-            close = getattr(client, "close", None)
-            if close is not None:
-                close()
+            self._close_client(client)
+            with self._lock:
+                if self._client is client:
+                    self._client = None
             self.done.emit()
+
+    def _is_cancel_requested(self) -> bool:
+        with self._lock:
+            return self._cancel_requested
+
+    def _close_client(self, client: Any | None) -> None:
+        if client is None:
+            return
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
 
 
 class InstrumentConnectionService(QObject):
@@ -167,7 +208,7 @@ class InstrumentConnectionService(QObject):
         thread.started.connect(worker.run)
         worker.finished.connect(self.visa_resources_discovered.emit)
         worker.failed.connect(self.visa_discovery_failed.emit)
-        worker.done.connect(thread.quit)
+        worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
         worker.done.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._on_discovery_finished)
@@ -195,7 +236,7 @@ class InstrumentConnectionService(QObject):
         worker.started.connect(self.connection_started.emit)
         worker.finished.connect(self.connection_finished.emit)
         worker.failed.connect(self.error_occurred.emit)
-        worker.done.connect(thread.quit)
+        worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
         worker.done.connect(worker.deleteLater)
         thread.finished.connect(thread.deleteLater)
         thread.finished.connect(self._on_connection_finished)
@@ -206,11 +247,20 @@ class InstrumentConnectionService(QObject):
     def shutdown(self) -> None:
         """패널 종료 시 실행 중인 worker thread를 정리한다."""
 
+        if self._connection_worker is not None:
+            self._connection_worker.cancel()
+
         for thread in (self._discovery_thread, self._connection_thread):
             if thread is None:
                 continue
             thread.quit()
-            thread.wait(1000)
+            if not thread.wait(1000):
+                logger.error("Instrument worker thread did not stop cleanly")
+                thread.setParent(None)
+                _DETACHED_THREADS.append(thread)
+                thread.finished.connect(
+                    lambda thread=thread: _forget_detached_thread(thread),
+                )
 
     def _on_discovery_finished(self) -> None:
         self._discovery_thread = None

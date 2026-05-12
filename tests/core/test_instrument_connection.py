@@ -32,6 +32,51 @@ class _Commands:
         return self.states
 
 
+class _BlockingClient(_Client):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed_event = threading.Event()
+
+    def close(self) -> None:
+        super().close()
+        self.closed_event.set()
+
+
+class _BlockingCommands:
+    def __init__(self) -> None:
+        self.started = threading.Event()
+        self.calls = 0
+
+    def connect_equipment(
+        self,
+        client: _BlockingClient,
+        *,
+        config: Any,
+    ) -> dict[str, bool]:
+        _ = config
+        self.calls += 1
+        self.started.set()
+        assert client.closed_event.wait(1.0)
+        return {
+            "FSV40": True,
+            "MT8000A": True,
+            "CO3000": True,
+            "Switch Box": True,
+            "3D Controller": True,
+        }
+
+
+def _connection_config():
+    return build_equipment_connection_config(
+        mt8000a_visa_resource="MT",
+        fsv40_visa_resource="FS",
+        co3000_visa_resource="CO",
+        controller_3d_visa_resource="3D",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+
+
 def test_build_equipment_connection_config_trims_and_coerces_port() -> None:
     config = build_equipment_connection_config(
         mt8000a_visa_resource=" TCPIP0::192.168.0.3::inst0::INSTR ",
@@ -135,14 +180,7 @@ def test_instrument_connection_service_connects_with_config(qtbot) -> None:
         tcp_host="127.0.0.10",
         tcp_port=5026,
     )
-    config = build_equipment_connection_config(
-        mt8000a_visa_resource="MT",
-        fsv40_visa_resource="FS",
-        co3000_visa_resource="CO",
-        controller_3d_visa_resource="3D",
-        switch_box_ip_address="192.168.0.10",
-        switch_box_port=5000,
-    )
+    config = _connection_config()
 
     with qtbot.waitSignal(service.connection_finished, timeout=1000) as blocker:
         service.connect_equipment(config)
@@ -152,3 +190,31 @@ def test_instrument_connection_service_connects_with_config(qtbot) -> None:
     assert client.connect_calls == [("127.0.0.10", 5026)]
     assert client.closed is True
     assert commands.calls == [(client, config)]
+
+
+def test_instrument_connection_service_shutdown_cancels_running_connection(
+    qtbot,
+) -> None:
+    client = _BlockingClient()
+    commands = _BlockingCommands()
+    finished_states = []
+    errors = []
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+    )
+    service.connection_finished.connect(finished_states.append)
+    service.error_occurred.connect(errors.append)
+
+    service.connect_equipment(_connection_config())
+    qtbot.waitUntil(commands.started.is_set, timeout=1000)
+
+    service.shutdown()
+
+    assert client.closed_event.is_set()
+    qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
+    qtbot.wait(0)
+
+    assert commands.calls == 1
+    assert finished_states == []
+    assert errors == []
