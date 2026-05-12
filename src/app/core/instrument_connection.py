@@ -112,6 +112,7 @@ class _ConnectionWorker(QObject):
         self,
         *,
         client_factory: ClientFactory,
+        owns_client: bool,
         commands: Any,
         tcp_host: str,
         tcp_port: int,
@@ -119,6 +120,7 @@ class _ConnectionWorker(QObject):
     ) -> None:
         super().__init__()
         self._client_factory = client_factory
+        self._owns_client = owns_client
         self._commands = commands
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
@@ -133,7 +135,8 @@ class _ConnectionWorker(QObject):
         with self._lock:
             self._cancel_requested = True
             client = self._client
-        self._close_client(client)
+        if self._owns_client:
+            self._close_client(client)
 
     @Slot()
     def run(self) -> None:
@@ -160,7 +163,8 @@ class _ConnectionWorker(QObject):
             logger.exception("장비 연결 실패")
             self.failed.emit(str(exc))
         finally:
-            self._close_client(client)
+            if self._owns_client:
+                self._close_client(client)
             with self._lock:
                 if self._client is client:
                     self._client = None
@@ -191,6 +195,7 @@ class InstrumentConnectionService(QObject):
         self,
         parent: QObject | None = None,
         *,
+        client: Any | None = None,
         client_factory: ClientFactory | None = None,
         commands: Any = default_commands,
         tcp_host: str = "127.0.0.1",
@@ -198,7 +203,14 @@ class InstrumentConnectionService(QObject):
         visa_resource_provider: VisaResourceProvider | None = None,
     ) -> None:
         super().__init__(parent)
-        self._client_factory = client_factory or (lambda: TcpClient())
+        if client is not None and client_factory is not None:
+            raise ValueError("client and client_factory cannot be used together")
+        self._owns_client = client is None
+        self._client_factory = (
+            (lambda: client)
+            if client is not None
+            else (client_factory or (lambda: TcpClient()))
+        )
         self._commands = commands
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
@@ -208,6 +220,12 @@ class InstrumentConnectionService(QObject):
         self._discovery_worker: _VisaDiscoveryWorker | None = None
         self._connection_worker: _ConnectionWorker | None = None
         self._shutting_down = False
+
+    @property
+    def is_connecting(self) -> bool:
+        """장비 연결 worker가 실행 중인지 반환한다."""
+
+        return self._connection_thread is not None
 
     def refresh_visa_resources(self) -> None:
         """VISA Resource 목록 탐색을 시작한다."""
@@ -246,6 +264,7 @@ class InstrumentConnectionService(QObject):
         thread = QThread(self)
         worker = _ConnectionWorker(
             client_factory=self._client_factory,
+            owns_client=self._owns_client,
             commands=self._commands,
             tcp_host=self._tcp_host,
             tcp_port=self._tcp_port,

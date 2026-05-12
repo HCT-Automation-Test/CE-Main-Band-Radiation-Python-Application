@@ -193,6 +193,35 @@ def test_instrument_connection_service_connects_with_config(qtbot) -> None:
     assert commands.calls == [(client, config)]
 
 
+def test_instrument_connection_service_keeps_injected_client_open(qtbot) -> None:
+    client = _Client()
+    commands = _Commands(
+        {
+            "FSV40": True,
+            "MT8000A": True,
+            "CO3000": True,
+            "Switch Box": True,
+            "3D Controller": True,
+        }
+    )
+    service = InstrumentConnectionService(
+        client=client,
+        commands=commands,
+        tcp_host="127.0.0.10",
+        tcp_port=5026,
+    )
+    config = _connection_config()
+
+    with qtbot.waitSignal(service.connection_finished, timeout=1000) as blocker:
+        service.connect_equipment(config)
+    qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
+
+    assert blocker.args == [commands.states]
+    assert client.connect_calls == [("127.0.0.10", 5026)]
+    assert client.closed is False
+    assert commands.calls == [(client, config)]
+
+
 def test_instrument_connection_service_shutdown_cancels_running_connection(
     qtbot,
 ) -> None:
@@ -219,6 +248,21 @@ def test_instrument_connection_service_shutdown_cancels_running_connection(
     assert commands.calls == 1
     assert finished_states == []
     assert errors == []
+
+
+def test_instrument_connection_service_shutdown_does_not_close_injected_client(
+    qtbot,
+) -> None:
+    client = _Client()
+    commands = _Commands({"FSV40": True})
+    service = InstrumentConnectionService(
+        client=client,
+        commands=commands,
+    )
+
+    service.shutdown()
+
+    assert client.closed is False
 
 
 def test_instrument_connection_service_shutdown_detaches_blocking_discovery(

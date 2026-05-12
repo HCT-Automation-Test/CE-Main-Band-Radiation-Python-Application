@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
 
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
+from app.core.runner import Runner
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.manual_test_panel import ManualTestPanel
@@ -47,6 +48,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self._ui = Ui_MainWindow()
         self._ui.setupUi(self)
+        self._runner = Runner(self)
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._lock_default_window_size()
         self._setup_main_layout()
@@ -56,6 +58,9 @@ class MainWindow(QMainWindow):
         """시그널/슬롯 연결 허브. TODO(spec): 도크/패널 결선."""
         self._navigation_button_group.idClicked.connect(
             self.on_navigation_button_clicked,
+        )
+        self._test_manager_panel.start_requested.connect(
+            self.on_start_requested,
         )
 
     def _setup_main_layout(self) -> None:
@@ -87,12 +92,18 @@ class MainWindow(QMainWindow):
             QSizePolicy.Policy.Expanding,
         )
 
+        self._instrument_check_panel = InstrumentCheckPanel(
+            self._page_stack,
+            service=self._runner.instrument_connection_service,
+        )
+        self._test_manager_panel = TestManagerPanel(self._page_stack)
+
         self._add_navigation_page(
             navigation_layout,
             index=0,
             button_text="Instrument\nCheck",
             object_name="instrumentCheck",
-            page_widget=InstrumentCheckPanel(self._page_stack),
+            page_widget=self._instrument_check_panel,
         )
         self._add_navigation_page(
             navigation_layout,
@@ -113,7 +124,7 @@ class MainWindow(QMainWindow):
             index=3,
             button_text="Test\nManager",
             object_name="testManager",
-            page_widget=TestManagerPanel(self._page_stack),
+            page_widget=self._test_manager_panel,
         )
         self._add_navigation_page(
             navigation_layout,
@@ -209,6 +220,16 @@ class MainWindow(QMainWindow):
 
         self._page_stack.setCurrentIndex(index)
 
+    def on_start_requested(self) -> None:
+        """Test Manager의 시작 요청을 Runner에 전달한다."""
+
+        self._runner.start(
+            list(self._test_manager_panel.test_cases),
+            model_name=self._test_manager_panel.eut_name,
+            template_path=self._test_manager_panel.excel_template_path,
+            screenshot_root_dir=self._test_manager_panel.screenshot_root_dir,
+        )
+
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""
 
@@ -222,11 +243,13 @@ class MainWindow(QMainWindow):
         """윈도우 종료 전에 worker를 가진 하위 패널을 정리한다."""
 
         self._shutdown_child_panels()
+        self._runner.shutdown()
         super().closeEvent(event)
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Destroy:
             self._shutdown_child_panels()
+            self._runner.shutdown()
         return super().event(event)
 
     def _shutdown_child_panels(self) -> None:

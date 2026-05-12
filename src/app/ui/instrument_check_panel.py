@@ -5,7 +5,7 @@ from ipaddress import IPv4Address
 import logging
 from typing import Any
 
-from PySide6.QtCore import QEvent, QTimer, Qt
+from PySide6.QtCore import QEvent, QTimer, Qt, Signal
 from PySide6.QtGui import QCloseEvent, QHideEvent, QIntValidator, QShowEvent
 from PySide6.QtWidgets import (
     QComboBox,
@@ -70,6 +70,9 @@ logger = logging.getLogger(__name__)
 class InstrumentCheckPanel(QWidget):
     """5개 장비의 연결 정보 입력과 연결 상태를 표시한다."""
 
+    connection_succeeded = Signal(object, dict)
+    connection_failed = Signal(str)
+
     def __init__(
         self,
         parent: QWidget | None = None,
@@ -78,9 +81,12 @@ class InstrumentCheckPanel(QWidget):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("instrumentCheckPanel")
+        self._owns_service = service is None
         self._service = service or InstrumentConnectionService(self)
         self._resource_combos: dict[str, QComboBox] = {}
         self._status_labels: dict[str, QLabel] = {}
+        self._last_connection_config: EquipmentConnectionConfig | None = None
+        self._equipment_state: dict[str, bool] = {}
         self._visa_discovery_started = False
         self._shutdown_started = False
         self._visa_initial_refresh_timer = QTimer(self)
@@ -255,9 +261,34 @@ class InstrumentCheckPanel(QWidget):
         self._shutdown_started = True
         self._visa_initial_refresh_timer.stop()
         self._visa_refresh_timer.stop()
-        shutdown = getattr(self._service, "shutdown", None)
-        if shutdown is not None:
-            shutdown()
+        if self._owns_service:
+            shutdown = getattr(self._service, "shutdown", None)
+            if shutdown is not None:
+                shutdown()
+
+    @property
+    def last_connection_config(self) -> EquipmentConnectionConfig | None:
+        """마지막 Connect 요청에 사용한 설정을 반환한다."""
+
+        return self._last_connection_config
+
+    @property
+    def equipment_state(self) -> dict[str, bool]:
+        """마지막 장비 연결 결과를 반환한다."""
+
+        return dict(self._equipment_state)
+
+    @property
+    def is_fully_connected(self) -> bool:
+        """모든 장비가 연결 완료 상태인지 반환한다."""
+
+        return bool(self._equipment_state) and all(self._equipment_state.values())
+
+    @property
+    def is_connecting(self) -> bool:
+        """장비 연결 요청이 진행 중인지 반환한다."""
+
+        return bool(getattr(self._service, "is_connecting", False))
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -355,6 +386,8 @@ class InstrumentCheckPanel(QWidget):
         if config is None:
             return
         logger.info("Instrument 연결 요청")
+        self._last_connection_config = config
+        self._equipment_state = {}
         self._connect_button.setEnabled(False)
         self._service.connect_equipment(config)
 
@@ -393,20 +426,37 @@ class InstrumentCheckPanel(QWidget):
 
         logger.info("Instrument 연결 결과: %s", states)
         self._connect_button.setEnabled(True)
+        self._equipment_state = {
+            str(target): bool(connected) for target, connected in states.items()
+        }
         for target, key in _RESULT_KEY_TO_STATUS_KEY.items():
             self._set_status(key, "connected" if states.get(target) else "failed")
+        if self.is_fully_connected:
+            self.connection_succeeded.emit(
+                self._last_connection_config,
+                dict(self._equipment_state),
+            )
+            return
+        failed = ", ".join(
+            target for target, connected in self._equipment_state.items() if not connected
+        )
+        self.connection_failed.emit(
+            f"장비 연결 실패: {failed or 'equipment_state is empty'}"
+        )
 
     def on_service_error(self, message: str) -> None:
         """서비스 오류를 사용자에게 알린다."""
 
         logger.error("Instrument Check 오류: %s", message)
         self._connect_button.setEnabled(True)
+        self._equipment_state = {}
         if any(
             label.property("connectionStatus") == "connecting"
             for label in self._status_labels.values()
         ):
             for _, key in _STATUS_KEYS:
                 self._set_status(key, "failed")
+        self.connection_failed.emit(message)
         self._show_warning(message)
 
     def _build_config_or_warn(self) -> EquipmentConnectionConfig | None:

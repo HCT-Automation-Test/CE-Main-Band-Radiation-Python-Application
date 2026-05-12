@@ -166,11 +166,11 @@ def test_instrument_check_panel_shutdown_stops_timer_once(qtbot) -> None:
     panel.shutdown()
 
     assert not timer.isActive()
-    assert service.shutdown_calls == 1
+    assert service.shutdown_calls == 0
     assert service.refresh_calls == 1
 
 
-def test_instrument_check_panel_close_event_shuts_down_service(qtbot) -> None:
+def test_instrument_check_panel_close_event_does_not_shutdown_injected_service(qtbot) -> None:
     service = _Service()
     panel = InstrumentCheckPanel(service=service)
     qtbot.addWidget(panel)
@@ -179,7 +179,7 @@ def test_instrument_check_panel_close_event_shuts_down_service(qtbot) -> None:
 
     panel.close()
 
-    assert service.shutdown_calls == 1
+    assert service.shutdown_calls == 0
 
 
 def test_instrument_check_panel_missing_fields_warns_without_connect(
@@ -282,3 +282,64 @@ def test_instrument_check_panel_connects_and_updates_statuses(qtbot) -> None:
     assert panel.findChild(QLabel, "co3000StatusLabel").text() == "Connected"
     assert panel.findChild(QLabel, "controller_3dStatusLabel").text() == "Connected"
     assert panel.findChild(QLabel, "switch_boxStatusLabel").text() == "Failed"
+    assert not panel.is_fully_connected
+    assert panel.equipment_state == {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": False,
+        "3D Controller": True,
+    }
+
+
+def test_instrument_check_panel_emits_success_when_all_equipment_connected(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    _fill_valid_connection_fields(panel)
+
+    with qtbot.waitSignal(panel.connection_succeeded, timeout=1000) as blocker:
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+        service.connection_finished.emit(
+            {
+                "FSV40": True,
+                "MT8000A": True,
+                "CO3000": True,
+                "Switch Box": True,
+                "3D Controller": True,
+            }
+        )
+
+    config, states = blocker.args
+    assert config is panel.last_connection_config
+    assert states == panel.equipment_state
+    assert panel.is_fully_connected
+
+
+def test_instrument_check_panel_emits_failure_for_partial_connection(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    _fill_valid_connection_fields(panel)
+
+    with qtbot.waitSignal(panel.connection_failed, timeout=1000) as blocker:
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+        service.connection_finished.emit(
+            {
+                "FSV40": True,
+                "MT8000A": True,
+                "CO3000": True,
+                "Switch Box": False,
+                "3D Controller": True,
+            }
+        )
+
+    assert blocker.args == ["장비 연결 실패: Switch Box"]

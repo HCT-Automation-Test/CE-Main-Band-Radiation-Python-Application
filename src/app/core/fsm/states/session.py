@@ -40,32 +40,27 @@ class SessionInitState(State):
             return StateResult.FAIL
 
         if ctx.client is None:
-            _emit_error(ctx, "장비 연결 실패: TCP client is not set")
+            _emit_error(ctx, "장비 연결 확인 실패: TCP client is not set")
             return StateResult.RETRY
 
-        try:
-            connect_to = getattr(ctx.client, "connect_to", None)
-            if connect_to is not None:
-                connect_to(ctx.tcp_host, ctx.tcp_port)
-            response = ctx.commands.connect_equipment(ctx.client)
-        except Exception as exc:
-            _emit_error(ctx, f"장비 연결 실패: {exc}")
+        if not ctx.equipment_state:
+            _emit_error(ctx, "장비 연결 확인 실패: equipment_state is empty")
             return StateResult.RETRY
 
-        if isinstance(response, dict):
-            ctx.equipment_state = response
-            connected = bool(response) and all(
-                bool(value) for value in response.values()
+        failed = [
+            str(name)
+            for name, connected in ctx.equipment_state.items()
+            if not bool(connected)
+        ]
+        if failed:
+            _emit_error(
+                ctx,
+                "장비 연결 확인 실패: disconnected equipment: "
+                + ", ".join(failed),
             )
-        else:
-            connected = bool(response)
-            ctx.equipment_state = {"connected": connected}
+            return StateResult.RETRY
 
-        if connected:
-            return StateResult.OK
-
-        _emit_error(ctx, "장비 연결 실패: connect_equipment returned false")
-        return StateResult.RETRY
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult

@@ -76,7 +76,7 @@ def _make_case(
     )
 
 
-def test_session_init_connects_client_and_equipment() -> None:
+def test_session_init_accepts_ready_equipment_state_without_connecting() -> None:
     events = _Events()
     client = _Client()
     commands = _Commands(response={"mt8000a": True, "fsv40": True})
@@ -88,21 +88,22 @@ def test_session_init_connects_client_and_equipment() -> None:
         tcp_host="127.0.0.1",
         tcp_port=5025,
     )
+    ctx.equipment_state = {"mt8000a": True, "fsv40": True}
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.OK
-    assert client.connect_calls == [("127.0.0.1", 5025)]
-    assert commands.connect_calls == [client]
+    assert client.connect_calls == []
+    assert commands.connect_calls == []
     assert ctx.equipment_state == {"mt8000a": True, "fsv40": True}
 
 
-def test_session_init_retries_when_connection_fails() -> None:
+def test_session_init_retries_when_equipment_state_is_empty() -> None:
     events = _Events()
     ctx = SessionContext(
         queue=[],
-        commands=_Commands(response=False),
+        commands=_Commands(response=True),
         events=events,  # type: ignore[arg-type]
         client=_Client(),
     )
@@ -112,26 +113,48 @@ def test_session_init_retries_when_connection_fails() -> None:
 
     assert result is StateResult.RETRY
     assert events.error.values == [
-        "장비 연결 실패: connect_equipment returned false"
+        "장비 연결 확인 실패: equipment_state is empty"
+    ]
+
+
+def test_session_init_retries_when_client_is_missing() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=_Commands(response=True),
+        events=events,  # type: ignore[arg-type]
+        client=None,
+    )
+    ctx.equipment_state = {"mt8000a": True, "fsv40": True}
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values == [
+        "장비 연결 확인 실패: TCP client is not set"
     ]
 
 
 def test_session_init_retries_when_any_equipment_status_is_false() -> None:
     events = _Events()
+    commands = _Commands(response={"mt8000a": True, "fsv40": False})
     ctx = SessionContext(
         queue=[],
-        commands=_Commands(response={"mt8000a": True, "fsv40": False}),
+        commands=commands,
         events=events,  # type: ignore[arg-type]
         client=_Client(),
     )
+    ctx.equipment_state = {"mt8000a": True, "fsv40": False}
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
     assert ctx.equipment_state == {"mt8000a": True, "fsv40": False}
+    assert commands.connect_calls == []
     assert events.error.values == [
-        "장비 연결 실패: connect_equipment returned false"
+        "장비 연결 확인 실패: disconnected equipment: fsv40"
     ]
 
 

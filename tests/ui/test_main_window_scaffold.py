@@ -80,6 +80,34 @@ def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
         assert page.findChild(panel_class) is not None
 
 
+def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
+    """Instrument Check가 Runner 소유 연결 서비스를 사용한다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+
+    assert instrument_panel is not None
+    assert instrument_panel.service() is window._runner.instrument_connection_service
+
+
+def test_main_window_start_button_is_blocked_until_equipment_ready(qtbot) -> None:
+    """장비 준비 전 시작 버튼은 Runner gate에서 차단된다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    messages: list[str] = []
+    window._runner.events.error.connect(messages.append)
+
+    start_button = window.findChild(QPushButton, "startButton")
+    assert start_button is not None
+
+    start_button.click()
+
+    assert messages == ["시험 시작 실패: Instrument Check 연결을 완료하세요"]
+
+
 def test_main_window_page_content_aligns_with_navigation_panel(qtbot) -> None:
     """좌측 버튼 영역과 우측 서브패널 content 영역의 위치/크기를 맞춘다."""
 

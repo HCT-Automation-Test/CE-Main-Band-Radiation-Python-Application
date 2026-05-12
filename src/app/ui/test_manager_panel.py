@@ -4,7 +4,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor, QPalette, QResizeEvent
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -126,6 +126,8 @@ _TABLE_COLUMN_STRETCH_TOTAL = sum(_TABLE_COLUMN_STRETCH_WEIGHTS)
 
 class TestManagerPanel(QWidget):
     """테스트 케이스 생성, 실행, 로그 출력의 중심 패널."""
+
+    start_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -288,6 +290,7 @@ class TestManagerPanel(QWidget):
             self.on_screenshot_root_browse_clicked,
         )
         self._nr_button.clicked.connect(self.on_nr_button_clicked)
+        self._start_button.clicked.connect(self.start_requested.emit)
 
     def _create_left_panel(self) -> QWidget:
         """EUT 입력과 좌측 하단 제어 영역을 만든다."""
@@ -460,6 +463,8 @@ class TestManagerPanel(QWidget):
         ):
             button = QPushButton(text, panel)
             button.setObjectName(object_name)
+            if object_name == "startButton":
+                self._start_button = button
             action_layout.addWidget(button)
         layout.addLayout(action_layout)
 
