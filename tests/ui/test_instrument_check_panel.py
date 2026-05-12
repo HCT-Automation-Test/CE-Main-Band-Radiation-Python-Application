@@ -91,6 +91,28 @@ def test_instrument_check_panel_auto_refresh_updates_all_visa_combos(qtbot) -> N
             "ASRL1::INSTR",
             "ASRL2::INSTR",
         ]
+        assert combo.currentIndex() == -1
+        assert combo.currentText() == ""
+
+
+def test_instrument_check_panel_preserves_manual_visa_text_on_refresh(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    panel.set_resource_text("mt8000a", "MANUAL::INSTR")
+
+    service.visa_resources_discovered.emit(["ASRL1::INSTR", "ASRL2::INSTR"])
+
+    combo = panel.findChild(QComboBox, "mt8000aResourceCombo")
+    assert combo is not None
+    assert combo.currentText() == "MANUAL::INSTR"
+    assert combo.itemText(0) == "MANUAL::INSTR"
+    assert [combo.itemText(index) for index in range(1, combo.count())] == [
+        "ASRL1::INSTR",
+        "ASRL2::INSTR",
+    ]
 
 
 def test_instrument_check_panel_periodically_refreshes_visa_resources(qtbot) -> None:

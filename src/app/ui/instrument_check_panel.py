@@ -345,6 +345,8 @@ class InstrumentCheckPanel(QWidget):
                     combo.insertItem(0, current_text)
                     index = 0
                 combo.setCurrentIndex(index)
+            else:
+                combo.setCurrentIndex(-1)
             combo.blockSignals(False)
 
     def on_visa_discovery_failed(self, message: str) -> None:
