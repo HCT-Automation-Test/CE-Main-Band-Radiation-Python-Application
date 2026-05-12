@@ -56,6 +56,16 @@ class _Commands:
         return self.response
 
 
+def _ready_states() -> dict[str, bool]:
+    return {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
+
+
 def _make_case(
     test_type: TestType = TestType.HARMONIC,
     *,
@@ -79,7 +89,7 @@ def _make_case(
 def test_session_init_accepts_ready_equipment_state_without_connecting() -> None:
     events = _Events()
     client = _Client()
-    commands = _Commands(response={"mt8000a": True, "fsv40": True})
+    commands = _Commands(response=_ready_states())
     ctx = SessionContext(
         queue=[],
         commands=commands,
@@ -88,7 +98,7 @@ def test_session_init_accepts_ready_equipment_state_without_connecting() -> None
         tcp_host="127.0.0.1",
         tcp_port=5025,
     )
-    ctx.equipment_state = {"mt8000a": True, "fsv40": True}
+    ctx.equipment_state = _ready_states()
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
@@ -96,7 +106,7 @@ def test_session_init_accepts_ready_equipment_state_without_connecting() -> None
     assert result is StateResult.OK
     assert client.connect_calls == []
     assert commands.connect_calls == []
-    assert ctx.equipment_state == {"mt8000a": True, "fsv40": True}
+    assert ctx.equipment_state == _ready_states()
 
 
 def test_session_init_retries_when_equipment_state_is_empty() -> None:
@@ -125,7 +135,7 @@ def test_session_init_retries_when_client_is_missing() -> None:
         events=events,  # type: ignore[arg-type]
         client=None,
     )
-    ctx.equipment_state = {"mt8000a": True, "fsv40": True}
+    ctx.equipment_state = _ready_states()
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
@@ -138,23 +148,47 @@ def test_session_init_retries_when_client_is_missing() -> None:
 
 def test_session_init_retries_when_any_equipment_status_is_false() -> None:
     events = _Events()
-    commands = _Commands(response={"mt8000a": True, "fsv40": False})
+    states = _ready_states()
+    states["FSV40"] = False
+    commands = _Commands(response=states)
     ctx = SessionContext(
         queue=[],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=_Client(),
     )
-    ctx.equipment_state = {"mt8000a": True, "fsv40": False}
+    ctx.equipment_state = states
     ctx.equipment_connect_requested.set()
 
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert ctx.equipment_state == {"mt8000a": True, "fsv40": False}
+    assert ctx.equipment_state == states
     assert commands.connect_calls == []
     assert events.error.values == [
-        "장비 연결 확인 실패: disconnected equipment: fsv40"
+        "장비 연결 확인 실패: disconnected equipment: FSV40"
+    ]
+
+
+def test_session_init_retries_when_required_equipment_is_missing() -> None:
+    events = _Events()
+    commands = _Commands(response={"FSV40": True})
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=_Client(),
+    )
+    ctx.equipment_state = {"FSV40": True}
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert commands.connect_calls == []
+    assert events.error.values == [
+        "장비 연결 확인 실패: missing equipment: "
+        "MT8000A, CO3000, Switch Box, 3D Controller"
     ]
 
 

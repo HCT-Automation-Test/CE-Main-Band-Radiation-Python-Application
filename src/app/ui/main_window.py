@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (
 
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
-from app.core.runner import Runner
+from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.manual_test_panel import ManualTestPanel
@@ -62,6 +62,10 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.start_requested.connect(
             self.on_start_requested,
         )
+        self._runner.measurement_active_changed.connect(
+            self.on_measurement_active_changed,
+        )
+        self.on_measurement_active_changed(self._runner.is_measurement_active)
 
     def _setup_main_layout(self) -> None:
         """좌측 서브 윈도우 선택 버튼과 우측 화면 스택을 구성한다."""
@@ -228,6 +232,13 @@ class MainWindow(QMainWindow):
             model_name=self._test_manager_panel.eut_name,
             template_path=self._test_manager_panel.excel_template_path,
             screenshot_root_dir=self._test_manager_panel.screenshot_root_dir,
+        )
+
+    def on_measurement_active_changed(self, active: bool) -> None:
+        """측정 실행 중에는 Instrument Check 재연결을 막는다."""
+
+        self._instrument_check_panel.set_connection_block_reason(
+            INSTRUMENT_CONNECTION_BLOCK_MESSAGE if active else None
         )
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802

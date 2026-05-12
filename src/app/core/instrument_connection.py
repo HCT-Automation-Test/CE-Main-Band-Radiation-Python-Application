@@ -17,6 +17,17 @@ _DETACHED_THREADS: list[QThread] = []
 
 VisaResourceProvider = Callable[[], Sequence[str]]
 ClientFactory = Callable[[], Any]
+ConnectionGuard = Callable[[], str | None]
+
+CONNECTION_IN_PROGRESS_MESSAGE = "장비 연결 요청이 이미 진행 중입니다."
+
+REQUIRED_EQUIPMENT_NAMES: tuple[str, ...] = (
+    "FSV40",
+    "MT8000A",
+    "CO3000",
+    "Switch Box",
+    "3D Controller",
+)
 
 
 def _disconnect_safely(signal: Any, slot: Any) -> None:
@@ -54,6 +65,70 @@ def build_equipment_connection_config(
         controller_3d_visa_resource=controller_3d_visa_resource.strip(),
         switch_box_ip_address=switch_box_ip_address.strip(),
         switch_box_port=int(switch_box_port),
+    )
+
+
+def normalize_equipment_state(states: dict[str, Any]) -> dict[str, bool]:
+    """장비 상태 dict의 key/value를 FSM 판정용으로 정규화한다."""
+
+    return {str(key): bool(value) for key, value in states.items()}
+
+
+def missing_required_equipment(states: dict[str, Any]) -> list[str]:
+    """필수 장비 중 상태 응답에 누락된 항목을 반환한다."""
+
+    return [
+        name
+        for name in REQUIRED_EQUIPMENT_NAMES
+        if name not in states
+    ]
+
+
+def disconnected_required_equipment(states: dict[str, Any]) -> list[str]:
+    """필수 장비 중 연결 실패 상태인 항목을 반환한다."""
+
+    return [
+        name
+        for name in REQUIRED_EQUIPMENT_NAMES
+        if name in states and not bool(states[name])
+    ]
+
+
+def is_required_equipment_ready(states: dict[str, Any]) -> bool:
+    """필수 장비가 모두 있고 모두 연결 완료인지 반환한다."""
+
+    return (
+        bool(states)
+        and not missing_required_equipment(states)
+        and not disconnected_required_equipment(states)
+    )
+
+
+def describe_equipment_not_ready(states: dict[str, Any]) -> str:
+    """장비 준비 실패 원인을 사용자 로그용 문자열로 만든다."""
+
+    if not states:
+        return "equipment_state is empty"
+
+    parts = []
+    missing = missing_required_equipment(states)
+    disconnected = disconnected_required_equipment(states)
+    if missing:
+        parts.append("missing equipment: " + ", ".join(missing))
+    if disconnected:
+        parts.append("disconnected equipment: " + ", ".join(disconnected))
+    return "; ".join(parts) if parts else "equipment_state is not ready"
+
+
+def should_preserve_equipment_state_on_connection_error(
+    message: str,
+    *,
+    block_reason: str | None = None,
+) -> bool:
+    """실제 연결 실패가 아닌 차단 오류에서는 기존 장비 상태를 유지한다."""
+
+    return message == CONNECTION_IN_PROGRESS_MESSAGE or (
+        block_reason is not None and message == block_reason
     )
 
 
@@ -201,6 +276,7 @@ class InstrumentConnectionService(QObject):
         tcp_host: str = "127.0.0.1",
         tcp_port: int = 5025,
         visa_resource_provider: VisaResourceProvider | None = None,
+        connection_guard: ConnectionGuard | None = None,
     ) -> None:
         super().__init__(parent)
         if client is not None and client_factory is not None:
@@ -215,6 +291,7 @@ class InstrumentConnectionService(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._visa_resource_provider = visa_resource_provider
+        self._connection_guard = connection_guard
         self._discovery_thread: QThread | None = None
         self._connection_thread: QThread | None = None
         self._discovery_worker: _VisaDiscoveryWorker | None = None
@@ -258,8 +335,14 @@ class InstrumentConnectionService(QObject):
             return
 
         if self._connection_thread is not None:
-            self.error_occurred.emit("장비 연결 요청이 이미 진행 중입니다.")
+            self.error_occurred.emit(CONNECTION_IN_PROGRESS_MESSAGE)
             return
+
+        if self._connection_guard is not None:
+            block_reason = self._connection_guard()
+            if block_reason:
+                self.error_occurred.emit(block_reason)
+                return
 
         thread = QThread(self)
         worker = _ConnectionWorker(

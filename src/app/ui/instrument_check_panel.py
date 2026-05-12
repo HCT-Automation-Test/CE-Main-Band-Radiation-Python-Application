@@ -24,6 +24,10 @@ from PySide6.QtWidgets import (
 from app.core.instrument_connection import (
     InstrumentConnectionService,
     build_equipment_connection_config,
+    describe_equipment_not_ready,
+    is_required_equipment_ready,
+    normalize_equipment_state,
+    should_preserve_equipment_state_on_connection_error,
 )
 from app.net.commands import EquipmentConnectionConfig
 from app.ui.log_panel import LogPanel
@@ -87,6 +91,8 @@ class InstrumentCheckPanel(QWidget):
         self._status_labels: dict[str, QLabel] = {}
         self._last_connection_config: EquipmentConnectionConfig | None = None
         self._equipment_state: dict[str, bool] = {}
+        self._connection_block_reason: str | None = None
+        self._connection_in_progress = False
         self._visa_discovery_started = False
         self._shutdown_started = False
         self._visa_initial_refresh_timer = QTimer(self)
@@ -261,6 +267,7 @@ class InstrumentCheckPanel(QWidget):
         self._shutdown_started = True
         self._visa_initial_refresh_timer.stop()
         self._visa_refresh_timer.stop()
+        self._update_connect_button_enabled()
         if self._owns_service:
             shutdown = getattr(self._service, "shutdown", None)
             if shutdown is not None:
@@ -282,13 +289,19 @@ class InstrumentCheckPanel(QWidget):
     def is_fully_connected(self) -> bool:
         """모든 장비가 연결 완료 상태인지 반환한다."""
 
-        return bool(self._equipment_state) and all(self._equipment_state.values())
+        return is_required_equipment_ready(self._equipment_state)
 
     @property
     def is_connecting(self) -> bool:
         """장비 연결 요청이 진행 중인지 반환한다."""
 
-        return bool(getattr(self._service, "is_connecting", False))
+        return self._connection_in_progress
+
+    def set_connection_block_reason(self, reason: str | None) -> None:
+        """상위 실행 상태에 따라 연결 버튼 차단 사유를 설정한다."""
+
+        self._connection_block_reason = reason
+        self._update_connect_button_enabled()
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -382,12 +395,18 @@ class InstrumentCheckPanel(QWidget):
     def on_connect_clicked(self) -> None:
         """입력값 검증 후 장비 연결을 요청한다."""
 
+        if self._connection_block_reason:
+            self.connection_failed.emit(self._connection_block_reason)
+            self._show_warning(self._connection_block_reason)
+            return
+
         config = self._build_config_or_warn()
         if config is None:
             return
         logger.info("Instrument 연결 요청")
         self._last_connection_config = config
         self._equipment_state = {}
+        self._connection_in_progress = True
         self._connect_button.setEnabled(False)
         self._service.connect_equipment(config)
 
@@ -418,6 +437,8 @@ class InstrumentCheckPanel(QWidget):
         """연결 진행 상태를 표시한다."""
 
         logger.info("Instrument 연결 진행 중")
+        self._connection_in_progress = True
+        self._update_connect_button_enabled()
         for _, key in _STATUS_KEYS:
             self._set_status(key, "connecting")
 
@@ -425,10 +446,9 @@ class InstrumentCheckPanel(QWidget):
         """장비별 연결 결과를 표시한다."""
 
         logger.info("Instrument 연결 결과: %s", states)
-        self._connect_button.setEnabled(True)
-        self._equipment_state = {
-            str(target): bool(connected) for target, connected in states.items()
-        }
+        self._connection_in_progress = False
+        self._update_connect_button_enabled()
+        self._equipment_state = normalize_equipment_state(states)
         for target, key in _RESULT_KEY_TO_STATUS_KEY.items():
             self._set_status(key, "connected" if states.get(target) else "failed")
         if self.is_fully_connected:
@@ -437,20 +457,24 @@ class InstrumentCheckPanel(QWidget):
                 dict(self._equipment_state),
             )
             return
-        failed = ", ".join(
-            target for target, connected in self._equipment_state.items() if not connected
-        )
         self.connection_failed.emit(
-            f"장비 연결 실패: {failed or 'equipment_state is empty'}"
+            "장비 연결 실패: "
+            + describe_equipment_not_ready(self._equipment_state)
         )
 
     def on_service_error(self, message: str) -> None:
         """서비스 오류를 사용자에게 알린다."""
 
         logger.error("Instrument Check 오류: %s", message)
-        self._connect_button.setEnabled(True)
-        self._equipment_state = {}
-        if any(
+        preserve_state = should_preserve_equipment_state_on_connection_error(
+            message,
+            block_reason=self._connection_block_reason,
+        )
+        self._connection_in_progress = False
+        self._update_connect_button_enabled()
+        if not preserve_state:
+            self._equipment_state = {}
+        if not preserve_state and any(
             label.property("connectionStatus") == "connecting"
             for label in self._status_labels.values()
         ):
@@ -542,6 +566,15 @@ class InstrumentCheckPanel(QWidget):
         label.setProperty("connectionStatus", status)
         label.style().unpolish(label)
         label.style().polish(label)
+
+    def _update_connect_button_enabled(self) -> None:
+        enabled = (
+            not self._shutdown_started
+            and not self._connection_in_progress
+            and self._connection_block_reason is None
+        )
+        self._connect_button.setEnabled(enabled)
+        self._connect_button.setToolTip(self._connection_block_reason or "")
 
     def _show_warning(self, message: str) -> None:
         """어두운 OS 테마에서도 읽히는 경고 팝업을 표시한다."""

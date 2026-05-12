@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.core.instrument_connection import (
+    describe_equipment_not_ready,
+    is_required_equipment_ready,
+)
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -47,16 +51,11 @@ class SessionInitState(State):
             _emit_error(ctx, "장비 연결 확인 실패: equipment_state is empty")
             return StateResult.RETRY
 
-        failed = [
-            str(name)
-            for name, connected in ctx.equipment_state.items()
-            if not bool(connected)
-        ]
-        if failed:
+        if not is_required_equipment_ready(ctx.equipment_state):
             _emit_error(
                 ctx,
-                "장비 연결 확인 실패: disconnected equipment: "
-                + ", ".join(failed),
+                "장비 연결 확인 실패: "
+                + describe_equipment_not_ready(ctx.equipment_state),
             )
             return StateResult.RETRY
 

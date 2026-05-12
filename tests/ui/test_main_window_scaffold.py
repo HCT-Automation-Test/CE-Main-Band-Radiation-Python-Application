@@ -15,6 +15,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.instrument_connection import build_equipment_connection_config
+from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow
@@ -106,6 +108,45 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(qtbot) -> Non
     start_button.click()
 
     assert messages == ["시험 시작 실패: Instrument Check 연결을 완료하세요"]
+
+
+def test_main_window_blocks_instrument_connect_while_measurement_active(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """측정 중에는 버튼과 service guard가 모두 Instrument Check 연결을 막는다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    connect_button = window.findChild(QPushButton, "connectInstrumentButton")
+    assert instrument_panel is not None
+    assert connect_button is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+
+    window._runner._set_measurement_active(True)
+
+    assert not connect_button.isEnabled()
+
+    config = build_equipment_connection_config(
+        mt8000a_visa_resource="MT",
+        fsv40_visa_resource="FS",
+        co3000_visa_resource="CO",
+        controller_3d_visa_resource="3D",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+    with qtbot.waitSignal(
+        window._runner.instrument_connection_service.error_occurred,
+        timeout=1000,
+    ) as blocker:
+        window._runner.instrument_connection_service.connect_equipment(config)
+
+    assert blocker.args == [INSTRUMENT_CONNECTION_BLOCK_MESSAGE]
+
+    window._runner._set_measurement_active(False)
+
+    assert connect_button.isEnabled()
 
 
 def test_main_window_page_content_aligns_with_navigation_panel(qtbot) -> None:

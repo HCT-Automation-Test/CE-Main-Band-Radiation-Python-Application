@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.fsm.context import SessionContext
-from app.core.runner import Runner
+from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
 from app.core.instrument_connection import build_equipment_connection_config
 from app.models.enums import (
     AntennaPol,
@@ -151,6 +151,37 @@ def test_mark_equipment_ready_initializes_and_sets_session_init_request(
     qtbot.waitUntil(lambda: not runner.is_running)
 
 
+def test_equipment_ready_requires_all_required_devices(tmp_path: Path) -> None:
+    states_with_extra_failure = _ready_states() | {"Extra Device": False}
+    runner = Runner(client=object(), commands=object(), temp_dir=tmp_path / "temp")
+
+    runner._equipment_state = {"FSV40": True}
+
+    assert not runner.is_equipment_ready
+
+    runner._equipment_state = states_with_extra_failure
+
+    assert runner.is_equipment_ready
+    assert runner.equipment_state == states_with_extra_failure
+
+
+def test_mark_equipment_ready_partial_state_emits_error_without_initialize(
+    tmp_path: Path,
+) -> None:
+    messages: list[str] = []
+    runner = Runner(client=object(), commands=object(), temp_dir=tmp_path / "temp")
+    runner.events.error.connect(messages.append)
+
+    runner.mark_equipment_ready({"FSV40": True})
+
+    assert messages == [
+        "장비 준비 상태 통지 실패: missing equipment: "
+        "MT8000A, CO3000, Switch Box, 3D Controller"
+    ]
+    assert not runner.is_running
+    assert runner.context is None
+
+
 def test_mark_equipment_ready_allows_real_fsm_to_reach_idle(
     qtbot: Any, tmp_path: Path
 ) -> None:
@@ -258,6 +289,63 @@ def test_start_populates_context_and_sets_start_request(
     assert ctx.screenshot_root_dir == tmp_path / "screenshots"
     assert ctx.report_writer is report_writers[0]
     assert ctx.test_start_requested.is_set()
+    assert runner.is_measurement_active
+
+    runner.events.state_changed.emit("Idle")
+    assert not runner.is_measurement_active
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_runner_connection_service_guard_blocks_when_measurement_active(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    engines: list[_FakeEngine] = []
+    client = _Client()
+    commands = _ConnectionCommands(_ready_states())
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    def report_writer_factory(
+        template_path: Path,
+        screenshot_root_dir: Path,
+        model_name: str,
+        events: Any,
+    ) -> _ReportWriter:
+        _ = template_path, screenshot_root_dir, model_name, events
+        return _ReportWriter()
+
+    runner = Runner(
+        client=client,
+        commands=commands,
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+    runner.start(
+        [_make_case()],
+        model_name="SM-000",
+        template_path=tmp_path / "template.xlsx",
+        screenshot_root_dir=tmp_path / "screenshots",
+    )
+
+    with qtbot.waitSignal(
+        runner.instrument_connection_service.error_occurred,
+        timeout=1000,
+    ) as blocker:
+        runner.instrument_connection_service.connect_equipment(_connection_config())
+
+    assert blocker.args == [INSTRUMENT_CONNECTION_BLOCK_MESSAGE]
+    assert runner.equipment_state == _ready_states()
+    assert commands.calls == []
+    assert client.connect_calls == []
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)

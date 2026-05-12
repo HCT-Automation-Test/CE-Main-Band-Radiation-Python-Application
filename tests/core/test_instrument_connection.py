@@ -7,7 +7,9 @@ from app.core.instrument_connection import (
     InstrumentConnectionService,
     _DETACHED_THREADS,
     build_equipment_connection_config,
+    describe_equipment_not_ready,
     discover_visa_resources,
+    is_required_equipment_ready,
 )
 
 
@@ -94,6 +96,23 @@ def test_build_equipment_connection_config_trims_and_coerces_port() -> None:
     assert config.controller_3d_visa_resource == "ASRL2::INSTR"
     assert config.switch_box_ip_address == "192.168.0.10"
     assert config.switch_box_port == 5000
+
+
+def test_required_equipment_readiness_requires_all_targets() -> None:
+    states = {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+        "Extra Device": False,
+    }
+
+    assert is_required_equipment_ready(states)
+    assert not is_required_equipment_ready({"FSV40": True})
+    assert describe_equipment_not_ready({"FSV40": True}) == (
+        "missing equipment: MT8000A, CO3000, Switch Box, 3D Controller"
+    )
 
 
 def test_discover_visa_resources_uses_provider_and_sorts_values() -> None:
@@ -220,6 +239,24 @@ def test_instrument_connection_service_keeps_injected_client_open(qtbot) -> None
     assert client.connect_calls == [("127.0.0.10", 5026)]
     assert client.closed is False
     assert commands.calls == [(client, config)]
+
+
+def test_instrument_connection_service_guard_blocks_connection(qtbot) -> None:
+    client = _Client()
+    commands = _Commands({"FSV40": True})
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        connection_guard=lambda: "blocked",
+    )
+
+    with qtbot.waitSignal(service.error_occurred, timeout=1000) as blocker:
+        service.connect_equipment(_connection_config())
+
+    assert blocker.args == ["blocked"]
+    assert service._connection_thread is None
+    assert client.connect_calls == []
+    assert commands.calls == []
 
 
 def test_instrument_connection_service_shutdown_cancels_running_connection(
