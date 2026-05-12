@@ -13,8 +13,11 @@
   - **FSV40** — Spectrum Analyzer
   - **Switch Box** — 입력/필터 경로 선택
   - **CO3000** — Turntable (DUT 회전)
-- **VISA 직접 제어는 외부 LabVIEW 프로그램의 책임**. 이 Python 앱은 VISA를 일체 사용하지 않으며,
-  외부 프로그램과는 **TCP 기반 자체 JSON 프로토콜 (Request/Response + 비동기 Event)**로 파라미터/결과만 교환한다.
+- **VISA 직접 제어는 외부 LabVIEW 프로그램의 책임**. 이 Python 앱은 장비 제어를 위해
+  VISA 세션을 직접 열거나 SCPI/장비 명령을 직접 전송하지 않는다.
+- 장비 연결, 설정, 측정, 상태 확인은 외부 프로그램과
+  **TCP 기반 자체 JSON 프로토콜 (Request/Response + 비동기 Event)**로만 수행한다.
+- 예외적으로 UI 입력 편의를 위한 로컬 VISA Resource 주소 목록 조회는 허용한다.
 
 ## Python 책임 범위
 
@@ -30,6 +33,7 @@
 - **Python**: 3.11+
 - **UI**: PySide6 (`QTcpSocket`, `QThread`)
 - **Package manager**: uv (pyproject.toml)
+- **VISA Resource 목록 조회**: pyvisa (`ResourceManager().list_resources()` 용도에 한정)
 - **Excel**: openpyxl
 - **YAML/JSON**: PyYAML + 표준 json
 - **Test**: pytest, pytest-qt
@@ -154,7 +158,10 @@ uv run pytest tests/core -k harmonic
 ## Forbidden / Requires Approval
 
 - `src/app/ui/generated/**` 파일 직접 편집 금지 (재생성으로 덮어쓰기).
-- **Python에서 VISA 직접 호출 금지**. 장비 제어는 전적으로 외부 LabVIEW 프로그램 책임.
+- **Python에서 장비 제어 목적의 VISA 직접 호출 금지**. 장비 제어는 전적으로 외부 LabVIEW 프로그램 책임.
+  - 허용: `pyvisa.ResourceManager().list_resources()` 수준의 로컬 VISA Resource 주소 목록 조회.
+  - 금지: `open_resource`, `write`, `read`, `query`, 장비 세션 유지, SCPI 전송, 측정/설정/상태 확인.
+  - 조회된 VISA 주소는 LabVIEW TCP 명령의 설정값으로 전달하는 용도에만 사용한다.
 - **실기 외부 서버 대상 통합 테스트 실행은 사용자 명시 승인 필요** (호스트/포트 포함).
   기본 테스트는 `mock_server` 또는 loopback으로 수행.
 - 의존성 추가/제거는 `uv add` / `uv remove` 사용. `pyproject.toml` 직접 편집 지양.

@@ -17,7 +17,9 @@
   - `Switch Box`: 입력/필터 경로 선택
   - `CO3000`: Turntable
 - 장비의 **VISA 직접 제어는 외부 LabVIEW 프로그램 책임**이다.
-- Python 앱은 VISA를 직접 사용하지 않고, 외부 프로그램과 **TCP 기반 JSON 프로토콜**로만 통신한다.
+- Python 앱은 장비 제어를 위해 VISA 세션을 직접 열거나 SCPI/장비 명령을 직접 전송하지 않는다.
+- 장비 연결, 설정, 측정, 상태 확인은 외부 프로그램과 **TCP 기반 JSON 프로토콜**로만 수행한다.
+- 예외적으로 UI 입력 편의를 위한 로컬 VISA Resource 주소 목록 조회는 허용한다.
 
 ## Python Responsibilities
 
@@ -33,6 +35,7 @@
 - Python 3.11+
 - PySide6 (`QTcpSocket`, `QThread`)
 - Package manager: `uv`
+- VISA Resource 목록 조회: `pyvisa` (`ResourceManager().list_resources()` 용도에 한정)
 - Excel: `openpyxl`
 - YAML/JSON: `PyYAML`, 표준 `json`
 - Test: `pytest`, `pytest-qt`
@@ -107,7 +110,10 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 ## Forbidden / Requires Extra Care
 
 - `src/app/ui/generated/**`는 직접 수정하지 않는다. 필요하면 `.ui`를 수정하고 다시 생성한다.
-- Python에서 VISA를 직접 호출하지 않는다.
+- Python에서 장비 제어 목적의 VISA 직접 호출은 금지한다.
+  - 허용: `pyvisa.ResourceManager().list_resources()` 수준의 로컬 VISA Resource 주소 목록 조회.
+  - 금지: `open_resource`, `write`, `read`, `query`, 장비 세션 유지, SCPI 전송, 측정/설정/상태 확인.
+  - 조회된 VISA 주소는 LabVIEW TCP 명령의 설정값으로 전달하는 용도에만 사용한다.
 - 실제 외부 서버나 실제 장비를 대상으로 하는 통합 테스트는 사용자 승인 없이 실행하지 않는다.
 - 기본 검증은 `mock_server` 또는 loopback 기반 테스트를 우선한다.
 - 의존성 추가/제거는 `uv add`, `uv remove`로 수행하고 `pyproject.toml` 직접 편집은 피한다.
