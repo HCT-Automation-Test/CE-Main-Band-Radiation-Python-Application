@@ -405,7 +405,6 @@ class InstrumentCheckPanel(QWidget):
             return
         logger.info("Instrument 연결 요청")
         self._last_connection_config = config
-        self._equipment_state = {}
         self._connection_in_progress = True
         self._connect_button.setEnabled(False)
         self._service.connect_equipment(config)
@@ -437,6 +436,7 @@ class InstrumentCheckPanel(QWidget):
         """연결 진행 상태를 표시한다."""
 
         logger.info("Instrument 연결 진행 중")
+        self._equipment_state = {}
         self._connection_in_progress = True
         self._update_connect_button_enabled()
         for _, key in _STATUS_KEYS:

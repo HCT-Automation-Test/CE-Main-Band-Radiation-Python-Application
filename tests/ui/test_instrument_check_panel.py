@@ -10,8 +10,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.log_panel import LogPanel
+from app.core.instrument_connection import CONNECTION_IN_PROGRESS_MESSAGE
 from app.ui.instrument_check_panel import InstrumentCheckPanel
+from app.ui.log_panel import LogPanel
 
 
 class _Service(QObject):
@@ -392,6 +393,48 @@ def test_instrument_check_panel_preserves_state_for_blocked_service_error(
         assert panel.findChild(QLabel, object_name).text() == "Connected"
 
 
+def test_instrument_check_panel_preserves_state_when_retry_is_still_in_progress(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    _fill_valid_connection_fields(panel)
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    ready_states = {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
+
+    with qtbot.waitSignal(panel.connection_succeeded, timeout=1000):
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+        service.connection_finished.emit(ready_states)
+
+    with qtbot.waitSignal(panel.connection_failed, timeout=1000) as blocker:
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+        service.error_occurred.emit(CONNECTION_IN_PROGRESS_MESSAGE)
+
+    assert blocker.args == [CONNECTION_IN_PROGRESS_MESSAGE]
+    assert warnings == [CONNECTION_IN_PROGRESS_MESSAGE]
+    assert panel.equipment_state == ready_states
+    assert panel.is_fully_connected
+    for object_name in (
+        "mt8000aStatusLabel",
+        "fsv40StatusLabel",
+        "co3000StatusLabel",
+        "controller_3dStatusLabel",
+        "switch_boxStatusLabel",
+    ):
+        assert panel.findChild(QLabel, object_name).text() == "Connected"
+
+
 def test_instrument_check_panel_clears_state_for_real_service_error(
     qtbot,
     monkeypatch,
@@ -417,6 +460,8 @@ def test_instrument_check_panel_clears_state_for_real_service_error(
         )
 
     with qtbot.waitSignal(panel.connection_failed, timeout=1000) as blocker:
+        panel.findChild(QPushButton, "connectInstrumentButton").click()
+        service.connection_started.emit()
         service.error_occurred.emit("boom")
 
     assert blocker.args == ["boom"]
