@@ -1150,7 +1150,7 @@ class TestManagerPanel(QWidget):
             self._safe_call_channel(case),
             # TODO(spec): CH_No. 컬럼 의미가 확정되면 표시값을 조정한다.
             self._safe_target_frequency(case),
-            case.test_type.value,
+            str(case.test_range.value),
             self._format_number(test_range.start_freq),
             self._format_number(test_range.stop_freq),
             case.dut_axis.value,
