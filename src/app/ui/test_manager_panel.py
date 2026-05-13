@@ -30,6 +30,7 @@ from app.models.nr_channel_lookup import (
     resolve_target_frequency_mhz,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRSelectDialog
 
@@ -71,10 +72,18 @@ _INFO_FIELDS: tuple[tuple[str, str], ...] = (
     ("Sweep Point", "sweepPointEdit"),
     ("Filter", "filterEdit"),
     ("Saturation Time", "saturationTimeEdit"),
-    ("Turn Table Speed", "turnTableSpeedEdit"),
+    ("Connection Waiting Time", "connectionWaitingTimeEdit"),
     ("Atten Level", "attenLevelEdit"),
     ("Next Peak Search Level", "nextPeakSearchLevelEdit"),
 )
+
+_RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
+    "saturationTimeEdit": "5",
+    "connectionWaitingTimeEdit": "5",
+    "attenLevelEdit": "0",
+    "nextPeakSearchLevelEdit": "0",
+}
+_RUN_SETTING_FIELD_NAMES = frozenset(_RUN_SETTING_FIELD_DEFAULTS)
 
 _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
@@ -165,6 +174,53 @@ class TestManagerPanel(QWidget):
         """Test Manager 표에 추가된 TestCase 목록을 반환한다."""
 
         return tuple(self._test_cases)
+
+    def build_test_run_settings(self) -> TestRunSettings | None:
+        """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
+
+        try:
+            eut_name = self.eut_name
+            if not eut_name:
+                raise ValueError("EUT Name을 입력하세요.")
+            template_path = self._required_file(
+                self.excel_template_path,
+                "Excel Template",
+            )
+            screenshot_root_dir = self._required_directory(
+                self.screenshot_root_dir,
+                "Screenshot Root",
+            )
+            saturation_time_sec = self._float_field(
+                "saturationTimeEdit",
+                "Saturation Time",
+            )
+            if saturation_time_sec < 0:
+                raise ValueError("Saturation Time은 0 이상이어야 합니다.")
+            connection_waiting_time_sec = self._int_field(
+                "connectionWaitingTimeEdit",
+                "Connection Waiting Time",
+            )
+            if connection_waiting_time_sec <= 0:
+                raise ValueError("Connection Waiting Time은 0보다 커야 합니다.")
+            atten_level_db = self._float_field("attenLevelEdit", "Atten Level")
+            if atten_level_db < 0:
+                raise ValueError("Atten Level은 0 이상이어야 합니다.")
+            settings = TestRunSettings(
+                eut_name=eut_name,
+                template_path=template_path,
+                screenshot_root_dir=screenshot_root_dir,
+                saturation_time_sec=saturation_time_sec,
+                connection_waiting_time_sec=connection_waiting_time_sec,
+                atten_level_db=atten_level_db,
+                next_peak_search_level_db=self._float_field(
+                    "nextPeakSearchLevelEdit",
+                    "Next Peak Search Level",
+                ),
+            )
+        except ValueError as exc:
+            self._show_warning(str(exc))
+            return None
+        return settings
 
     def _setup_layout(self) -> None:
         """초안 기준 Test Manager 레이아웃을 구성한다."""
@@ -557,7 +613,10 @@ class TestManagerPanel(QWidget):
         label = QLabel(label_text, field)
         edit = QLineEdit(field)
         edit.setObjectName(object_name)
-        edit.setReadOnly(True)
+        edit.setReadOnly(object_name not in _RUN_SETTING_FIELD_NAMES)
+        default_value = _RUN_SETTING_FIELD_DEFAULTS.get(object_name)
+        if default_value is not None:
+            edit.setText(default_value)
         layout.addWidget(label)
         layout.addWidget(edit)
         return field
@@ -726,6 +785,44 @@ class TestManagerPanel(QWidget):
         except OSError as exc:
             self._show_warning(f"CSV 저장에 실패했습니다.\n{exc}")
             return
+
+    def _required_file(self, value: Path | None, label: str) -> Path:
+        if value is None:
+            raise ValueError(f"{label}을 선택하세요.")
+        if not value.is_file():
+            raise ValueError(f"{label} 파일이 존재하지 않습니다.")
+        return value
+
+    def _required_directory(self, value: Path | None, label: str) -> Path:
+        if value is None:
+            raise ValueError(f"{label}를 선택하세요.")
+        if not value.is_dir():
+            raise ValueError(f"{label} 폴더가 존재하지 않습니다.")
+        return value
+
+    def _float_field(self, object_name: str, label: str) -> float:
+        text = self._field_text(object_name)
+        if not text:
+            raise ValueError(f"{label}을 입력하세요.")
+        try:
+            return float(text)
+        except ValueError as exc:
+            raise ValueError(f"{label}은 숫자로 입력하세요.") from exc
+
+    def _int_field(self, object_name: str, label: str) -> int:
+        text = self._field_text(object_name)
+        if not text:
+            raise ValueError(f"{label}을 입력하세요.")
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValueError(f"{label}은 정수로 입력하세요.") from exc
+
+    def _field_text(self, object_name: str) -> str:
+        edit = self.findChild(QLineEdit, object_name)
+        if edit is None:
+            raise ValueError(f"{object_name} 입력 필드를 찾을 수 없습니다.")
+        return edit.text().strip()
 
     def _show_warning(self, message: str) -> None:
         """Test Manager 경고 메시지를 표시한다."""

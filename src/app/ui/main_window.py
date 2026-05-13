@@ -227,11 +227,12 @@ class MainWindow(QMainWindow):
     def on_start_requested(self) -> None:
         """Test Manager의 시작 요청을 Runner에 전달한다."""
 
+        settings = self._test_manager_panel.build_test_run_settings()
+        if settings is None:
+            return
         self._runner.start(
             list(self._test_manager_panel.test_cases),
-            model_name=self._test_manager_panel.eut_name,
-            template_path=self._test_manager_panel.excel_template_path,
-            screenshot_root_dir=self._test_manager_panel.screenshot_root_dir,
+            settings=settings,
         )
 
     def on_measurement_active_changed(self, active: bool) -> None:

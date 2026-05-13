@@ -21,6 +21,7 @@ from app.models.enums import (
     TestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -83,6 +84,22 @@ def _make_case(
         antenna_pol=antenna_pol,
         dut_axis=dut_axis,
         dut_ant_position="Upper",
+    )
+
+
+def _make_settings(tmp_path: Path) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=5,
+        connection_waiting_time_sec=5,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
     )
 
 
@@ -194,6 +211,50 @@ def test_session_init_retries_when_required_equipment_is_missing() -> None:
 
 def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
     events = _Events()
+    settings = _make_settings(tmp_path)
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        report_writer=object(),  # type: ignore[arg-type]
+        temp_dir=tmp_path,
+        settings=settings,
+        model_name=settings.eut_name,
+        template_path=settings.template_path,
+        screenshot_root_dir=settings.screenshot_root_dir,
+    )
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.OK
+    assert events.tc_started.values == [0]
+    assert IdleState().next_state(ctx, result) == "NRCallConnect"
+
+
+def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
+    events = _Events()
+    settings = _make_settings(tmp_path)
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        temp_dir=tmp_path,
+        settings=settings,
+        model_name=settings.eut_name,
+        template_path=settings.template_path,
+        screenshot_root_dir=settings.screenshot_root_dir,
+    )
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values == ["시험 시작 실패: report_writer is not set"]
+
+
+def test_idle_retries_without_settings(tmp_path: Path) -> None:
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case()],
         commands=object(),
@@ -208,28 +269,8 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
 
     result = IdleState().run(ctx)
 
-    assert result is StateResult.OK
-    assert events.tc_started.values == [0]
-    assert IdleState().next_state(ctx, result) == "NRCallConnect"
-
-
-def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
-    events = _Events()
-    ctx = SessionContext(
-        queue=[_make_case()],
-        commands=object(),
-        events=events,  # type: ignore[arg-type]
-        temp_dir=tmp_path,
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
-    )
-    ctx.test_start_requested.set()
-
-    result = IdleState().run(ctx)
-
     assert result is StateResult.RETRY
-    assert events.error.values == ["시험 시작 실패: report_writer is not set"]
+    assert events.error.values == ["시험 시작 실패: settings is required"]
 
 
 def test_check_next_case_advances_and_routes_by_test_type() -> None:

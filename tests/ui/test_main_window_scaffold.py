@@ -7,6 +7,7 @@ from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
+    QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
@@ -94,13 +95,23 @@ def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     assert instrument_panel.service() is window._runner.instrument_connection_service
 
 
-def test_main_window_start_button_is_blocked_until_equipment_ready(qtbot) -> None:
+def test_main_window_start_button_is_blocked_until_equipment_ready(
+    qtbot,
+    tmp_path,
+) -> None:
     """장비 준비 전 시작 버튼은 Runner gate에서 차단된다."""
 
     window = MainWindow()
     qtbot.addWidget(window)
     messages: list[str] = []
     window._runner.events.error.connect(messages.append)
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root.mkdir()
+    window.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
+    window.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    window.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
 
     start_button = window.findChild(QPushButton, "startButton")
     assert start_button is not None
@@ -589,17 +600,67 @@ def test_test_manager_panel_screenshot_browse_button_sets_selected_directory(
     assert panel.screenshot_root_dir == selected_dir
 
 
-def test_test_manager_panel_only_eut_name_is_user_editable(qtbot) -> None:
+def test_test_manager_panel_run_setting_fields_are_user_editable(qtbot) -> None:
     """EUT Name 외 입력 필드는 직접 편집하지 못하게 제한한다."""
 
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
+    editable_names = {
+        "eutNameEdit",
+        "saturationTimeEdit",
+        "connectionWaitingTimeEdit",
+        "attenLevelEdit",
+        "nextPeakSearchLevelEdit",
+    }
     for edit in panel.findChildren(QLineEdit):
-        if edit.objectName() == "eutNameEdit":
+        if edit.objectName() in editable_names:
             assert not edit.isReadOnly()
         else:
             assert edit.isReadOnly(), edit.objectName()
+
+
+def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "5"
+    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "5"
+    assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "turnTableSpeedEdit") is None
+    assert any(
+        label.text() == "Connection Waiting Time"
+        for label in panel.findChildren(QLabel)
+    )
+
+
+def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root.mkdir()
+
+    panel.findChild(QLineEdit, "eutNameEdit").setText(" SM-000 ")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+
+    settings = panel.build_test_run_settings()
+
+    assert settings is not None
+    assert settings.eut_name == "SM-000"
+    assert settings.template_path == template_path
+    assert settings.screenshot_root_dir == screenshot_root
+    assert settings.saturation_time_sec == 6.5
+    assert settings.connection_waiting_time_sec == 7
+    assert settings.atten_level_db == 1.5
+    assert settings.next_peak_search_level_db == -20
 
 
 def test_nr_select_dialog_can_be_created(qtbot) -> None:
