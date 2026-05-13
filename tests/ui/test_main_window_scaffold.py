@@ -813,6 +813,70 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
     )
 
 
+def test_main_window_mirrors_instrument_connection_state_to_test_manager(
+    qtbot,
+) -> None:
+    """Instrument Check service 결과가 Test Manager Connection indicator에 반영된다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_started.emit()
+
+    for index in range(1, 6):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == "connecting"
+        assert indicator.property("connected") is False
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": False,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    expected_statuses = [
+        "connected",
+        "failed",
+        "connected",
+        "connected",
+        "connected",
+    ]
+    for index, expected_status in enumerate(expected_statuses, start=1):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == expected_status
+        assert indicator.property("connected") is (expected_status == "connected")
+
+
+def test_main_window_marks_connecting_indicators_failed_on_connection_error(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """장비별 결과가 없는 연결 오류는 진행 중 indicator만 실패 상태로 바꾼다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    assert instrument_panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    service = window._runner.instrument_connection_service
+
+    service.connection_started.emit()
+    service.error_occurred.emit("boom")
+
+    for index in range(1, 6):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == "failed"
+        assert indicator.property("connected") is False
+
+
 def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:
     """장비 연결 setter가 canonical key와 UI alias를 처리한다."""
 

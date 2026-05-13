@@ -69,7 +69,17 @@ class MainWindow(QMainWindow):
         self._runner.events.current_case_changed.connect(
             self.on_current_case_changed,
         )
+        self._runner.instrument_connection_service.connection_started.connect(
+            self._test_manager_panel.set_connection_connecting,
+        )
+        self._runner.instrument_connection_service.connection_finished.connect(
+            self._test_manager_panel.set_connection_state,
+        )
+        self._runner.instrument_connection_service.error_occurred.connect(
+            self._test_manager_panel.set_connection_failed,
+        )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
+        self._test_manager_panel.set_connection_state(self._runner.equipment_state)
 
     def _setup_main_layout(self) -> None:
         """좌측 서브 윈도우 선택 버튼과 우측 화면 스택을 구성한다."""

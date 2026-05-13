@@ -106,9 +106,18 @@ _CONNECTION_CANONICAL_KEYS: tuple[str, ...] = (
 )
 _CONNECTION_ALIASES: dict[str, str] = {
     "MT8000a": "MT8000A",
+    "MT8000": "MT8000A",
     "3D Position Controller": "3D Controller",
+    "3D Position": "3D Controller",
+    "Controller 3D": "3D Controller",
     "RF Filter Box": "Switch Box",
+    "Filter Box": "Switch Box",
+    "SwitchBox": "Switch Box",
 }
+_CONNECTION_STATUS_NOT_CONNECTED = "not_connected"
+_CONNECTION_STATUS_CONNECTING = "connecting"
+_CONNECTION_STATUS_CONNECTED = "connected"
+_CONNECTION_STATUS_FAILED = "failed"
 
 _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
@@ -296,10 +305,44 @@ class TestManagerPanel(QWidget):
             if self._canonical_connection_key(key) in self._connection_indicators
         }
         for key, indicator in self._connection_indicators.items():
-            connected = normalized_states.get(key, False)
-            indicator.setProperty("connected", connected)
-            indicator.setProperty("disconnected", not connected)
-            self._refresh_widget_style(indicator)
+            if key not in normalized_states:
+                self._set_connection_indicator_status(
+                    indicator,
+                    (
+                        _CONNECTION_STATUS_FAILED
+                        if normalized_states
+                        else _CONNECTION_STATUS_NOT_CONNECTED
+                    ),
+                )
+                continue
+
+            self._set_connection_indicator_status(
+                indicator,
+                (
+                    _CONNECTION_STATUS_CONNECTED
+                    if normalized_states[key]
+                    else _CONNECTION_STATUS_FAILED
+                ),
+            )
+
+    def set_connection_connecting(self) -> None:
+        """Instrument Check 연결 진행 상태를 Connection indicator에 표시한다."""
+
+        for indicator in self._connection_indicators.values():
+            self._set_connection_indicator_status(
+                indicator,
+                _CONNECTION_STATUS_CONNECTING,
+            )
+
+    def set_connection_failed(self) -> None:
+        """장비별 결과가 없는 연결 실패를 Connection indicator에 표시한다."""
+
+        for indicator in self._connection_indicators.values():
+            if indicator.property("connectionStatus") == _CONNECTION_STATUS_CONNECTING:
+                self._set_connection_indicator_status(
+                    indicator,
+                    _CONNECTION_STATUS_FAILED,
+                )
 
     def set_analyzer_info(self, info: object) -> None:
         """Spectrum Analyzer 관련 표시값을 외부 상태로 갱신한다."""
@@ -670,9 +713,11 @@ class TestManagerPanel(QWidget):
             status = QFrame(group)
             status.setObjectName(f"connectionStatus{row + 1}")
             status.setProperty("statusIndicator", True)
-            status.setProperty("connected", False)
-            status.setProperty("disconnected", True)
             status.setFixedSize(18, 18)
+            self._set_connection_indicator_status(
+                status,
+                _CONNECTION_STATUS_NOT_CONNECTED,
+            )
             self._connection_indicators[_CONNECTION_CANONICAL_KEYS[row]] = status
             layout.addWidget(label, row, 0)
             layout.addWidget(status, row, 1, alignment=Qt.AlignmentFlag.AlignRight)
@@ -894,11 +939,19 @@ class TestManagerPanel(QWidget):
                 border-radius: 9px;
             }
 
-            QFrame[statusIndicator="true"][connected="true"] {
+            QFrame[statusIndicator="true"][connectionStatus="connected"] {
                 background: #48a868;
             }
 
-            QFrame[statusIndicator="true"][disconnected="true"] {
+            QFrame[statusIndicator="true"][connectionStatus="connecting"] {
+                background: #f3c744;
+            }
+
+            QFrame[statusIndicator="true"][connectionStatus="failed"] {
+                background: #d83a3a;
+            }
+
+            QFrame[statusIndicator="true"][connectionStatus="not_connected"] {
                 background: #b8c2cc;
             }
 
@@ -1216,6 +1269,13 @@ class TestManagerPanel(QWidget):
             if normalized_key == self._normalize_key(alias):
                 return canonical
         return key_text
+
+    def _set_connection_indicator_status(self, indicator: QFrame, status: str) -> None:
+        connected = status == _CONNECTION_STATUS_CONNECTED
+        indicator.setProperty("connectionStatus", status)
+        indicator.setProperty("connected", connected)
+        indicator.setProperty("disconnected", not connected)
+        self._refresh_widget_style(indicator)
 
     def _normalize_key(self, key: str) -> str:
         return "".join(character for character in key.lower() if character.isalnum())
