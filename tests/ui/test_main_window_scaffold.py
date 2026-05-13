@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -18,6 +20,18 @@ from PySide6.QtWidgets import (
 
 from app.core.instrument_connection import build_equipment_connection_config
 from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+from app.models.enums import (
+    AntennaPol,
+    DUTAntPosition,
+    DUTAxis,
+    Modulation,
+    NRBand,
+    RBAllocation,
+    TestChannel as NRTestChannel,
+    TestType as NRTestType,
+)
+from app.models.nr_channel_lookup import resolve_target_frequency_mhz
+from app.models.test_case import TestCase
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow
@@ -31,6 +45,20 @@ from app.ui.test_plot_screenshot_panel import (
 
 DEFAULT_WINDOW_SIZE = QSize(1600, 900)
 UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
+
+
+def _make_test_case() -> TestCase:
+    return TestCase(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=NRTestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=RBAllocation.INNER_FULL,
+        test_channel=NRTestChannel.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
 
 
 def test_main_window_has_five_navigation_buttons_and_pages(qtbot) -> None:
@@ -601,7 +629,7 @@ def test_test_manager_panel_screenshot_browse_button_sets_selected_directory(
 
 
 def test_test_manager_panel_run_setting_fields_are_user_editable(qtbot) -> None:
-    """EUT Name 외 입력 필드는 직접 편집하지 못하게 제한한다."""
+    """EUT Name과 실행 설정 입력 필드는 사용자가 직접 편집할 수 있다."""
 
     panel = ManagerPanel()
     qtbot.addWidget(panel)
@@ -633,6 +661,183 @@ def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
         label.text() == "Connection Waiting Time"
         for label in panel.findChildren(QLabel)
     )
+
+
+def test_test_manager_panel_run_setting_properties_and_validators(qtbot) -> None:
+    """실행 설정 필드가 property와 숫자 validator를 제공한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+
+    assert panel.saturation_time_sec == 6.5
+    assert panel.connection_waiting_time_sec == 7
+    assert panel.atten_level_db == 1.5
+    assert panel.next_peak_search_level_db == -20
+    assert isinstance(
+        panel.findChild(QLineEdit, "saturationTimeEdit").validator(),
+        QDoubleValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "connectionWaitingTimeEdit").validator(),
+        QIntValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "attenLevelEdit").validator(),
+        QDoubleValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").validator(),
+        QDoubleValidator,
+    )
+
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("1.5")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("nan")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("bad")
+
+    assert panel.saturation_time_sec is None
+    assert panel.connection_waiting_time_sec is None
+    assert panel.atten_level_db is None
+    assert panel.next_peak_search_level_db is None
+
+
+def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> None:
+    """현재 TestCase setter가 모델에서 확정 가능한 표시값을 채운다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_test_case()
+    test_range = case.range_definition
+
+    panel.findChild(QLineEdit, "traceModeEdit").setText("keep trace")
+    panel.findChild(QLineEdit, "mastEdit").setText("keep mast")
+    panel.findChild(QLineEdit, "currentFactorEdit").setText("keep factor")
+
+    panel.set_current_case(case)
+
+    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "B78"
+    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == format(
+        resolve_target_frequency_mhz(case.band, case.bandwidth, case.test_channel),
+        ".15g",
+    )
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == format(
+        test_range.start_freq,
+        ".15g",
+    )
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == format(
+        test_range.stop_freq,
+        ".15g",
+    )
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == format(
+        test_range.rbw,
+        ".15g",
+    )
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == format(
+        test_range.vbw,
+        ".15g",
+    )
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == str(
+        test_range.sweep_point
+    )
+    assert panel.findChild(QLineEdit, "filterEdit").text() == test_range.filter_mode.name
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "keep trace"
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "keep mast"
+    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == "keep factor"
+
+
+def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:
+    """장비 연결 setter가 canonical key와 UI alias를 처리한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_connection_state(
+        {
+            "MT8000A": True,
+            "FSV40": False,
+            "3D Position Controller": True,
+            "CO3000": True,
+            "RF Filter Box": True,
+            "Unknown": True,
+        }
+    )
+
+    expected = [True, False, True, True, True]
+    for index, connected in enumerate(expected, start=1):
+        indicator = panel.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connected") is connected
+        assert indicator.property("disconnected") is (not connected)
+
+
+def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
+    """Info setter가 dict/object 입력을 표시 필드에 반영한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("9")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("10")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("11")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-12")
+
+    panel.set_analyzer_info(
+        {
+            "Start Frequency": 30.0,
+            "stop_freq": 1000.0,
+            "trace_mode": "Max Hold",
+            "mast": "3m",
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "sweep_point": 10001,
+            "atten_level": 99,
+        }
+    )
+    panel.set_switch_box_info(SimpleNamespace(filter_path="HPF_6G"))
+    panel.set_turntable_info(
+        {
+            "Target Angle": 360,
+            "current_angle": 180,
+            "turntable_speed": 4,
+        }
+    )
+    panel.set_polarization_info(
+        SimpleNamespace(
+            polarization_3m="H",
+            polarization_1m="V",
+            polarization_bilog="H/V",
+        )
+    )
+
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "30"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "1000"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "Max Hold"
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "3m"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "0.1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "0.3"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "HPF_6G"
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "360"
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "180"
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "H/V"
+    assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "9"
+    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "10"
+    assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "11"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "-12"
+
+    panel.set_turntable_info({})
+
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == ""
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == ""
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == ""
 
 
 def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:

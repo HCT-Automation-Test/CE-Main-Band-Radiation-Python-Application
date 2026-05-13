@@ -1,10 +1,19 @@
 """Test Manager 서브 패널."""
 from __future__ import annotations
 from collections.abc import Iterable
+import math
 from pathlib import Path
+from typing import Any
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QBrush, QColor, QPalette, QResizeEvent
+from PySide6.QtGui import (
+    QBrush,
+    QColor,
+    QDoubleValidator,
+    QIntValidator,
+    QPalette,
+    QResizeEvent,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
@@ -25,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.tc_loader import load_csv, save_csv
+from app.models.band_group import find_band_group
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
@@ -84,6 +94,18 @@ _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "nextPeakSearchLevelEdit": "0",
 }
 _RUN_SETTING_FIELD_NAMES = frozenset(_RUN_SETTING_FIELD_DEFAULTS)
+_CONNECTION_CANONICAL_KEYS: tuple[str, ...] = (
+    "MT8000A",
+    "FSV40",
+    "3D Controller",
+    "CO3000",
+    "Switch Box",
+)
+_CONNECTION_ALIASES: dict[str, str] = {
+    "MT8000a": "MT8000A",
+    "3D Position Controller": "3D Controller",
+    "RF Filter Box": "Switch Box",
+}
 
 _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
@@ -141,6 +163,7 @@ class TestManagerPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._test_cases: list[TestCase] = []
+        self._connection_indicators: dict[str, QFrame] = {}
         self._setup_layout()
         self._connect_signals()
         self._apply_styles()
@@ -174,6 +197,147 @@ class TestManagerPanel(QWidget):
         """Test Manager 표에 추가된 TestCase 목록을 반환한다."""
 
         return tuple(self._test_cases)
+
+    @property
+    def saturation_time_sec(self) -> float | None:
+        """Saturation Time 입력값을 초 단위 실수로 반환한다."""
+
+        return self._optional_float_field("saturationTimeEdit")
+
+    @property
+    def connection_waiting_time_sec(self) -> int | None:
+        """Connection Waiting Time 입력값을 초 단위 정수로 반환한다."""
+
+        return self._optional_int_field("connectionWaitingTimeEdit")
+
+    @property
+    def atten_level_db(self) -> float | None:
+        """Atten Level 입력값을 dB 단위 실수로 반환한다."""
+
+        return self._optional_float_field("attenLevelEdit")
+
+    @property
+    def next_peak_search_level_db(self) -> float | None:
+        """Next Peak Search Level 입력값을 dB 단위 실수로 반환한다."""
+
+        return self._optional_float_field("nextPeakSearchLevelEdit")
+
+    def set_current_case(self, case: TestCase) -> None:
+        """현재 실행/표시 대상 TestCase 정보를 표시 필드에 반영한다."""
+
+        test_range = case.range_definition
+        self._set_line_edit_text("currentTestBandEdit", self._format_band_label(case))
+        self._set_line_edit_text("currentTestFreqEdit", self._safe_target_frequency(case))
+        self._set_line_edit_text("startFreqEdit", self._format_number(test_range.start_freq))
+        self._set_line_edit_text("stopFreqEdit", self._format_number(test_range.stop_freq))
+        self._set_line_edit_text("rbwEdit", self._format_number(test_range.rbw))
+        self._set_line_edit_text("vbwEdit", self._format_number(test_range.vbw))
+        self._set_line_edit_text("sweepPointEdit", str(test_range.sweep_point))
+        self._set_line_edit_text("filterEdit", test_range.filter_mode.name)
+        try:
+            speed = find_band_group(case.band.value).turntable_speed
+        except ValueError:
+            self._set_line_edit_text("settingSpeedEdit", "")
+        else:
+            self._set_line_edit_text("settingSpeedEdit", str(speed))
+
+    def set_connection_state(self, states: dict[str, bool]) -> None:
+        """외부에서 확인한 장비 연결 상태를 indicator에 반영한다."""
+
+        normalized_states = {
+            self._canonical_connection_key(key): bool(value)
+            for key, value in states.items()
+            if self._canonical_connection_key(key) in self._connection_indicators
+        }
+        for key, indicator in self._connection_indicators.items():
+            connected = normalized_states.get(key, False)
+            indicator.setProperty("connected", connected)
+            indicator.setProperty("disconnected", not connected)
+            self._refresh_widget_style(indicator)
+
+    def set_analyzer_info(self, info: object) -> None:
+        """Spectrum Analyzer 관련 표시값을 외부 상태로 갱신한다."""
+
+        self._set_info_text(
+            info,
+            "startFreqEdit",
+            "start_freq",
+            "start_frequency",
+            "Start Frequency",
+            "startFreq",
+        )
+        self._set_info_text(
+            info,
+            "stopFreqEdit",
+            "stop_freq",
+            "stop_frequency",
+            "Stop Frequency",
+            "stopFreq",
+        )
+        self._set_info_text(info, "traceModeEdit", "trace_mode", "Trace Mode", "traceMode")
+        self._set_info_text(info, "mastEdit", "mast", "Mast")
+        self._set_info_text(info, "rbwEdit", "rbw", "RBW")
+        self._set_info_text(info, "vbwEdit", "vbw", "VBW")
+        self._set_info_text(
+            info,
+            "sweepPointEdit",
+            "sweep_point",
+            "sweep_points",
+            "Sweep Point",
+            "sweepPoint",
+        )
+
+    def set_switch_box_info(self, info: object) -> None:
+        """Switch Box 관련 표시값을 외부 상태로 갱신한다."""
+
+        self._set_info_text(
+            info,
+            "filterEdit",
+            "filter",
+            "filter_path",
+            "filter_mode",
+            "Filter",
+            "Filter Path",
+        )
+
+    def set_turntable_info(self, info: object) -> None:
+        """Turn Table 관련 표시값을 외부 상태로 갱신한다."""
+
+        self._set_info_text(
+            info,
+            "targetAngleEdit",
+            "target_angle",
+            "Target Angle",
+            "targetAngle",
+        )
+        self._set_info_text(
+            info,
+            "currentAngleEdit",
+            "current_angle",
+            "Current Angle",
+            "currentAngle",
+        )
+        self._set_info_text(
+            info,
+            "settingSpeedEdit",
+            "setting_speed",
+            "turntable_speed",
+            "Turn Table Speed",
+            "Setting Speed",
+        )
+
+    def set_polarization_info(self, info: object) -> None:
+        """편파 관련 표시값을 외부 상태로 갱신한다."""
+
+        self._set_info_text(info, "polarization3mEdit", "3m", "pol_3m", "polarization_3m")
+        self._set_info_text(info, "polarization1mEdit", "1m", "pol_1m", "polarization_1m")
+        self._set_info_text(
+            info,
+            "polarizationBilogEdit",
+            "bilog",
+            "Bilog",
+            "polarization_bilog",
+        )
 
     def build_test_run_settings(self) -> TestRunSettings | None:
         """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
@@ -459,7 +623,10 @@ class TestManagerPanel(QWidget):
             status = QFrame(group)
             status.setObjectName(f"connectionStatus{row + 1}")
             status.setProperty("statusIndicator", True)
+            status.setProperty("connected", False)
+            status.setProperty("disconnected", True)
             status.setFixedSize(18, 18)
+            self._connection_indicators[_CONNECTION_CANONICAL_KEYS[row]] = status
             layout.addWidget(label, row, 0)
             layout.addWidget(status, row, 1, alignment=Qt.AlignmentFlag.AlignRight)
 
@@ -614,6 +781,7 @@ class TestManagerPanel(QWidget):
         edit = QLineEdit(field)
         edit.setObjectName(object_name)
         edit.setReadOnly(object_name not in _RUN_SETTING_FIELD_NAMES)
+        self._apply_run_setting_validator(edit, object_name)
         default_value = _RUN_SETTING_FIELD_DEFAULTS.get(object_name)
         if default_value is not None:
             edit.setText(default_value)
@@ -673,9 +841,16 @@ class TestManagerPanel(QWidget):
             }
 
             QFrame[statusIndicator="true"] {
-                background: #5a9bd5;
                 border: 1px solid #3f73a8;
                 border-radius: 9px;
+            }
+
+            QFrame[statusIndicator="true"][connected="true"] {
+                background: #48a868;
+            }
+
+            QFrame[statusIndicator="true"][disconnected="true"] {
+                background: #b8c2cc;
             }
 
             QLabel[summaryLabel="true"] {
@@ -818,11 +993,119 @@ class TestManagerPanel(QWidget):
         except ValueError as exc:
             raise ValueError(f"{label}은 정수로 입력하세요.") from exc
 
+    def _optional_float_field(self, object_name: str) -> float | None:
+        try:
+            text = self._field_text(object_name)
+        except ValueError:
+            return None
+        if not text:
+            return None
+        try:
+            value = float(text)
+        except ValueError:
+            return None
+        if not math.isfinite(value):
+            return None
+        return value
+
+    def _optional_int_field(self, object_name: str) -> int | None:
+        try:
+            text = self._field_text(object_name)
+        except ValueError:
+            return None
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError:
+            return None
+
     def _field_text(self, object_name: str) -> str:
         edit = self.findChild(QLineEdit, object_name)
         if edit is None:
             raise ValueError(f"{object_name} 입력 필드를 찾을 수 없습니다.")
         return edit.text().strip()
+
+    def _set_line_edit_text(self, object_name: str, value: Any) -> None:
+        edit = self.findChild(QLineEdit, object_name)
+        if edit is None:
+            return
+        edit.setText(self._display_text(value))
+
+    def _set_info_text(self, info: object, object_name: str, *keys: str) -> None:
+        self._set_line_edit_text(object_name, self._info_value(info, *keys))
+
+    def _info_value(self, info: object, *keys: str) -> Any:
+        if isinstance(info, dict):
+            return self._value_from_mapping(info, *keys)
+
+        for key in keys:
+            if key.isidentifier() and hasattr(info, key):
+                return getattr(info, key)
+
+        attributes = getattr(info, "__dict__", None)
+        if isinstance(attributes, dict):
+            return self._value_from_mapping(attributes, *keys)
+        return None
+
+    def _value_from_mapping(self, values: dict[Any, Any], *keys: str) -> Any:
+        for key in keys:
+            if key in values:
+                return values[key]
+
+        normalized_values = {
+            self._normalize_key(str(key)): value for key, value in values.items()
+        }
+        for key in keys:
+            normalized_key = self._normalize_key(key)
+            if normalized_key in normalized_values:
+                return normalized_values[normalized_key]
+        return None
+
+    def _display_text(self, value: Any) -> str:
+        if value is None:
+            return ""
+        if isinstance(value, float):
+            if not math.isfinite(value):
+                return ""
+            return self._format_number(value)
+        return str(value)
+
+    def _canonical_connection_key(self, key: str) -> str:
+        key_text = str(key).replace("\n", " ").strip()
+        if key_text in _CONNECTION_CANONICAL_KEYS:
+            return key_text
+        if key_text in _CONNECTION_ALIASES:
+            return _CONNECTION_ALIASES[key_text]
+
+        normalized_key = self._normalize_key(key_text)
+        for canonical in _CONNECTION_CANONICAL_KEYS:
+            if normalized_key == self._normalize_key(canonical):
+                return canonical
+        for alias, canonical in _CONNECTION_ALIASES.items():
+            if normalized_key == self._normalize_key(alias):
+                return canonical
+        return key_text
+
+    def _normalize_key(self, key: str) -> str:
+        return "".join(character for character in key.lower() if character.isalnum())
+
+    def _refresh_widget_style(self, widget: QWidget) -> None:
+        style = widget.style()
+        style.unpolish(widget)
+        style.polish(widget)
+        widget.update()
+
+    def _apply_run_setting_validator(self, edit: QLineEdit, object_name: str) -> None:
+        if object_name in {
+            "saturationTimeEdit",
+            "attenLevelEdit",
+        }:
+            edit.setValidator(QDoubleValidator(0.0, math.inf, 6, edit))
+        elif object_name == "connectionWaitingTimeEdit":
+            edit.setValidator(QIntValidator(1, 2147483647, edit))
+        elif object_name == "nextPeakSearchLevelEdit":
+            edit.setValidator(QDoubleValidator(-math.inf, math.inf, 6, edit))
 
     def _show_warning(self, message: str) -> None:
         """Test Manager 경고 메시지를 표시한다."""
