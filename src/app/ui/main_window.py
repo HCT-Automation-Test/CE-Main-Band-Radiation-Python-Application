@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
 from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
+from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.manual_test_panel import ManualTestPanel
@@ -64,6 +65,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
+        )
+        self._runner.events.current_case_changed.connect(
+            self.on_current_case_changed,
         )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
 
@@ -241,6 +245,11 @@ class MainWindow(QMainWindow):
         self._instrument_check_panel.set_connection_block_reason(
             INSTRUMENT_CONNECTION_BLOCK_MESSAGE if active else None
         )
+
+    def on_current_case_changed(self, case: TestCase) -> None:
+        """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
+
+        self._test_manager_panel.set_current_case(case)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""

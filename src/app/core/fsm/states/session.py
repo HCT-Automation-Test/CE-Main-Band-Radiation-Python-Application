@@ -104,6 +104,7 @@ class IdleState(State):
         ctx.fundamental_frequency_mhz = None
         ctx.stopped = False
         if ctx.events is not None:
+            ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
         return StateResult.OK
 
@@ -137,6 +138,7 @@ class CheckNextCaseState(State):
         ctx.fundamental_frequency_mhz = None
         self._advanced = True
         if ctx.events is not None:
+            ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
         return StateResult.OK
 

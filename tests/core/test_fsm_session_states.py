@@ -37,6 +37,7 @@ class _Events:
         self.error = _SignalRecorder()
         self.tc_started = _SignalRecorder()
         self.tc_finished = _SignalRecorder()
+        self.current_case_changed = _SignalRecorder()
 
 
 class _Client:
@@ -212,8 +213,9 @@ def test_session_init_retries_when_required_equipment_is_missing() -> None:
 def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
     events = _Events()
     settings = _make_settings(tmp_path)
+    case = _make_case()
     ctx = SessionContext(
-        queue=[_make_case()],
+        queue=[case],
         commands=object(),
         events=events,  # type: ignore[arg-type]
         report_writer=object(),  # type: ignore[arg-type]
@@ -228,6 +230,7 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
     result = IdleState().run(ctx)
 
     assert result is StateResult.OK
+    assert events.current_case_changed.values == [case]
     assert events.tc_started.values == [0]
     assert IdleState().next_state(ctx, result) == "NRCallConnect"
 
@@ -275,8 +278,9 @@ def test_idle_retries_without_settings(tmp_path: Path) -> None:
 
 def test_check_next_case_advances_and_routes_by_test_type() -> None:
     events = _Events()
+    next_case = _make_case(TestType.INBAND)
     ctx = SessionContext(
-        queue=[_make_case(), _make_case(TestType.INBAND)],
+        queue=[_make_case(), next_case],
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
@@ -287,6 +291,7 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
     assert result is StateResult.OK
     assert ctx.current_index == 1
     assert events.tc_finished.values == [0]
+    assert events.current_case_changed.values == [next_case]
     assert events.tc_started.values == [1]
     assert state.next_state(ctx, result) == "TestTypeChange"
 

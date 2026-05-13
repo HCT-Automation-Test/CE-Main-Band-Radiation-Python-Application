@@ -30,7 +30,6 @@ from app.models.enums import (
     TestChannel as NRTestChannel,
     TestType as NRTestType,
 )
-from app.models.nr_channel_lookup import resolve_target_frequency_mhz
 from app.models.test_case import TestCase
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
@@ -716,15 +715,11 @@ def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> No
 
     panel.findChild(QLineEdit, "traceModeEdit").setText("keep trace")
     panel.findChild(QLineEdit, "mastEdit").setText("keep mast")
-    panel.findChild(QLineEdit, "currentFactorEdit").setText("keep factor")
 
     panel.set_current_case(case)
 
     assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
-    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == format(
-        resolve_target_frequency_mhz(case.band, case.bandwidth, case.test_channel),
-        ".15g",
-    )
+    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == "6-18G"
     assert panel.findChild(QLineEdit, "startFreqEdit").text() == format(
         test_range.start_freq,
         ".15g",
@@ -748,7 +743,26 @@ def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> No
     assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
     assert panel.findChild(QLineEdit, "traceModeEdit").text() == "keep trace"
     assert panel.findChild(QLineEdit, "mastEdit").text() == "keep mast"
-    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == "keep factor"
+    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
+        value if value else "-" for value in panel._row_values_for_case(case)
+    )
+
+
+def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> None:
+    """RunnerEvents가 현재 TestCase 변경을 알리면 요약 필드가 갱신된다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    case = _make_test_case()
+    panel = window._test_manager_panel
+
+    window._runner.events.current_case_changed.emit(case)
+
+    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
+    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == "6-18G"
+    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
+        value if value else "-" for value in panel._row_values_for_case(case)
+    )
 
 
 def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:

@@ -40,6 +40,7 @@ from app.models.nr_channel_lookup import (
     resolve_target_frequency_mhz,
 )
 from app.models.test_case import TestCase
+from app.models.test_range import TestRange
 from app.models.test_run_settings import TestRunSettings
 from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRSelectDialog
@@ -227,7 +228,8 @@ class TestManagerPanel(QWidget):
 
         test_range = case.range_definition
         self._set_line_edit_text("currentTestBandEdit", self._format_band_label(case))
-        self._set_line_edit_text("currentTestFreqEdit", self._safe_target_frequency(case))
+        self._set_line_edit_text("currentTestFreqEdit", self._format_test_range_label(test_range))
+        self._set_line_edit_text("currentFactorEdit", self._format_current_factor(case))
         self._set_line_edit_text("startFreqEdit", self._format_number(test_range.start_freq))
         self._set_line_edit_text("stopFreqEdit", self._format_number(test_range.stop_freq))
         self._set_line_edit_text("rbwEdit", self._format_number(test_range.rbw))
@@ -1160,6 +1162,33 @@ class TestManagerPanel(QWidget):
 
     def _format_number(self, value: float) -> str:
         return format(float(value), ".15g")
+
+    def _format_test_range_label(self, test_range: TestRange) -> str:
+        start_freq = test_range.start_freq
+        stop_freq = test_range.stop_freq
+        if start_freq >= 1000 and stop_freq >= 1000:
+            return (
+                f"{self._format_number(start_freq / 1000)}-"
+                f"{self._format_number(stop_freq / 1000)}G"
+            )
+        if start_freq < 1000 and stop_freq < 1000:
+            return (
+                f"{self._format_number(start_freq)}-"
+                f"{self._format_number(stop_freq)}M"
+            )
+        return (
+            f"{self._format_range_frequency(start_freq)}-"
+            f"{self._format_range_frequency(stop_freq)}"
+        )
+
+    def _format_range_frequency(self, frequency_mhz: float) -> str:
+        if frequency_mhz >= 1000:
+            return f"{self._format_number(frequency_mhz / 1000)}G"
+        return f"{self._format_number(frequency_mhz)}M"
+
+    def _format_current_factor(self, case: TestCase) -> str:
+        values = (value if value else "-" for value in self._row_values_for_case(case))
+        return " / ".join(values)
 
     def _safe_call_channel(self, case: TestCase) -> str:
         try:
