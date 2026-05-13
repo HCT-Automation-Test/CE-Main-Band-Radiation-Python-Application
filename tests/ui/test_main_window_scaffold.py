@@ -720,7 +720,7 @@ def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> No
 
     panel.set_current_case(case)
 
-    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "B78"
+    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
     assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == format(
         resolve_target_frequency_mhz(case.band, case.bandwidth, case.test_channel),
         ".15g",

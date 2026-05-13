@@ -1156,7 +1156,7 @@ class TestManagerPanel(QWidget):
         )
 
     def _format_band_label(self, case: TestCase) -> str:
-        return f"B{case.band.value[1:]}"
+        return case.band.value
 
     def _format_number(self, value: float) -> str:
         return format(float(value), ".15g")
