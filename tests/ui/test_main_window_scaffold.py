@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QGroupBox,
     QLabel,
@@ -517,6 +518,53 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         assert button is not None
         assert button.text().strip()
         assert button.text() == expected_text
+
+
+def test_case_confirm_button_opens_range_setting_dialog(qtbot) -> None:
+    """Case 확인 버튼은 Range 1~6 세팅 값을 읽기 전용 팝업으로 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    button = panel.findChild(QPushButton, "caseConfirmButton")
+    assert button is not None
+    button.click()
+
+    dialog = panel.findChild(QDialog, "rangeSettingDialog")
+    table = panel.findChild(QTableWidget, "rangeSettingTable")
+
+    assert dialog is not None
+    assert table is not None
+    assert dialog.isVisible()
+    assert table.rowCount() == 6
+    assert table.columnCount() == 11
+    assert [table.horizontalHeaderItem(index).text() for index in range(11)] == [
+        "Mode",
+        "Range",
+        "Start Freq",
+        "Stop Freq",
+        "RBW(MHz)",
+        "VBW(MHz)",
+        "Limit(dBm)",
+        "Sweep point",
+        "Mast",
+        "Controller",
+        "Filter",
+    ]
+    assert table.item(0, 0).text() == "Traffic"
+    assert table.rowSpan(0, 0) == 6
+    assert table.item(0, 1).text() == "1"
+    assert table.item(0, 8).text() == "Mast2"
+    assert table.item(1, 1).text() == "2"
+    assert table.item(1, 8).text() == "Mast1"
+    assert table.item(1, 9).text() == "CO3000"
+    assert table.item(1, 10).text() == "BRF"
+    assert table.item(5, 1).text() == "6"
+    assert table.item(5, 8).text() == "Mast3"
+    assert table.item(5, 9).text() == "TeraTerm"
+    assert table.item(5, 10).text() == "6G HPF"
+
+    dialog.close()
 
 
 def test_test_manager_panel_technology_buttons_match_info_group_height(

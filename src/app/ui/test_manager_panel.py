@@ -16,6 +16,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -35,12 +36,13 @@ from PySide6.QtWidgets import (
 
 from app.core.tc_loader import load_csv, save_csv
 from app.models.band_group import find_band_group
+from app.models.enums import FilterMode, InputPath
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
 )
 from app.models.test_case import TestCase
-from app.models.test_range import TestRange
+from app.models.test_range import ALL_TEST_RANGES, TestRange
 from app.models.test_run_settings import TestRunSettings
 from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRSelectDialog
@@ -154,6 +156,48 @@ _TABLE_COLUMN_STRETCH_WEIGHTS: tuple[int, ...] = (
 )
 _TABLE_COLUMN_BASE_TOTAL = sum(_TABLE_COLUMN_BASE_WIDTHS)
 _TABLE_COLUMN_STRETCH_TOTAL = sum(_TABLE_COLUMN_STRETCH_WEIGHTS)
+_RANGE_SETTING_HEADERS: tuple[str, ...] = (
+    "Mode",
+    "Range",
+    "Start Freq",
+    "Stop Freq",
+    "RBW(MHz)",
+    "VBW(MHz)",
+    "Limit(dBm)",
+    "Sweep point",
+    "Mast",
+    "Controller",
+    "Filter",
+)
+_RANGE_SETTING_COLUMN_WIDTHS: tuple[int, ...] = (
+    72,
+    72,
+    86,
+    86,
+    88,
+    88,
+    88,
+    98,
+    86,
+    104,
+    92,
+)
+_MAST_LABELS: dict[InputPath, str] = {
+    InputPath.INPUT1: "Mast1",
+    InputPath.INPUT2: "Mast2",
+    InputPath.INPUT3: "Mast3",
+}
+_CONTROLLER_LABELS: dict[InputPath, str] = {
+    InputPath.INPUT1: "CO3000",
+    InputPath.INPUT2: "CO3000",
+    InputPath.INPUT3: "TeraTerm",
+}
+_FILTER_LABELS: dict[FilterMode, str] = {
+    FilterMode.BRF: "BRF",
+    FilterMode.HPF_1G: "1G HPF",
+    FilterMode.HPF_3G: "3G HPF",
+    FilterMode.HPF_6G: "6G HPF",
+}
 
 
 class TestManagerPanel(QWidget):
@@ -516,6 +560,7 @@ class TestManagerPanel(QWidget):
         self._clear_button.clicked.connect(self.on_clear_button_clicked)
         self._load_item_button.clicked.connect(self.on_load_item_button_clicked)
         self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
+        self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
 
     def _create_left_panel(self) -> QWidget:
@@ -762,6 +807,8 @@ class TestManagerPanel(QWidget):
             )
             if object_name == "nrButton":
                 self._nr_button = button
+            elif object_name == "caseConfirmButton":
+                self._case_confirm_button = button
             layout.addWidget(button)
 
         return panel
@@ -896,6 +943,87 @@ class TestManagerPanel(QWidget):
         dialog = NRSelectDialog(self)
         dialog.test_cases_created.connect(self.add_test_cases)
         dialog.exec()
+
+    def on_case_confirm_button_clicked(self) -> None:
+        """Range 1~6 세팅 확인 팝업을 연다."""
+
+        dialog = self._create_range_setting_dialog()
+        self._range_setting_dialog = dialog
+        dialog.show()
+
+    def _create_range_setting_dialog(self) -> QDialog:
+        """Range 세팅 값을 읽기 전용 표로 표시하는 팝업을 만든다."""
+
+        dialog = QDialog(self)
+        dialog.setObjectName("rangeSettingDialog")
+        dialog.setWindowTitle("Range Setting")
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        layout.addWidget(self._create_range_setting_table(dialog))
+
+        close_button = QPushButton("Close", dialog)
+        close_button.setObjectName("rangeSettingCloseButton")
+        close_button.clicked.connect(dialog.close)
+        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
+        dialog.setFixedSize(dialog.sizeHint())
+        return dialog
+
+    def _create_range_setting_table(self, parent: QWidget) -> QTableWidget:
+        """고정 Range 정의를 사람이 읽기 쉬운 확인 표로 변환한다."""
+
+        table = QTableWidget(len(ALL_TEST_RANGES), len(_RANGE_SETTING_HEADERS), parent)
+        table.setObjectName("rangeSettingTable")
+        table.setHorizontalHeaderLabels(_RANGE_SETTING_HEADERS)
+        table.verticalHeader().setVisible(False)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(False)
+
+        traffic_item = self._create_center_table_item("Traffic")
+        table.setItem(0, 0, traffic_item)
+        table.setSpan(0, 0, len(ALL_TEST_RANGES), 1)
+
+        for row, test_range in enumerate(ALL_TEST_RANGES):
+            for offset, value in enumerate(self._range_setting_row_values(test_range), start=1):
+                table.setItem(row, offset, self._create_center_table_item(value))
+
+        header = table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+        header.setStretchLastSection(False)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        for column, width in enumerate(_RANGE_SETTING_COLUMN_WIDTHS):
+            table.setColumnWidth(column, width)
+        table.resizeRowsToContents()
+        table.setFixedSize(
+            sum(_RANGE_SETTING_COLUMN_WIDTHS) + table.verticalHeader().width() + 2,
+            table.horizontalHeader().height()
+            + sum(table.rowHeight(row) for row in range(table.rowCount()))
+            + (table.frameWidth() * 2)
+            + 2,
+        )
+        return table
+
+    def _create_center_table_item(self, text: str) -> QTableWidgetItem:
+        item = QTableWidgetItem(text)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+        return item
+
+    def _range_setting_row_values(self, test_range: TestRange) -> tuple[str, ...]:
+        return (
+            str(test_range.id.value),
+            self._format_number(test_range.start_freq),
+            self._format_number(test_range.stop_freq),
+            self._format_number(test_range.rbw),
+            self._format_number(test_range.vbw),
+            self._format_number(test_range.limit),
+            str(test_range.sweep_point),
+            _MAST_LABELS[test_range.input_path],
+            _CONTROLLER_LABELS[test_range.input_path],
+            _FILTER_LABELS[test_range.filter_mode],
+        )
 
     def on_delete_button_clicked(self) -> None:
         """선택한 TestCase 하나를 삭제한다."""
