@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +9,11 @@ import pytest
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
-from app.core.fsm.states.transition import AntPolChangeState, HandoverState
+from app.core.fsm.states.transition import (
+    AntPolChangeState,
+    DUTAxisChangeState,
+    HandoverState,
+)
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -34,6 +40,7 @@ class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
         self.polarization_info_changed = _SignalRecorder()
+        self.user_action_required = _SignalRecorder()
 
 
 class _Commands:
@@ -71,6 +78,7 @@ def _make_case(
     bandwidth: float = 100.0,
     test_type: NRTestType = NRTestType.HARMONIC,
     antenna_pol: AntennaPol = AntennaPol.H,
+    dut_axis: DUTAxis = DUTAxis.X,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -80,7 +88,7 @@ def _make_case(
         rb_allocation=RBAllocation.INNER_FULL,
         test_channel=NRTestChannel.MID,
         antenna_pol=antenna_pol,
-        dut_axis=DUTAxis.X,
+        dut_axis=dut_axis,
         dut_ant_position=DUTAntPosition.UPPER,
     )
 
@@ -118,6 +126,20 @@ def _make_settings(tmp_path: Path, *, connection_waiting_time_sec: int) -> TestR
         atten_level_db=0,
         next_peak_search_level_db=0,
     )
+
+
+def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(dut_axis=DUTAxis.X),
+            _make_case(dut_axis=DUTAxis.Y),
+        ],
+        commands=_Commands(),
+        events=events,  # type: ignore[arg-type]
+        current_index=1,
+    )
+    return ctx, events
 
 
 @pytest.mark.parametrize(
@@ -238,6 +260,41 @@ def test_ant_pol_change_does_not_emit_display_info_on_exception() -> None:
     assert result is StateResult.FAIL
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == ["Antenna Pol 설정 실패: instrument timeout"]
+
+
+def test_dut_axis_change_emits_user_action_and_waits_for_completion() -> None:
+    ctx, events = _make_axis_change_ctx()
+    state = DUTAxisChangeState()
+
+    def complete_action() -> None:
+        time.sleep(0.02)
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=complete_action, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert events.user_action_required.messages == ["DUT Axis 변경: X -> Y"]
+    assert state.next_state(ctx, result) == "NRCallConnect"
+
+
+def test_dut_axis_change_returns_fail_when_stopped_while_waiting() -> None:
+    ctx, events = _make_axis_change_ctx()
+    state = DUTAxisChangeState()
+
+    def request_stop() -> None:
+        time.sleep(0.02)
+        ctx.stopped = True
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=request_stop, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.user_action_required.messages == ["DUT Axis 변경: X -> Y"]
+    assert state.next_state(ctx, result) is None
 
 
 def test_handover_calls_command_with_current_case_params() -> None:
