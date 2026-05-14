@@ -799,6 +799,7 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
         "sweepPointEdit": "keep sweep",
         "filterEdit": "keep filter",
         "settingSpeedEdit": "keep speed",
+        "mastEdit": "keep mast",
     }
     for object_name, value in preserved_values.items():
         panel.findChild(QLineEdit, object_name).setText(value)
@@ -831,6 +832,54 @@ def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:
         }
     )
 
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "3449.99"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "3649.99"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "View"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+
+
+def test_main_window_updates_switch_box_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.switch_box_info_changed.emit(
+        {
+            "mast": "Bilog",
+            "filter": "Port 14",
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "Port 14"
+
+
+def test_main_window_keeps_switch_box_mast_after_analyzer_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.switch_box_info_changed.emit(
+        {
+            "mast": "Bilog",
+            "filter": "Port 14",
+        }
+    )
+    window._runner.events.spectrum_analyzer_info_changed.emit(
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "Port 14"
     assert panel.findChild(QLineEdit, "startFreqEdit").text() == "3449.99"
     assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "3649.99"
     assert panel.findChild(QLineEdit, "traceModeEdit").text() == "View"
@@ -983,7 +1032,7 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
             "atten_level": 99,
         }
     )
-    panel.set_switch_box_info(SimpleNamespace(filter_path="HPF_6G"))
+    panel.set_switch_box_info({"mast": "Bilog", "filter": "6G HPF"})
     panel.set_turntable_info(
         {
             "Target Angle": 360,
@@ -1002,11 +1051,11 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     assert panel.findChild(QLineEdit, "startFreqEdit").text() == "30"
     assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "1000"
     assert panel.findChild(QLineEdit, "traceModeEdit").text() == "Max Hold"
-    assert panel.findChild(QLineEdit, "mastEdit").text() == "3m"
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
     assert panel.findChild(QLineEdit, "rbwEdit").text() == "0.1"
     assert panel.findChild(QLineEdit, "vbwEdit").text() == "0.3"
     assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
-    assert panel.findChild(QLineEdit, "filterEdit").text() == "HPF_6G"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "6G HPF"
     assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "360"
     assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "180"
     assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"

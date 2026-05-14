@@ -17,7 +17,11 @@ from PySide6.QtCore import Qt
 from app.core.fsm.base import State, StateResult
 from app.models.band_group import find_band_group
 from app.models.enums import FilterPath, InputPath, TestType
-from app.models.switch_box import resolve_filter_path
+from app.models.switch_box import (
+    display_filter_path,
+    display_input_path,
+    resolve_filter_path,
+)
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -53,6 +57,24 @@ def _emit_spectrum_analyzer_info(
         signal.emit(info)
 
 
+def _emit_switch_box_info(
+    ctx: "SessionContext",
+    *,
+    input_path: InputPath,
+    filter_path: FilterPath,
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "switch_box_info_changed", None)
+    if signal is not None:
+        signal.emit(
+            {
+                "mast": display_input_path(input_path),
+                "filter": display_filter_path(filter_path),
+            }
+        )
+
+
 class SetSwitchBoxState(State):
     """§4.4 — Switch Box의 입력 경로/필터를 TestRange에 맞게 전환한다."""
 
@@ -76,6 +98,11 @@ class SetSwitchBoxState(State):
             return StateResult.FAIL
 
         if configured:
+            _emit_switch_box_info(
+                ctx,
+                input_path=test_range.input_path,
+                filter_path=filter_path,
+            )
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box RF 경로 설정 실패: set_switch_box returned false")
@@ -241,6 +268,11 @@ class ResetSwitchBoxState(State):
             return StateResult.FAIL
 
         if configured:
+            _emit_switch_box_info(
+                ctx,
+                input_path=InputPath.INPUT1,
+                filter_path=FilterPath.THRU,
+            )
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box 기본 경로 복원 실패: set_switch_box returned false")

@@ -351,7 +351,6 @@ class TestManagerPanel(QWidget):
             "stopFreq",
         )
         self._set_info_text(info, "traceModeEdit", "trace_mode", "Trace Mode", "traceMode")
-        self._set_info_text(info, "mastEdit", "mast", "Mast")
         self._set_info_text(info, "rbwEdit", "rbw", "RBW")
         self._set_info_text(info, "vbwEdit", "vbw", "VBW")
         self._set_info_text(
@@ -366,6 +365,7 @@ class TestManagerPanel(QWidget):
     def set_switch_box_info(self, info: object) -> None:
         """Switch Box 관련 표시값을 외부 상태로 갱신한다."""
 
+        self._set_info_text(info, "mastEdit", "mast", "Mast")
         self._set_info_text(
             info,
             "filterEdit",
