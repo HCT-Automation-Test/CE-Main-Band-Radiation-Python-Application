@@ -26,21 +26,29 @@ from app.models.test_range import TestRange
 
 class _SignalRecorder:
     def __init__(self) -> None:
-        self.messages: list[str] = []
+        self.messages: list[Any] = []
 
-    def emit(self, message: str) -> None:
+    def emit(self, message: Any) -> None:
         self.messages.append(message)
 
 
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.spectrum_analyzer_info_changed = _SignalRecorder()
 
 
 class _Commands:
-    def __init__(self, *, switch_box_configured: bool = True, sa_configured: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        switch_box_configured: bool = True,
+        sa_configured: bool = True,
+        sa_exception: Exception | None = None,
+    ) -> None:
         self.switch_box_configured = switch_box_configured
         self.sa_configured = sa_configured
+        self.sa_exception = sa_exception
         self.switch_box_calls: list[tuple[Any, dict[str, Any]]] = []
         self.setup_sa_calls: list[tuple[Any, TestRange]] = []
 
@@ -50,6 +58,8 @@ class _Commands:
 
     def setup_sa(self, client: Any, *, test_range: TestRange) -> bool:
         self.setup_sa_calls.append((client, test_range))
+        if self.sa_exception is not None:
+            raise self.sa_exception
         return self.sa_configured
 
 
@@ -138,10 +148,11 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     commands = _Commands()
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
+    events = _Events()
     ctx = SessionContext(
         queue=[case],
         commands=commands,
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         client=client,
     )
 
@@ -156,6 +167,16 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     assert test_range.vbw == 3.0
     assert test_range.limit == -30.0
     assert test_range.sweep_point == 30001
+    assert events.spectrum_analyzer_info_changed.messages == [
+        {
+            "start_freq": 6000.0,
+            "stop_freq": 18000.0,
+            "trace_mode": "Max Hold",
+            "rbw": 1.0,
+            "vbw": 3.0,
+            "sweep_point": 30001,
+        }
+    ]
 
 
 def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
@@ -175,6 +196,36 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
     assert events.error.messages == [
         "Spectrum Analyzer 설정 실패: setup_sa returned false"
     ]
+
+
+def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
+    commands = _Commands(sa_configured=False)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == []
+
+
+def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
+    commands = _Commands(sa_exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == []
 
 
 def test_reset_switch_box_uses_input1_and_thru() -> None:

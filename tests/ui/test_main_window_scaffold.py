@@ -814,6 +814,64 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
         assert panel.findChild(QLineEdit, object_name).text() == value
 
 
+def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.spectrum_analyzer_info_changed.emit(
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+            "limit": -30,
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "3449.99"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "3649.99"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "View"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+
+
+def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    locked_edits = (
+        "eutNameEdit",
+        "saturationTimeEdit",
+        "connectionWaitingTimeEdit",
+        "attenLevelEdit",
+        "nextPeakSearchLevelEdit",
+    )
+    path_edits = ("excelTemplatePathEdit", "screenshotRootEdit")
+    browse_buttons = ("excelTemplateBrowseButton", "screenshotRootBrowseButton")
+
+    window._runner._set_measurement_active(True)
+
+    for object_name in locked_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in path_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in browse_buttons:
+        assert not window.findChild(QPushButton, object_name).isEnabled()
+
+    window._runner._set_measurement_active(False)
+
+    for object_name in locked_edits:
+        assert not window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in path_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in browse_buttons:
+        assert window.findChild(QPushButton, object_name).isEnabled()
+
+
 def test_main_window_mirrors_instrument_connection_state_to_test_manager(
     qtbot,
 ) -> None:

@@ -69,6 +69,9 @@ class MainWindow(QMainWindow):
         self._runner.events.current_case_changed.connect(
             self.on_current_case_changed,
         )
+        self._runner.events.spectrum_analyzer_info_changed.connect(
+            self._test_manager_panel.set_analyzer_info,
+        )
         self._runner.instrument_connection_service.connection_started.connect(
             self._test_manager_panel.set_connection_connecting,
         )
@@ -255,6 +258,7 @@ class MainWindow(QMainWindow):
         self._instrument_check_panel.set_connection_block_reason(
             INSTRUMENT_CONNECTION_BLOCK_MESSAGE if active else None
         )
+        self._test_manager_panel.set_run_settings_locked(active)
 
     def on_current_case_changed(self, case: TestCase) -> None:
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""

@@ -10,6 +10,7 @@ class RunnerEvents(QObject):
     tc_started = Signal(int)                # index
     tc_finished = Signal(int)               # index
     current_case_changed = Signal(object)   # TestCase
+    spectrum_analyzer_info_changed = Signal(object)  # dict
     state_changed = Signal(str)             # state name
     progress = Signal(int)                  # percent
     screenshot_saved = Signal(str)          # path

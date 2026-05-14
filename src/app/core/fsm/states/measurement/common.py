@@ -33,12 +33,24 @@ _TARGET_TURNTABLE = "CO3000"
 _COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
 _COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"
+_TRACE_MODE_LOAD_SA_RANGE_SETTING = "Max Hold"
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
     logger.error(message)
     if ctx.events is not None:
         ctx.events.error.emit(message)
+
+
+def _emit_spectrum_analyzer_info(
+    ctx: "SessionContext",
+    info: dict[str, object],
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "spectrum_analyzer_info_changed", None)
+    if signal is not None:
+        signal.emit(info)
 
 
 class SetSwitchBoxState(State):
@@ -91,6 +103,17 @@ class SetupSpectrumAnalyzerState(State):
             return StateResult.FAIL
 
         if configured:
+            _emit_spectrum_analyzer_info(
+                ctx,
+                {
+                    "start_freq": test_range.start_freq,
+                    "stop_freq": test_range.stop_freq,
+                    "trace_mode": _TRACE_MODE_LOAD_SA_RANGE_SETTING,
+                    "rbw": test_range.rbw,
+                    "vbw": test_range.vbw,
+                    "sweep_point": test_range.sweep_point,
+                },
+            )
             return StateResult.OK
 
         _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")

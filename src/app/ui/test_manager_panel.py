@@ -415,6 +415,17 @@ class TestManagerPanel(QWidget):
             "polarization_bilog",
         )
 
+    def set_run_settings_locked(self, locked: bool) -> None:
+        """시험 실행 중 Start 설정 입력값을 고정한다."""
+
+        self._eut_name_edit.setReadOnly(locked)
+        for object_name in _RUN_SETTING_FIELD_NAMES:
+            edit = self.findChild(QLineEdit, object_name)
+            if edit is not None:
+                edit.setReadOnly(locked)
+        self._excel_template_browse_button.setEnabled(not locked)
+        self._screenshot_root_browse_button.setEnabled(not locked)
+
     def build_test_run_settings(self) -> TestRunSettings | None:
         """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
 
