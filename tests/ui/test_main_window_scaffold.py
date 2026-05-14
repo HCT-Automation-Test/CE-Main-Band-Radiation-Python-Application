@@ -759,41 +759,29 @@ def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> No
     panel = ManagerPanel()
     qtbot.addWidget(panel)
     case = _make_test_case()
-    test_range = case.range_definition
-
-    panel.findChild(QLineEdit, "traceModeEdit").setText("keep trace")
-    panel.findChild(QLineEdit, "mastEdit").setText("keep mast")
+    preserved_values = {
+        "startFreqEdit": "keep start",
+        "stopFreqEdit": "keep stop",
+        "rbwEdit": "keep rbw",
+        "vbwEdit": "keep vbw",
+        "sweepPointEdit": "keep sweep",
+        "filterEdit": "keep filter",
+        "settingSpeedEdit": "keep speed",
+        "traceModeEdit": "keep trace",
+        "mastEdit": "keep mast",
+    }
+    for object_name, value in preserved_values.items():
+        panel.findChild(QLineEdit, object_name).setText(value)
 
     panel.set_current_case(case)
 
     assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
     assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == "6-18G"
-    assert panel.findChild(QLineEdit, "startFreqEdit").text() == format(
-        test_range.start_freq,
-        ".15g",
-    )
-    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == format(
-        test_range.stop_freq,
-        ".15g",
-    )
-    assert panel.findChild(QLineEdit, "rbwEdit").text() == format(
-        test_range.rbw,
-        ".15g",
-    )
-    assert panel.findChild(QLineEdit, "vbwEdit").text() == format(
-        test_range.vbw,
-        ".15g",
-    )
-    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == str(
-        test_range.sweep_point
-    )
-    assert panel.findChild(QLineEdit, "filterEdit").text() == test_range.filter_mode.name
-    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
-    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "keep trace"
-    assert panel.findChild(QLineEdit, "mastEdit").text() == "keep mast"
     assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
         value if value else "-" for value in panel._row_values_for_case(case)
     )
+    for object_name, value in preserved_values.items():
+        assert panel.findChild(QLineEdit, object_name).text() == value
 
 
 def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> None:
@@ -803,6 +791,17 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
     qtbot.addWidget(window)
     case = _make_test_case()
     panel = window._test_manager_panel
+    preserved_values = {
+        "startFreqEdit": "keep start",
+        "stopFreqEdit": "keep stop",
+        "rbwEdit": "keep rbw",
+        "vbwEdit": "keep vbw",
+        "sweepPointEdit": "keep sweep",
+        "filterEdit": "keep filter",
+        "settingSpeedEdit": "keep speed",
+    }
+    for object_name, value in preserved_values.items():
+        panel.findChild(QLineEdit, object_name).setText(value)
 
     window._runner.events.current_case_changed.emit(case)
 
@@ -811,6 +810,8 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
     assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
         value if value else "-" for value in panel._row_values_for_case(case)
     )
+    for object_name, value in preserved_values.items():
+        assert panel.findChild(QLineEdit, object_name).text() == value
 
 
 def test_main_window_mirrors_instrument_connection_state_to_test_manager(

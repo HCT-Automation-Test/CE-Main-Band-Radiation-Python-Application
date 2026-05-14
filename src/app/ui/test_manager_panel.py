@@ -35,7 +35,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.tc_loader import load_csv, save_csv
-from app.models.band_group import find_band_group
 from app.models.enums import FilterMode, InputPath
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
@@ -283,18 +282,6 @@ class TestManagerPanel(QWidget):
         self._set_line_edit_text("currentTestBandEdit", self._format_band_label(case))
         self._set_line_edit_text("currentTestFreqEdit", self._format_test_range_label(test_range))
         self._set_line_edit_text("currentFactorEdit", self._format_current_factor(case))
-        self._set_line_edit_text("startFreqEdit", self._format_number(test_range.start_freq))
-        self._set_line_edit_text("stopFreqEdit", self._format_number(test_range.stop_freq))
-        self._set_line_edit_text("rbwEdit", self._format_number(test_range.rbw))
-        self._set_line_edit_text("vbwEdit", self._format_number(test_range.vbw))
-        self._set_line_edit_text("sweepPointEdit", str(test_range.sweep_point))
-        self._set_line_edit_text("filterEdit", test_range.filter_mode.name)
-        try:
-            speed = find_band_group(case.band.value).turntable_speed
-        except ValueError:
-            self._set_line_edit_text("settingSpeedEdit", "")
-        else:
-            self._set_line_edit_text("settingSpeedEdit", str(speed))
 
     def set_connection_state(self, states: dict[str, bool]) -> None:
         """외부에서 확인한 장비 연결 상태를 indicator에 반영한다."""
