@@ -8,6 +8,7 @@ Harmonic, InBand, Bilog 측정 모두가 공유하는 장비 조작 스텝.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from typing import TYPE_CHECKING, Any
@@ -73,6 +74,17 @@ def _emit_switch_box_info(
                 "filter": display_filter_path(filter_path),
             }
         )
+
+
+def _emit_turntable_info(
+    ctx: "SessionContext",
+    info: dict[str, object],
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "turntable_info_changed", None)
+    if signal is not None:
+        signal.emit(info)
 
 
 class SetSwitchBoxState(State):
@@ -163,10 +175,12 @@ class RotateTurntableState(State):
         self._completed = threading.Event()
         self._failed_reason: str | None = None
         self._target_angle: float = 0.0
+        self._ctx: SessionContext | None = None
 
     def enter(self, ctx: "SessionContext") -> None:
         self._completed.clear()
         self._failed_reason = None
+        self._ctx = ctx
         if ctx.client is not None:
             ctx.client.event_received.connect(
                 self._on_event_received, Qt.DirectConnection
@@ -178,6 +192,7 @@ class RotateTurntableState(State):
                 ctx.client.event_received.disconnect(self._on_event_received)
             except (RuntimeError, TypeError):
                 pass
+        self._ctx = None
 
     def run(self, ctx: "SessionContext") -> StateResult:
         self._target_angle = 360.0 if ctx.current_angle == 0 else 0.0
@@ -196,6 +211,13 @@ class RotateTurntableState(State):
             _emit_error(ctx, f"턴테이블 회전 명령 실패: {exc}")
             return StateResult.FAIL
 
+        _emit_turntable_info(
+            ctx,
+            {
+                "target_angle": self._target_angle,
+                "setting_speed": speed,
+            },
+        )
         ctx.events.progress.emit(0)
 
         deadline = time.monotonic() + _ROTATION_TIMEOUT_SEC
@@ -213,6 +235,7 @@ class RotateTurntableState(State):
             return StateResult.FAIL
 
         ctx.current_angle = self._target_angle
+        _emit_turntable_info(ctx, {"current_angle": self._target_angle})
         ctx.events.progress.emit(100)
 
         settle_deadline = time.monotonic() + _SETTLING_SEC
@@ -236,6 +259,7 @@ class RotateTurntableState(State):
 
         command = getattr(event, "command", None)
         if command == _COMMAND_TURNTABLE_PROGRESS:
+            self._emit_progress_angle(event)
             return
         if command == _COMMAND_TURNTABLE_COMPLETE:
             self._completed.set()
@@ -249,6 +273,21 @@ class RotateTurntableState(State):
             ctx.commands.stop_turntable(ctx.client)
         except Exception as exc:
             _emit_error(ctx, f"턴테이블 정지 명령 실패: {exc}")
+
+    def _emit_progress_angle(self, event: Any) -> None:
+        ctx = self._ctx
+        if ctx is None:
+            return
+
+        params = getattr(event, "params", {}) or {}
+        try:
+            current_angle = float(params["Current Angle"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if not math.isfinite(current_angle):
+            return
+
+        _emit_turntable_info(ctx, {"current_angle": current_angle})
 
 
 class ResetSwitchBoxState(State):

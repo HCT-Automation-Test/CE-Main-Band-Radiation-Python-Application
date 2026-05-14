@@ -34,6 +34,7 @@ class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
         self.progress = _SignalRecorder()
+        self.turntable_info_changed = _SignalRecorder()
 
 
 class _FakeSignal:
@@ -162,6 +163,10 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
     ]
     assert commands.stop_calls == []
     assert events.progress.values == [0, 100]
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 360.0},
+    ]
     assert state.next_state(ctx, result) == "MeasureHarmonics"
 
 
@@ -289,11 +294,57 @@ def test_inband_routes_to_measure_inband() -> None:
     assert state.next_state(ctx, result) == "MeasureInBand"
 
 
-def test_progress_events_are_ignored_until_complete() -> None:
+def test_progress_events_emit_current_angle_without_updating_context() -> None:
     commands = _Commands()
     client = _FakeClient()
     case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
-    ctx, _ = _make_ctx(case, commands=commands, client=client)
+    ctx, events = _make_ctx(case, commands=commands, client=client)
+    state = RotateTurntableState()
+    angles_during_progress: list[float] = []
+
+    def emit_sequence() -> None:
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": 90.0},
+            )
+        )
+        angles_during_progress.append(ctx.current_angle)
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": "270.0"},
+            )
+        )
+        angles_during_progress.append(ctx.current_angle)
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+        )
+
+    thread = threading.Thread(target=emit_sequence, daemon=True)
+    thread.start()
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert angles_during_progress == [0.0, 0.0]
+    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 90.0},
+        {"current_angle": 270.0},
+        {"current_angle": 360.0},
+    ]
+
+
+def test_progress_event_ignores_unapproved_angle_key() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client)
     state = RotateTurntableState()
 
     def emit_sequence() -> None:
@@ -302,13 +353,6 @@ def test_progress_events_are_ignored_until_complete() -> None:
             _FakeEvent(
                 common_module._COMMAND_TURNTABLE_PROGRESS,
                 {"current_angle": 90.0},
-            )
-        )
-        time.sleep(0.02)
-        client.event_received.emit(
-            _FakeEvent(
-                common_module._COMMAND_TURNTABLE_PROGRESS,
-                {"current_angle": 270.0},
             )
         )
         time.sleep(0.02)
@@ -322,4 +366,7 @@ def test_progress_events_are_ignored_until_complete() -> None:
     thread.join(timeout=1.0)
 
     assert result is StateResult.OK
-    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 360.0},
+    ]

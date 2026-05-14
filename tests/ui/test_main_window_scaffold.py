@@ -840,6 +840,24 @@ def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:
     assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
 
 
+def test_main_window_updates_turntable_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.turntable_info_changed.emit(
+        {
+            "target_angle": 360.0,
+            "current_angle": 123.4,
+            "setting_speed": 4,
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "360"
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "123.4"
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+
+
 def test_main_window_updates_switch_box_info_from_runner_event(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
