@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
+
+import pytest
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
+from app.core.fsm.states.measurement import common as common_module
 from app.core.fsm.states.measurement.common import (
     ResetSwitchBoxState,
     SetSwitchBoxState,
     SetupSpectrumAnalyzerState,
+    SetupSpectrumAnalyzerStartupLevelState,
 )
 from app.models.enums import (
     AntennaPol,
@@ -22,6 +27,7 @@ from app.models.enums import (
 )
 from app.models.test_case import TestCase
 from app.models.test_range import TestRange
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -47,13 +53,18 @@ class _Commands:
         switch_box_exception: Exception | None = None,
         sa_configured: bool = True,
         sa_exception: Exception | None = None,
+        startup_level_configured: bool = True,
+        startup_level_exception: Exception | None = None,
     ) -> None:
         self.switch_box_configured = switch_box_configured
         self.switch_box_exception = switch_box_exception
         self.sa_configured = sa_configured
         self.sa_exception = sa_exception
+        self.startup_level_configured = startup_level_configured
+        self.startup_level_exception = startup_level_exception
         self.switch_box_calls: list[tuple[Any, dict[str, Any]]] = []
         self.setup_sa_calls: list[tuple[Any, TestRange]] = []
+        self.startup_level_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def set_switch_box(self, client: Any, **params: Any) -> bool:
         self.switch_box_calls.append((client, params))
@@ -66,6 +77,12 @@ class _Commands:
         if self.sa_exception is not None:
             raise self.sa_exception
         return self.sa_configured
+
+    def setup_sa_startup_levels(self, client: Any, **params: Any) -> bool:
+        self.startup_level_calls.append((client, params))
+        if self.startup_level_exception is not None:
+            raise self.startup_level_exception
+        return self.startup_level_configured
 
 
 def _make_case(test_type: MeasurementTestType) -> TestCase:
@@ -80,6 +97,140 @@ def _make_case(test_type: MeasurementTestType) -> TestCase:
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
     )
+
+
+def _make_settings(
+    tmp_path: Path,
+    *,
+    saturation_time_sec: float = 0.0,
+    atten_level_db: float = 1.5,
+    next_peak_search_level_db: float = -20.0,
+) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=saturation_time_sec,
+        connection_waiting_time_sec=5,
+        atten_level_db=atten_level_db,
+        next_peak_search_level_db=next_peak_search_level_db,
+    )
+
+
+@pytest.fixture(autouse=True)
+def _skip_default_saturation_wait(monkeypatch: pytest.MonkeyPatch) -> None:
+    """settings가 없는 기존 state 단위 테스트는 fallback 대기를 생략한다."""
+    monkeypatch.setattr(common_module, "_SETTLING_SEC", 0.0)
+
+
+def test_setup_spectrum_analyzer_startup_level_uses_settings(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    client = object()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=_Events(),  # type: ignore[arg-type]
+        client=client,
+        settings=_make_settings(
+            tmp_path,
+            atten_level_db=2.5,
+            next_peak_search_level_db=-18.5,
+        ),
+    )
+
+    result = SetupSpectrumAnalyzerStartupLevelState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.startup_level_calls == [
+        (
+            client,
+            {
+                "atten_level_db": 2.5,
+                "next_peak_search_level_db": -18.5,
+            },
+        )
+    ]
+
+
+def test_setup_spectrum_analyzer_startup_level_returns_fail_on_false_result(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands(startup_level_configured=False)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
+    )
+    state = SetupSpectrumAnalyzerStartupLevelState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert events.error.messages == [
+        "Spectrum Analyzer Startup Level 설정 실패: "
+        "setup_sa_startup_levels returned false"
+    ]
+
+
+def test_setup_spectrum_analyzer_startup_level_returns_fail_on_exception(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands(startup_level_exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
+    )
+
+    result = SetupSpectrumAnalyzerStartupLevelState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.messages == [
+        "Spectrum Analyzer Startup Level 설정 실패: instrument timeout"
+    ]
+
+
+def test_setup_spectrum_analyzer_startup_level_requires_settings() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=_Commands(),
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetupSpectrumAnalyzerStartupLevelState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.messages == [
+        "Spectrum Analyzer Startup Level 설정 실패: settings is required"
+    ]
+
+
+def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect(
+    tmp_path: Path,
+) -> None:
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=_Commands(),
+        events=_Events(),  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
+    )
+    state = SetupSpectrumAnalyzerStartupLevelState()
+
+    result = state.run(ctx)
+
+    assert state.next_state(ctx, result) == "NRCallConnect"
 
 
 def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
@@ -250,6 +401,30 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
             "sweep_point": 30001,
         }
     ]
+
+
+def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    client = object()
+    case = _make_case(MeasurementTestType.HARMONIC)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[case],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=client,
+        settings=_make_settings(tmp_path, saturation_time_sec=1.0),
+        stopped=True,
+    )
+    state = SetupSpectrumAnalyzerState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.setup_sa_calls == [(client, case.range_definition)]
 
 
 def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:

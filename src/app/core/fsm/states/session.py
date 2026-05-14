@@ -113,7 +113,7 @@ class IdleState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "NRCallConnect"
+        return "SetupSpectrumAnalyzerStartupLevel"
 
 
 class CheckNextCaseState(State):

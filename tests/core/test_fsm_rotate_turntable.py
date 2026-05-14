@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from app.models.enums import (
     TestType as MeasurementTestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -104,6 +106,7 @@ def _make_ctx(
     commands: _Commands,
     client: _FakeClient | None = None,
     current_angle: float = 0.0,
+    settings: TestRunSettings | None = None,
 ) -> tuple[SessionContext, _Events]:
     events = _Events()
     ctx = SessionContext(
@@ -112,8 +115,25 @@ def _make_ctx(
         events=events,  # type: ignore[arg-type]
         client=client if client is not None else _FakeClient(),
         current_angle=current_angle,
+        settings=settings,
     )
     return ctx, events
+
+
+def _make_settings(tmp_path: Path, *, saturation_time_sec: float) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=saturation_time_sec,
+        connection_waiting_time_sec=5,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -188,6 +208,35 @@ def test_rotate_360_to_zero_toggle() -> None:
     assert commands.rotate_calls == [
         (client, {"angle": 0.0, "turntable_speed": 4}),
     ]
+
+
+def test_rotate_uses_settings_saturation_time_instead_of_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(common_module, "_SETTLING_SEC", 0.5)
+    monkeypatch.setattr(common_module, "_POLL_INTERVAL_SEC", 0.005)
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, _ = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        settings=_make_settings(tmp_path, saturation_time_sec=0.0),
+    )
+    state = RotateTurntableState()
+
+    thread = _emit_after(
+        client, 0.02, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    started_at = time.monotonic()
+    result = _drive_state(state, ctx)
+    elapsed = time.monotonic() - started_at
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert elapsed < 0.3
 
 
 def test_band_group_speed_for_n78() -> None:

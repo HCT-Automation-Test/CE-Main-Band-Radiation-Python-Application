@@ -232,7 +232,7 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
     assert result is StateResult.OK
     assert events.current_case_changed.values == [case]
     assert events.tc_started.values == [0]
-    assert IdleState().next_state(ctx, result) == "NRCallConnect"
+    assert IdleState().next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
 
 
 def test_idle_retries_without_report_writer(tmp_path: Path) -> None:

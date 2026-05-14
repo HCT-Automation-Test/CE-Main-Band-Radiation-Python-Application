@@ -87,6 +87,66 @@ def _emit_turntable_info(
         signal.emit(info)
 
 
+def _saturation_time_sec(ctx: "SessionContext") -> float:
+    """현재 세션의 Saturation Time을 초 단위로 반환한다."""
+    if ctx.settings is None:
+        return _SETTLING_SEC
+    return float(ctx.settings.saturation_time_sec)
+
+
+def _wait_for_saturation_time(ctx: "SessionContext") -> bool:
+    """SA 안정화를 위해 Saturation Time만큼 대기한다."""
+    deadline = time.monotonic() + max(0.0, _saturation_time_sec(ctx))
+    while True:
+        if ctx.stopped:
+            return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return True
+        time.sleep(min(_POLL_INTERVAL_SEC, remaining))
+
+
+class SetupSpectrumAnalyzerStartupLevelState(State):
+    """시험 시작 전 FSV40 Atten/Next Peak Search Level을 1회 설정한다."""
+
+    name = "SetupSpectrumAnalyzerStartupLevel"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        if ctx.settings is None:
+            _emit_error(
+                ctx,
+                "Spectrum Analyzer Startup Level 설정 실패: settings is required",
+            )
+            return StateResult.FAIL
+
+        try:
+            configured = ctx.commands.setup_sa_startup_levels(
+                ctx.client,
+                atten_level_db=ctx.settings.atten_level_db,
+                next_peak_search_level_db=ctx.settings.next_peak_search_level_db,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Spectrum Analyzer Startup Level 설정 실패: {exc}")
+            return StateResult.FAIL
+
+        if configured:
+            return StateResult.OK
+
+        _emit_error(
+            ctx,
+            "Spectrum Analyzer Startup Level 설정 실패: "
+            "setup_sa_startup_levels returned false",
+        )
+        return StateResult.FAIL
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return "NRCallConnect"
+
+
 class SetSwitchBoxState(State):
     """§4.4 — Switch Box의 입력 경로/필터를 TestRange에 맞게 전환한다."""
 
@@ -153,6 +213,8 @@ class SetupSpectrumAnalyzerState(State):
                     "sweep_point": test_range.sweep_point,
                 },
             )
+            if not _wait_for_saturation_time(ctx):
+                return StateResult.FAIL
             return StateResult.OK
 
         _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")
@@ -238,12 +300,8 @@ class RotateTurntableState(State):
         _emit_turntable_info(ctx, {"current_angle": self._target_angle})
         ctx.events.progress.emit(100)
 
-        settle_deadline = time.monotonic() + _SETTLING_SEC
-        while time.monotonic() < settle_deadline:
-            if ctx.stopped:
-                return StateResult.FAIL
-            time.sleep(_POLL_INTERVAL_SEC)
-
+        if not _wait_for_saturation_time(ctx):
+            return StateResult.FAIL
         return StateResult.OK
 
     def next_state(

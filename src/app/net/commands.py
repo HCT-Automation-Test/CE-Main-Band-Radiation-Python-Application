@@ -20,6 +20,7 @@ _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
+_COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
 _COMMAND_NR_CALL = "NR Call"
@@ -250,6 +251,27 @@ def setup_sa(client: Any, test_range: TestRange) -> bool:
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_RANGE_SETTING)
+
+
+def setup_sa_startup_levels(
+    client: Any,
+    *,
+    atten_level_db: float,
+    next_peak_search_level_db: float,
+) -> bool:
+    """시험 시작 전 FSV40 레벨 설정을 1회 적용한다."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_LOAD_SA_LEVEL_SETTING,
+        {
+            "SA Level Param": {
+                "Atten Level": float(atten_level_db),
+                "Next Peak Search Level": float(next_peak_search_level_db),
+            },
+        },
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_LEVEL_SETTING)
 
 
 def rotate_turntable(client: Any, *, angle: float, turntable_speed: int) -> None:
