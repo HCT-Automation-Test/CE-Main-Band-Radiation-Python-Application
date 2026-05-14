@@ -415,6 +415,31 @@ class TestManagerPanel(QWidget):
             "polarization_bilog",
         )
 
+    def update_polarization_info(self, info: object) -> None:
+        """편파 부분 변경 이벤트에 포함된 표시값만 갱신한다."""
+
+        self._update_info_text_if_present(
+            info,
+            "polarization3mEdit",
+            "3m",
+            "pol_3m",
+            "polarization_3m",
+        )
+        self._update_info_text_if_present(
+            info,
+            "polarization1mEdit",
+            "1m",
+            "pol_1m",
+            "polarization_1m",
+        )
+        self._update_info_text_if_present(
+            info,
+            "polarizationBilogEdit",
+            "bilog",
+            "Bilog",
+            "polarization_bilog",
+        )
+
     def set_run_settings_locked(self, locked: bool) -> None:
         """시험 실행 중 Start 설정 입력값을 고정한다."""
 
@@ -1216,23 +1241,49 @@ class TestManagerPanel(QWidget):
     def _set_info_text(self, info: object, object_name: str, *keys: str) -> None:
         self._set_line_edit_text(object_name, self._info_value(info, *keys))
 
+    def _update_info_text_if_present(
+        self,
+        info: object,
+        object_name: str,
+        *keys: str,
+    ) -> None:
+        found, value = self._try_info_value(info, *keys)
+        if found:
+            self._set_line_edit_text(object_name, value)
+
     def _info_value(self, info: object, *keys: str) -> Any:
+        found, value = self._try_info_value(info, *keys)
+        if found:
+            return value
+        return None
+
+    def _try_info_value(self, info: object, *keys: str) -> tuple[bool, Any]:
         if isinstance(info, dict):
-            return self._value_from_mapping(info, *keys)
+            return self._try_value_from_mapping(info, *keys)
 
         for key in keys:
             if key.isidentifier() and hasattr(info, key):
-                return getattr(info, key)
+                return True, getattr(info, key)
 
         attributes = getattr(info, "__dict__", None)
         if isinstance(attributes, dict):
-            return self._value_from_mapping(attributes, *keys)
-        return None
+            return self._try_value_from_mapping(attributes, *keys)
+        return False, None
 
     def _value_from_mapping(self, values: dict[Any, Any], *keys: str) -> Any:
+        found, value = self._try_value_from_mapping(values, *keys)
+        if found:
+            return value
+        return None
+
+    def _try_value_from_mapping(
+        self,
+        values: dict[Any, Any],
+        *keys: str,
+    ) -> tuple[bool, Any]:
         for key in keys:
             if key in values:
-                return values[key]
+                return True, values[key]
 
         normalized_values = {
             self._normalize_key(str(key)): value for key, value in values.items()
@@ -1240,8 +1291,8 @@ class TestManagerPanel(QWidget):
         for key in keys:
             normalized_key = self._normalize_key(key)
             if normalized_key in normalized_values:
-                return normalized_values[normalized_key]
-        return None
+                return True, normalized_values[normalized_key]
+        return False, None
 
     def _display_text(self, value: Any) -> str:
         if value is None:

@@ -75,6 +75,9 @@ class MainWindow(QMainWindow):
         self._runner.events.switch_box_info_changed.connect(
             self._test_manager_panel.set_switch_box_info,
         )
+        self._runner.events.polarization_info_changed.connect(
+            self._test_manager_panel.update_polarization_info,
+        )
         self._runner.instrument_connection_service.connection_started.connect(
             self._test_manager_panel.set_connection_connecting,
         )
