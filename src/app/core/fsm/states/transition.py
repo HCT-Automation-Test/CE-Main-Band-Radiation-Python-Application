@@ -1,12 +1,52 @@
 """시험 간 전환 상태: AntPolChange, Handover, RecallChange, DUTAxisChange, TestTypeChange."""
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.models.enums import AntennaPol, InputPath
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
+
+logger = logging.getLogger(__name__)
+
+
+def _emit_error(ctx: "SessionContext", message: str) -> None:
+    logger.error(message)
+    if ctx.events is not None:
+        ctx.events.error.emit(message)
+
+
+def _emit_polarization_info(
+    ctx: "SessionContext",
+    *,
+    pol: AntennaPol,
+    input_path: InputPath,
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "polarization_info_changed", None)
+    if signal is None:
+        return
+
+    pol_value = pol.value
+    if input_path in (InputPath.INPUT1, InputPath.INPUT2):
+        signal.emit(
+            {
+                "polarization_3m": pol_value,
+                "polarization_1m": pol_value,
+            }
+        )
+    elif input_path is InputPath.INPUT3:
+        # TODO(spec): Bilog Mast angle readback/event 프로토콜 협의 필요.
+        # 현재 H -> 90°, V -> 0° 매핑은 표시용 임시값이다.
+        angle = "0°" if pol is AntennaPol.V else "90°"
+        signal.emit({"polarization_bilog": angle})
+    else:
+        _emit_error(ctx, f"Unknown input path for polarization display: {input_path!r}")
 
 
 class AntPolChangeState(State):
@@ -20,17 +60,36 @@ class AntPolChangeState(State):
     name = "AntPolChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: ctx.events.user_action_required.emit("Ant Pol 변경: H → V")
-        # TODO(spec): 사용자 확인 대기 → Call 상태 확인
-        raise NotImplementedError("spec TODO")
+        # TODO(spec): 편파 변경 후 사용자 확인/장비 응답/Call 상태 확인 순서 확정 필요.
+        # TODO(spec): Call 끊김 감지 시 NRCallDisconnected로 전이하는 결과 표현 방식 확정 필요.
+        test_case = ctx.current_case
+        input_path = test_case.range_definition.input_path
+        pol = test_case.antenna_pol
+        try:
+            configured = ctx.commands.set_antenna_pol(
+                ctx.client,
+                pol=pol,
+                input_path=input_path,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Antenna Pol 설정 실패: {exc}")
+            return StateResult.FAIL
+
+        if configured:
+            _emit_polarization_info(ctx, pol=pol, input_path=input_path)
+            return StateResult.OK
+
+        _emit_error(ctx, "Antenna Pol 설정 실패: set_antenna_pol returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): Call 연결 상태에 따라 분기
-        # Call OK → "MeasureFundamental"
-        # Call 끊김 → "NRCallDisconnected"
-        raise NotImplementedError("spec TODO")
+        if result is not StateResult.OK:
+            return None
+        # TODO(spec): 현재는 편파 설정 성공 시 측정 시작 state로 임시 전이한다.
+        # Call 상태 분기 확정 후 NRCallDisconnected 경로를 추가해야 한다.
+        return measurement_start_state_for(ctx.current_case.test_type)
 
 
 class HandoverState(State):

@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import logging
+from types import SimpleNamespace
 
 from PySide6.QtCore import QPoint, QSize, Qt
+from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
+    QDialog,
     QFileDialog,
     QGroupBox,
+    QLabel,
     QLineEdit,
     QPlainTextEdit,
     QPushButton,
@@ -17,6 +21,17 @@ from PySide6.QtWidgets import (
 
 from app.core.instrument_connection import build_equipment_connection_config
 from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+from app.models.enums import (
+    AntennaPol,
+    DUTAntPosition,
+    DUTAxis,
+    Modulation,
+    NRBand,
+    RBAllocation,
+    TestChannel as NRTestChannel,
+    TestType as NRTestType,
+)
+from app.models.test_case import TestCase
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow
@@ -30,6 +45,20 @@ from app.ui.test_plot_screenshot_panel import (
 
 DEFAULT_WINDOW_SIZE = QSize(1600, 900)
 UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
+
+
+def _make_test_case() -> TestCase:
+    return TestCase(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=NRTestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=RBAllocation.INNER_FULL,
+        test_channel=NRTestChannel.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
 
 
 def test_main_window_has_five_navigation_buttons_and_pages(qtbot) -> None:
@@ -94,13 +123,23 @@ def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     assert instrument_panel.service() is window._runner.instrument_connection_service
 
 
-def test_main_window_start_button_is_blocked_until_equipment_ready(qtbot) -> None:
+def test_main_window_start_button_is_blocked_until_equipment_ready(
+    qtbot,
+    tmp_path,
+) -> None:
     """장비 준비 전 시작 버튼은 Runner gate에서 차단된다."""
 
     window = MainWindow()
     qtbot.addWidget(window)
     messages: list[str] = []
     window._runner.events.error.connect(messages.append)
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root.mkdir()
+    window.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
+    window.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    window.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
 
     start_button = window.findChild(QPushButton, "startButton")
     assert start_button is not None
@@ -481,6 +520,53 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         assert button.text() == expected_text
 
 
+def test_case_confirm_button_opens_range_setting_dialog(qtbot) -> None:
+    """Case 확인 버튼은 Range 1~6 세팅 값을 읽기 전용 팝업으로 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    button = panel.findChild(QPushButton, "caseConfirmButton")
+    assert button is not None
+    button.click()
+
+    dialog = panel.findChild(QDialog, "rangeSettingDialog")
+    table = panel.findChild(QTableWidget, "rangeSettingTable")
+
+    assert dialog is not None
+    assert table is not None
+    assert dialog.isVisible()
+    assert table.rowCount() == 6
+    assert table.columnCount() == 11
+    assert [table.horizontalHeaderItem(index).text() for index in range(11)] == [
+        "Mode",
+        "Range",
+        "Start Freq",
+        "Stop Freq",
+        "RBW(MHz)",
+        "VBW(MHz)",
+        "Limit(dBm)",
+        "Sweep point",
+        "Mast",
+        "Controller",
+        "Filter",
+    ]
+    assert table.item(0, 0).text() == "Traffic"
+    assert table.rowSpan(0, 0) == 6
+    assert table.item(0, 1).text() == "1"
+    assert table.item(0, 8).text() == "Mast2"
+    assert table.item(1, 1).text() == "2"
+    assert table.item(1, 8).text() == "Mast1"
+    assert table.item(1, 9).text() == "CO3000"
+    assert table.item(1, 10).text() == "BRF"
+    assert table.item(5, 1).text() == "6"
+    assert table.item(5, 8).text() == "Mast3"
+    assert table.item(5, 9).text() == "TeraTerm"
+    assert table.item(5, 10).text() == "6G HPF"
+
+    dialog.close()
+
+
 def test_test_manager_panel_technology_buttons_match_info_group_height(
     qtbot,
 ) -> None:
@@ -589,17 +675,516 @@ def test_test_manager_panel_screenshot_browse_button_sets_selected_directory(
     assert panel.screenshot_root_dir == selected_dir
 
 
-def test_test_manager_panel_only_eut_name_is_user_editable(qtbot) -> None:
-    """EUT Name 외 입력 필드는 직접 편집하지 못하게 제한한다."""
+def test_test_manager_panel_run_setting_fields_are_user_editable(qtbot) -> None:
+    """EUT Name과 실행 설정 입력 필드는 사용자가 직접 편집할 수 있다."""
 
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
+    editable_names = {
+        "eutNameEdit",
+        "saturationTimeEdit",
+        "connectionWaitingTimeEdit",
+        "attenLevelEdit",
+        "nextPeakSearchLevelEdit",
+    }
     for edit in panel.findChildren(QLineEdit):
-        if edit.objectName() == "eutNameEdit":
+        if edit.objectName() in editable_names:
             assert not edit.isReadOnly()
         else:
             assert edit.isReadOnly(), edit.objectName()
+
+
+def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "5"
+    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "5"
+    assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "turnTableSpeedEdit") is None
+    assert any(
+        label.text() == "Connection Waiting Time"
+        for label in panel.findChildren(QLabel)
+    )
+
+
+def test_test_manager_panel_run_setting_properties_and_validators(qtbot) -> None:
+    """실행 설정 필드가 property와 숫자 validator를 제공한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+
+    assert panel.saturation_time_sec == 6.5
+    assert panel.connection_waiting_time_sec == 7
+    assert panel.atten_level_db == 1.5
+    assert panel.next_peak_search_level_db == -20
+    assert isinstance(
+        panel.findChild(QLineEdit, "saturationTimeEdit").validator(),
+        QDoubleValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "connectionWaitingTimeEdit").validator(),
+        QIntValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "attenLevelEdit").validator(),
+        QDoubleValidator,
+    )
+    assert isinstance(
+        panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").validator(),
+        QDoubleValidator,
+    )
+
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("1.5")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("nan")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("bad")
+
+    assert panel.saturation_time_sec is None
+    assert panel.connection_waiting_time_sec is None
+    assert panel.atten_level_db is None
+    assert panel.next_peak_search_level_db is None
+
+
+def test_test_manager_panel_set_current_case_updates_display_fields(qtbot) -> None:
+    """현재 TestCase setter가 모델에서 확정 가능한 표시값을 채운다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_test_case()
+    preserved_values = {
+        "startFreqEdit": "keep start",
+        "stopFreqEdit": "keep stop",
+        "rbwEdit": "keep rbw",
+        "vbwEdit": "keep vbw",
+        "sweepPointEdit": "keep sweep",
+        "filterEdit": "keep filter",
+        "settingSpeedEdit": "keep speed",
+        "traceModeEdit": "keep trace",
+        "mastEdit": "keep mast",
+    }
+    for object_name, value in preserved_values.items():
+        panel.findChild(QLineEdit, object_name).setText(value)
+
+    panel.set_current_case(case)
+
+    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
+    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == "6-18G"
+    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
+        value if value else "-" for value in panel._row_values_for_case(case)
+    )
+    for object_name, value in preserved_values.items():
+        assert panel.findChild(QLineEdit, object_name).text() == value
+
+
+def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> None:
+    """RunnerEvents가 현재 TestCase 변경을 알리면 요약 필드가 갱신된다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    case = _make_test_case()
+    panel = window._test_manager_panel
+    preserved_values = {
+        "startFreqEdit": "keep start",
+        "stopFreqEdit": "keep stop",
+        "rbwEdit": "keep rbw",
+        "vbwEdit": "keep vbw",
+        "sweepPointEdit": "keep sweep",
+        "filterEdit": "keep filter",
+        "settingSpeedEdit": "keep speed",
+        "mastEdit": "keep mast",
+    }
+    for object_name, value in preserved_values.items():
+        panel.findChild(QLineEdit, object_name).setText(value)
+
+    window._runner.events.current_case_changed.emit(case)
+
+    assert panel.findChild(QLineEdit, "currentTestBandEdit").text() == "n78"
+    assert panel.findChild(QLineEdit, "currentTestFreqEdit").text() == "6-18G"
+    assert panel.findChild(QLineEdit, "currentFactorEdit").text() == " / ".join(
+        value if value else "-" for value in panel._row_values_for_case(case)
+    )
+    for object_name, value in preserved_values.items():
+        assert panel.findChild(QLineEdit, object_name).text() == value
+
+
+def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.spectrum_analyzer_info_changed.emit(
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+            "limit": -30,
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "3449.99"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "3649.99"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "View"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+
+
+def test_main_window_updates_switch_box_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.switch_box_info_changed.emit(
+        {
+            "mast": "Bilog",
+            "filter": "Port 14",
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "Port 14"
+
+
+def test_main_window_updates_polarization_info_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.polarization_info_changed.emit(
+        {
+            "polarization_3m": "H",
+            "polarization_1m": "V",
+            "polarization_bilog": "90°",
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+
+
+def test_main_window_keeps_missing_polarization_fields_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    panel.set_polarization_info(
+        {
+            "polarization_3m": "H",
+            "polarization_1m": "V",
+            "polarization_bilog": "90°",
+        }
+    )
+
+    window._runner.events.polarization_info_changed.emit({"polarization_3m": "V"})
+
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+
+
+def test_main_window_updates_co3000_polarization_pair_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    panel.set_polarization_info(
+        {
+            "polarization_3m": "H",
+            "polarization_1m": "H",
+            "polarization_bilog": "0°",
+        }
+    )
+
+    window._runner.events.polarization_info_changed.emit(
+        {
+            "polarization_3m": "V",
+            "polarization_1m": "V",
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "0°"
+
+
+def test_main_window_updates_bilog_polarization_only_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    panel.set_polarization_info(
+        {
+            "polarization_3m": "H",
+            "polarization_1m": "H",
+            "polarization_bilog": "0°",
+        }
+    )
+
+    window._runner.events.polarization_info_changed.emit(
+        {"polarization_bilog": "90°"}
+    )
+
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+
+
+def test_main_window_keeps_switch_box_mast_after_analyzer_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    window._runner.events.switch_box_info_changed.emit(
+        {
+            "mast": "Bilog",
+            "filter": "Port 14",
+        }
+    )
+    window._runner.events.spectrum_analyzer_info_changed.emit(
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+        }
+    )
+
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "Port 14"
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "3449.99"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "3649.99"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "View"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "1"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+
+
+def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    locked_edits = (
+        "eutNameEdit",
+        "saturationTimeEdit",
+        "connectionWaitingTimeEdit",
+        "attenLevelEdit",
+        "nextPeakSearchLevelEdit",
+    )
+    path_edits = ("excelTemplatePathEdit", "screenshotRootEdit")
+    browse_buttons = ("excelTemplateBrowseButton", "screenshotRootBrowseButton")
+
+    window._runner._set_measurement_active(True)
+
+    for object_name in locked_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in path_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in browse_buttons:
+        assert not window.findChild(QPushButton, object_name).isEnabled()
+
+    window._runner._set_measurement_active(False)
+
+    for object_name in locked_edits:
+        assert not window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in path_edits:
+        assert window.findChild(QLineEdit, object_name).isReadOnly()
+    for object_name in browse_buttons:
+        assert window.findChild(QPushButton, object_name).isEnabled()
+
+
+def test_main_window_mirrors_instrument_connection_state_to_test_manager(
+    qtbot,
+) -> None:
+    """Instrument Check service 결과가 Test Manager Connection indicator에 반영된다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_started.emit()
+
+    for index in range(1, 6):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == "connecting"
+        assert indicator.property("connected") is False
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": False,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    expected_statuses = [
+        "connected",
+        "failed",
+        "connected",
+        "connected",
+        "connected",
+    ]
+    for index, expected_status in enumerate(expected_statuses, start=1):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == expected_status
+        assert indicator.property("connected") is (expected_status == "connected")
+
+
+def test_main_window_marks_connecting_indicators_failed_on_connection_error(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """장비별 결과가 없는 연결 오류는 진행 중 indicator만 실패 상태로 바꾼다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    assert instrument_panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    service = window._runner.instrument_connection_service
+
+    service.connection_started.emit()
+    service.error_occurred.emit("boom")
+
+    for index in range(1, 6):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == "failed"
+        assert indicator.property("connected") is False
+
+
+def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:
+    """장비 연결 setter가 canonical key와 UI alias를 처리한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_connection_state(
+        {
+            "MT8000A": True,
+            "FSV40": False,
+            "3D Position Controller": True,
+            "CO3000": True,
+            "RF Filter Box": True,
+            "Unknown": True,
+        }
+    )
+
+    expected = [True, False, True, True, True]
+    for index, connected in enumerate(expected, start=1):
+        indicator = panel.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connected") is connected
+        assert indicator.property("disconnected") is (not connected)
+
+
+def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
+    """Info setter가 dict/object 입력을 표시 필드에 반영한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("9")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("10")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("11")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-12")
+
+    panel.set_analyzer_info(
+        {
+            "Start Frequency": 30.0,
+            "stop_freq": 1000.0,
+            "trace_mode": "Max Hold",
+            "mast": "3m",
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "sweep_point": 10001,
+            "atten_level": 99,
+        }
+    )
+    panel.set_switch_box_info({"mast": "Bilog", "filter": "6G HPF"})
+    panel.set_turntable_info(
+        {
+            "Target Angle": 360,
+            "current_angle": 180,
+            "turntable_speed": 4,
+        }
+    )
+    panel.set_polarization_info(
+        SimpleNamespace(
+            polarization_3m="H",
+            polarization_1m="V",
+            polarization_bilog="H/V",
+        )
+    )
+
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "30"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "1000"
+    assert panel.findChild(QLineEdit, "traceModeEdit").text() == "Max Hold"
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "rbwEdit").text() == "0.1"
+    assert panel.findChild(QLineEdit, "vbwEdit").text() == "0.3"
+    assert panel.findChild(QLineEdit, "sweepPointEdit").text() == "10001"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "6G HPF"
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "360"
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "180"
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "H/V"
+    assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "9"
+    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "10"
+    assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "11"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "-12"
+
+    panel.set_turntable_info({})
+
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == ""
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == ""
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == ""
+
+
+def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root.mkdir()
+
+    panel.findChild(QLineEdit, "eutNameEdit").setText(" SM-000 ")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
+    panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
+    panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
+    panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+
+    settings = panel.build_test_run_settings()
+
+    assert settings is not None
+    assert settings.eut_name == "SM-000"
+    assert settings.template_path == template_path
+    assert settings.screenshot_root_dir == screenshot_root
+    assert settings.saturation_time_sec == 6.5
+    assert settings.connection_waiting_time_sec == 7
+    assert settings.atten_level_db == 1.5
+    assert settings.next_peak_search_level_db == -20
 
 
 def test_nr_select_dialog_can_be_created(qtbot) -> None:

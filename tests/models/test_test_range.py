@@ -19,9 +19,14 @@ def test_range_id_coerce_rejects_unknown_values() -> None:
 
 
 def test_get_test_range_uses_fixed_spec_values() -> None:
+    range_2 = get_test_range(RangeId.RANGE_2)
     range_4 = get_test_range(RangeId.RANGE_4)
     range_5 = get_test_range(RangeId.RANGE_5)
 
+    assert range_2.start_freq == 1000.0
+    assert range_2.stop_freq == 3000.0
+    assert range_2.input_path is InputPath.INPUT1
+    assert range_2.filter_mode is FilterMode.BRF
     assert range_4.start_freq == 3000.0
     assert range_4.stop_freq == 12750.0
     assert range_4.input_path is InputPath.INPUT1

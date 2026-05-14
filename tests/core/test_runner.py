@@ -5,6 +5,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.core.fsm.context import SessionContext
 from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
 from app.core.instrument_connection import build_equipment_connection_config
@@ -18,6 +20,7 @@ from app.models.enums import (
     TestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _FakeEngine:
@@ -75,6 +78,22 @@ def _connection_config():
         controller_3d_visa_resource="3D",
         switch_box_ip_address="192.168.0.10",
         switch_box_port=5000,
+    )
+
+
+def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name=eut_name,
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=5,
+        connection_waiting_time_sec=5,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
     )
 
 
@@ -274,16 +293,16 @@ def test_start_populates_context_and_sets_start_request(
     engines[0].current_state_name = "Idle"
 
     case = _make_case()
+    settings = _make_settings(tmp_path, eut_name=" SM-000 ")
     runner.start(
         [case],
-        model_name=" SM-000 ",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
+        settings=settings,
     )
 
     ctx = runner.context
     assert ctx is not None
     assert ctx.queue == [case]
+    assert ctx.settings == settings
     assert ctx.model_name == "SM-000"
     assert ctx.template_path == tmp_path / "template.xlsx"
     assert ctx.screenshot_root_dir == tmp_path / "screenshots"
@@ -296,6 +315,69 @@ def test_start_populates_context_and_sets_start_request(
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("eut_name", " "),
+        ("saturation_time_sec", -1),
+        ("connection_waiting_time_sec", 0),
+        ("connection_waiting_time_sec", 1.5),
+        ("atten_level_db", -0.1),
+        ("next_peak_search_level_db", float("inf")),
+    ],
+)
+def test_test_run_settings_rejects_invalid_values(
+    tmp_path: Path,
+    field: str,
+    value: Any,
+) -> None:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir()
+    kwargs = {
+        "eut_name": "SM-000",
+        "template_path": template_path,
+        "screenshot_root_dir": screenshot_root_dir,
+        "saturation_time_sec": 5,
+        "connection_waiting_time_sec": 5,
+        "atten_level_db": 0,
+        "next_peak_search_level_db": 0,
+    }
+    kwargs[field] = value
+
+    with pytest.raises(ValueError):
+        TestRunSettings(**kwargs)
+
+
+def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
+    template_path = tmp_path / "missing.xlsx"
+    screenshot_root_dir = tmp_path / "missing-screenshots"
+
+    with pytest.raises(ValueError, match="template_path"):
+        TestRunSettings(
+            eut_name="SM-000",
+            template_path=template_path,
+            screenshot_root_dir=tmp_path,
+            saturation_time_sec=5,
+            connection_waiting_time_sec=5,
+            atten_level_db=0,
+            next_peak_search_level_db=0,
+        )
+
+    template_path.write_bytes(b"template")
+    with pytest.raises(ValueError, match="screenshot_root_dir"):
+        TestRunSettings(
+            eut_name="SM-000",
+            template_path=template_path,
+            screenshot_root_dir=screenshot_root_dir,
+            saturation_time_sec=5,
+            connection_waiting_time_sec=5,
+            atten_level_db=0,
+            next_peak_search_level_db=0,
+        )
 
 
 def test_runner_connection_service_guard_blocks_when_measurement_active(
@@ -331,9 +413,7 @@ def test_runner_connection_service_guard_blocks_when_measurement_active(
     engines[0].current_state_name = "Idle"
     runner.start(
         [_make_case()],
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
+        settings=_make_settings(tmp_path),
     )
 
     with qtbot.waitSignal(

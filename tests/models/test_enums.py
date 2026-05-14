@@ -12,7 +12,12 @@ from app.models.enums import (
     RBAllocation,
     TestChannel as ChannelEnum,
 )
-from app.models.switch_box import parse_input_path, resolve_filter_path
+from app.models.switch_box import (
+    display_filter_path,
+    display_input_path,
+    parse_input_path,
+    resolve_filter_path,
+)
 
 
 def test_input_path_from_label() -> None:
@@ -29,6 +34,20 @@ def test_filter_mode_resolves_direct_hpf_paths() -> None:
     assert resolve_filter_path(FilterMode.HPF_1G, "n78") is FilterPath.HPF_1G
     assert resolve_filter_path(FilterMode.HPF_3G, "n78") is FilterPath.HPF_3G
     assert resolve_filter_path(FilterMode.HPF_6G, "n78") is FilterPath.HPF_6G
+
+
+def test_switch_box_display_input_path_labels() -> None:
+    assert display_input_path(InputPath.INPUT1) == "3m"
+    assert display_input_path(InputPath.INPUT2) == "1m"
+    assert display_input_path(InputPath.INPUT3) == "Bilog"
+
+
+def test_switch_box_display_filter_path_labels() -> None:
+    assert display_filter_path(FilterPath.PORT_14) == "Port 14"
+    assert display_filter_path(FilterPath.HPF_1G) == "1G HPF"
+    assert display_filter_path(FilterPath.HPF_3G) == "3G HPF"
+    assert display_filter_path(FilterPath.HPF_6G) == "6G HPF"
+    assert display_filter_path(FilterPath.THRU) == "THRU"
 
 
 def test_filter_mode_rejects_unsupported_brf_band() -> None:

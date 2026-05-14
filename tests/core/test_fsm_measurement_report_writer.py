@@ -34,9 +34,9 @@ from app.models.test_case import TestCase
 
 class _SignalRecorder:
     def __init__(self) -> None:
-        self.messages: list[str] = []
+        self.messages: list[Any] = []
 
-    def emit(self, message: str) -> None:
+    def emit(self, message: Any) -> None:
         self.messages.append(message)
 
 
@@ -44,6 +44,7 @@ class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
         self.screenshot_saved = _SignalRecorder()
+        self.spectrum_analyzer_info_changed = _SignalRecorder()
 
 
 class _Commands:
@@ -202,10 +203,12 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
         fundamental_frequency_mhz=3550.25,
         fundamental_screenshot_path=screenshot_path,
     )
+    events = _Events()
     ctx = _make_ctx(
         MeasurementTestType.HARMONIC,
         commands=commands,
         report_writer=report_writer,
+        events=events,
         temp_dir=tmp_path,
     )
 
@@ -223,6 +226,16 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     assert measured.fundamental_frequency_mhz == 3550.25
     assert measured.screenshot_path == tmp_path / "fundamental.png"
     assert screenshot_path.read_bytes() == b"fresh fundamental"
+    assert events.spectrum_analyzer_info_changed.messages == [
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+        }
+    ]
 
 
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
@@ -368,6 +381,21 @@ def test_measure_fundamental_returns_fail_when_command_raises() -> None:
     ]
 
 
+def test_measure_fundamental_does_not_emit_sa_info_when_command_raises() -> None:
+    events = _Events()
+    commands = _Commands(fundamental_exception=RuntimeError("instrument timeout"))
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == []
+
+
 def test_measure_fundamental_returns_fail_when_screenshot_is_missing(
     tmp_path: Path,
 ) -> None:
@@ -394,6 +422,33 @@ def test_measure_fundamental_returns_fail_when_screenshot_is_missing(
     ]
     assert events.error.messages == [
         f"Fundamental 스크린샷 저장 실패: {tmp_path / 'fundamental.png'} does not exist"
+    ]
+
+
+def test_measure_fundamental_emits_sa_info_when_screenshot_is_missing(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands(fundamental_frequency_mhz=3550.25)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == [
+        {
+            "start_freq": 3449.99,
+            "stop_freq": 3649.99,
+            "trace_mode": "View",
+            "rbw": 1.0,
+            "vbw": 1.0,
+            "sweep_point": 10001,
+        }
     ]
 
 

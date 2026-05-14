@@ -87,6 +87,9 @@ class IdleState(State):
         if ctx.temp_dir is None:
             _emit_error(ctx, "시험 시작 실패: temp_dir is not set")
             return StateResult.RETRY
+        if ctx.settings is None:
+            _emit_error(ctx, "시험 시작 실패: settings is required")
+            return StateResult.RETRY
         if not ctx.model_name:
             _emit_error(ctx, "시험 시작 실패: model_name is required")
             return StateResult.RETRY
@@ -101,6 +104,7 @@ class IdleState(State):
         ctx.fundamental_frequency_mhz = None
         ctx.stopped = False
         if ctx.events is not None:
+            ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
         return StateResult.OK
 
@@ -134,6 +138,7 @@ class CheckNextCaseState(State):
         ctx.fundamental_frequency_mhz = None
         self._advanced = True
         if ctx.events is not None:
+            ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
         return StateResult.OK
 

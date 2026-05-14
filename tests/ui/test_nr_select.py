@@ -6,12 +6,14 @@ from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QMessageBox,
     QPushButton,
     QTableWidget,
     QWidget,
 )
 
+from app.core.tc_loader import load_csv, save_csv
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -31,11 +33,11 @@ from app.ui.nr_select import (
 from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
 
 
-def _make_case() -> TestCase:
+def _make_case(*, test_type: NRTestType = NRTestType.HARMONIC) -> TestCase:
     return TestCase(
         band=NRBand.N78,
         bandwidth=100.0,
-        test_type=NRTestType.HARMONIC,
+        test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
         test_channel=NRTestChannel.MID,
@@ -292,8 +294,8 @@ def test_nr_parameter_dialog_updates_preview_when_bandwidth_changes(qtbot) -> No
 
     assert table.item(13, 8).text() == "636666"
     assert table.item(13, 9).text() == "3549.99"
-    assert table.item(13, 10).text() == "135"
-    assert table.item(13, 11).text() == "67"
+    assert table.item(13, 10).text() == "1"
+    assert table.item(13, 11).text() == "1"
 
 
 def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
@@ -318,6 +320,34 @@ def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
 
     assert parameters.bandwidth == 100.0
     assert parameters.dut_ant_position is DUTAntPosition.LOWER
+
+
+def test_nr_parameter_dialog_uses_requested_rb_and_eut_ant_defaults(qtbot) -> None:
+    """NR Table은 요청된 RB Allocation/EUT ANT 기본값과 표시 순서를 사용한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    rb_combo = parameter_dialog.findChild(QComboBox, "nrParamRbAllocation_n78")
+    eut_ant_combo = parameter_dialog.findChild(QComboBox, "nrParamDutAntPosition_n78")
+    assert rb_combo is not None
+    assert eut_ant_combo is not None
+
+    assert rb_combo.currentData() is RBAllocation.INNER_1RB_LEFT
+    assert [rb_combo.itemData(index) for index in range(rb_combo.count())] == [
+        RBAllocation.INNER_1RB_LEFT,
+        RBAllocation.INNER_1RB_RIGHT,
+        RBAllocation.INNER_FULL,
+    ]
+    assert eut_ant_combo.currentData() is DUTAntPosition.LOWER
+    assert [eut_ant_combo.itemData(index) for index in range(eut_ant_combo.count())] == [
+        DUTAntPosition.LOWER,
+        DUTAntPosition.UPPER,
+    ]
 
 
 def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
@@ -403,16 +433,210 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert panel.test_cases == (case,)
     assert table.rowCount() == 1
     assert table.item(0, 0).text() == "NR"
-    assert table.item(0, 1).text() == "B78"
+    assert table.item(0, 1).text() == "n78"
     assert table.item(0, 4).text() == "100"
     assert table.item(0, 7).text() == "135"
     assert table.item(0, 8).text() == "67"
-    assert table.item(0, 12).text() == "harmonic"
+    assert table.item(0, 12).text() == "6"
     assert table.item(0, 13).text() == "6000"
     assert table.item(0, 14).text() == "18000"
     assert table.item(0, 0).foreground().color().name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.Text).name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.HighlightedText).name() == "#111111"
+
+
+def test_test_manager_delete_button_removes_selected_single_case(qtbot) -> None:
+    """삭제 버튼은 선택된 TestCase 하나만 제거한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    harmonic_case = _make_case()
+    inband_case = _make_case(test_type=NRTestType.INBAND)
+    panel.add_test_cases([harmonic_case, inband_case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    table.selectRow(0)
+
+    panel.findChild(QPushButton, "deleteButton").click()
+
+    assert panel.test_cases == (inband_case,)
+    assert table.rowCount() == 1
+    assert table.item(0, 12).text() == "5"
+
+
+def test_test_manager_delete_button_ignores_missing_selection(qtbot) -> None:
+    """선택 행이 없으면 삭제 버튼은 목록을 변경하지 않는다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_case()
+    panel.add_test_cases([case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    table.clearSelection()
+    table.setCurrentItem(None)
+
+    panel.findChild(QPushButton, "deleteButton").click()
+
+    assert panel.test_cases == (case,)
+    assert table.rowCount() == 1
+
+
+def test_test_manager_clear_button_removes_all_cases(qtbot) -> None:
+    """초기화 버튼은 내부 목록과 표를 모두 비운다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.add_test_cases([_make_case(), _make_case(test_type=NRTestType.INBAND)])
+
+    panel.findChild(QPushButton, "clearButton").click()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert panel.test_cases == ()
+    assert table.rowCount() == 0
+
+
+def test_test_manager_load_button_appends_csv_cases(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """CSV 불러오기는 기존 TestCase 뒤에 항목을 추가한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    existing_case = _make_case()
+    loaded_case = _make_case(test_type=NRTestType.INBAND)
+    panel.add_test_cases([existing_case])
+    csv_path = tmp_path / "cases.csv"
+    save_csv(csv_path, [loaded_case])
+
+    def fake_get_open_file_name(parent, caption, directory, selected_filter):
+        assert parent is panel
+        assert caption == "Test Case CSV 불러오기"
+        assert selected_filter == "CSV Files (*.csv);;All Files (*)"
+        return str(csv_path), "CSV Files (*.csv)"
+
+    monkeypatch.setattr(QFileDialog, "getOpenFileName", fake_get_open_file_name)
+
+    panel.findChild(QPushButton, "loadItemButton").click()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert panel.test_cases == (existing_case, loaded_case)
+    assert table.rowCount() == 2
+    assert table.item(1, 12).text() == "5"
+
+
+def test_test_manager_load_button_rejects_non_csv_file(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """CSV가 아닌 파일은 읽지 않고 경고만 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    selected_path = tmp_path / "cases.txt"
+    warnings: list[tuple[str, str]] = []
+    load_calls: list[object] = []
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda parent, caption, directory, selected_filter: (
+            str(selected_path),
+            "All Files (*)",
+        ),
+    )
+    monkeypatch.setattr(
+        "app.ui.test_manager_panel.load_csv",
+        lambda path: load_calls.append(path),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda parent, title, message: warnings.append((title, message)),
+    )
+
+    panel.findChild(QPushButton, "loadItemButton").click()
+
+    assert load_calls == []
+    assert panel.test_cases == ()
+    assert warnings == [("Test Manager", "CSV 파일만 불러올 수 있습니다.")]
+
+
+def test_test_manager_load_button_keeps_cases_when_csv_is_invalid(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """CSV 로드 실패 시 기존 목록은 유지된다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    existing_case = _make_case()
+    panel.add_test_cases([existing_case])
+    csv_path = tmp_path / "invalid.csv"
+    csv_path.write_text("bad,header\nvalue\n", encoding="utf-8")
+    warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda parent, caption, directory, selected_filter: (
+            str(csv_path),
+            "CSV Files (*.csv)",
+        ),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda parent, title, message: warnings.append((title, message)),
+    )
+
+    panel.findChild(QPushButton, "loadItemButton").click()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert panel.test_cases == (existing_case,)
+    assert table.rowCount() == 1
+    assert warnings
+    assert warnings[0][0] == "Test Manager"
+    assert "CSV 불러오기에 실패했습니다." in warnings[0][1]
+
+
+def test_test_manager_save_button_writes_current_cases_with_csv_suffix(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """저장 버튼은 현재 TestCase 목록을 CSV로 저장한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    cases = [_make_case(), _make_case(test_type=NRTestType.INBAND)]
+    panel.add_test_cases(cases)
+    selected_path = tmp_path / "exported_cases"
+
+    def fake_get_save_file_name(parent, caption, directory, selected_filter):
+        assert parent is panel
+        assert caption == "Test Case CSV 저장"
+        assert selected_filter == "CSV Files (*.csv);;All Files (*)"
+        return str(selected_path), "CSV Files (*.csv)"
+
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", fake_get_save_file_name)
+
+    panel.findChild(QPushButton, "saveItemButton").click()
+
+    saved_path = selected_path.with_suffix(".csv")
+    assert saved_path.exists()
+    assert [case.to_csv_row() for case in load_csv(saved_path)] == [
+        case.to_csv_row() for case in cases
+    ]
 
 
 def test_test_manager_nr_button_opens_dialog_and_appends_cases(
