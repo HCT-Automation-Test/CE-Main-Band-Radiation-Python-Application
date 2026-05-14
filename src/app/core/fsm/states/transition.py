@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.models.enums import AntennaPol, InputPath
+from app.models.nr_channel_lookup import resolve_call_channel
+from app.models.switch_box import parse_band_number
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
 logger = logging.getLogger(__name__)
+_DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -102,16 +105,47 @@ class HandoverState(State):
     name = "Handover"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.handover(client, from_band=..., to_band=...)
-        raise NotImplementedError("spec TODO")
+        test_case = ctx.current_case
+        waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
+
+        try:
+            band = parse_band_number(test_case.band.value)
+            bw = int(test_case.bandwidth)
+            channel = resolve_call_channel(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
+            )
+            handed_over = ctx.commands.call_handover(
+                ctx.client,
+                band=band,
+                bw=bw,
+                modulation=test_case.modulation,
+                rb_size=test_case.rb_size,
+                rb_offset=test_case.rb_offset,
+                channel=channel,
+                waiting_time=waiting_time,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"NR Handover 실패: {exc}")
+            return StateResult.FAIL
+
+        if handed_over:
+            return StateResult.OK
+
+        _emit_error(ctx, "NR Handover 실패: call_handover returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): Handover 결과에 따라 분기
-        # Call OK → "MeasureFundamental"
-        # Call 끊김 → "NRCallDisconnected"
-        raise NotImplementedError("spec TODO")
+        if result is StateResult.OK:
+            return "MeasureFundamental"
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
 
 
 class RecallChangeState(State):

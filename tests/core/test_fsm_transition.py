@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
-from app.core.fsm.states.transition import AntPolChangeState
+from app.core.fsm.states.transition import AntPolChangeState, HandoverState
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -18,6 +19,7 @@ from app.models.enums import (
     TestType as NRTestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -40,16 +42,27 @@ class _Commands:
         *,
         configured: bool = True,
         exception: Exception | None = None,
+        handover_configured: bool = True,
+        handover_exception: Exception | None = None,
     ) -> None:
         self.configured = configured
         self.exception = exception
         self.calls: list[tuple[Any, dict[str, Any]]] = []
+        self.handover_configured = handover_configured
+        self.handover_exception = handover_exception
+        self.handover_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def set_antenna_pol(self, client: Any, **params: Any) -> bool:
         self.calls.append((client, params))
         if self.exception is not None:
             raise self.exception
         return self.configured
+
+    def call_handover(self, client: Any, **params: Any) -> bool:
+        self.handover_calls.append((client, params))
+        if self.handover_exception is not None:
+            raise self.handover_exception
+        return self.handover_configured
 
 
 def _make_case(
@@ -76,6 +89,7 @@ def _make_ctx(
     case: TestCase,
     *,
     commands: _Commands | None = None,
+    settings: TestRunSettings | None = None,
 ) -> tuple[SessionContext, _Commands, _Events, object]:
     client = object()
     events = _Events()
@@ -85,8 +99,25 @@ def _make_ctx(
         commands=command_facade,
         events=events,  # type: ignore[arg-type]
         client=client,
+        settings=settings,
     )
     return ctx, command_facade, events, client
+
+
+def _make_settings(tmp_path: Path, *, connection_waiting_time_sec: int) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=5,
+        connection_waiting_time_sec=connection_waiting_time_sec,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
+    )
 
 
 @pytest.mark.parametrize(
@@ -207,3 +238,81 @@ def test_ant_pol_change_does_not_emit_display_info_on_exception() -> None:
     assert result is StateResult.FAIL
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == ["Antenna Pol 설정 실패: instrument timeout"]
+
+
+def test_handover_calls_command_with_current_case_params() -> None:
+    ctx, commands, events, client = _make_ctx(_make_case())
+    state = HandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert commands.handover_calls == [
+        (
+            client,
+            {
+                "band": 78,
+                "bw": 100,
+                "modulation": Modulation.QPSK,
+                "rb_size": 135,
+                "rb_offset": 67,
+                "channel": 636666,
+                "waiting_time": 5,
+            },
+        )
+    ]
+    assert events.error.messages == []
+
+
+def test_handover_uses_settings_connection_waiting_time(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path, connection_waiting_time_sec=7)
+    ctx, commands, _, _ = _make_ctx(_make_case(), settings=settings)
+
+    result = HandoverState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.handover_calls[0][1]["waiting_time"] == 7
+
+
+def test_handover_goes_to_nr_call_disconnected_on_false_result() -> None:
+    command_facade = _Commands(handover_configured=False)
+    ctx, _, events, _ = _make_ctx(_make_case(), commands=command_facade)
+    state = HandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == [
+        "NR Handover 실패: call_handover returned false"
+    ]
+
+
+def test_handover_goes_to_nr_call_disconnected_on_exception() -> None:
+    command_facade = _Commands(handover_exception=RuntimeError("instrument timeout"))
+    ctx, _, events, _ = _make_ctx(_make_case(), commands=command_facade)
+    state = HandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == ["NR Handover 실패: instrument timeout"]
+
+
+def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None:
+    ctx, commands, events, _ = _make_ctx(
+        _make_case(band=NRBand.N28, bandwidth=25.0)
+    )
+    state = HandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert commands.handover_calls == []
+    assert events.error.messages == [
+        "NR Handover 실패: No NR channel lookup for "
+        "band='n28', bandwidth='25', test_channel='mid'"
+    ]
