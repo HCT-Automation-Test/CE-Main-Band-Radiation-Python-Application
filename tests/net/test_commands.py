@@ -222,6 +222,22 @@ def test_call_handover_sends_nr_handover_params() -> None:
     ]
 
 
+def test_call_handover_sends_explicit_waiting_time() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.call_handover(
+        client,
+        band=78,
+        bw=100,
+        modulation="256QAM",
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        waiting_time=11,
+    ) is True
+    assert client.calls[0][2]["Waiting Time"] == 11
+
+
 def test_setup_sa_sends_range_setting_params() -> None:
     client = _Client(_default_ok())
 
@@ -243,6 +259,49 @@ def test_setup_sa_sends_range_setting_params() -> None:
             },
         )
     ]
+
+
+def test_setup_sa_startup_levels_sends_level_setting_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_sa_startup_levels(
+        client,
+        atten_level_db=1.5,
+        next_peak_search_level_db=-20,
+    ) is True
+
+    assert client.calls == [
+        (
+            "FSV40",
+            "Load SA Level Setting",
+            {
+                "SA Level Param": {
+                    "Atten Level": 1.5,
+                    "Next Peak Search Level": -20.0,
+                },
+            },
+        )
+    ]
+
+
+def test_setup_sa_startup_levels_raises_on_error_response() -> None:
+    client = _Client(
+        Response(
+            id="response-id",
+            status="error",
+            error={"message": "invalid level"},
+        )
+    )
+
+    with pytest.raises(
+        commands.CommandError,
+        match="FSV40 / Load SA Level Setting failed",
+    ):
+        commands.setup_sa_startup_levels(
+            client,
+            atten_level_db=0,
+            next_peak_search_level_db=-20,
+        )
 
 
 def test_measure_fundamental_returns_frequency() -> None:

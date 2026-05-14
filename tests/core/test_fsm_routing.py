@@ -13,6 +13,7 @@ from app.core.fsm.context import SessionContext
 from app.core.fsm.engine import build_session_engine
 from app.core.fsm.states.measurement.common import (
     RotateTurntableState,
+    SetupSpectrumAnalyzerStartupLevelState,
     measurement_start_state_for,
 )
 from app.core.fsm.states.measurement.bilog import MeasureBilogState
@@ -92,6 +93,14 @@ def test_measure_fundamental_goes_to_set_switch_box() -> None:
     assert MeasureFundamentalState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
 
 
+def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect() -> None:
+    ctx = _make_ctx(TestType.HARMONIC)
+    assert (
+        SetupSpectrumAnalyzerStartupLevelState().next_state(ctx, StateResult.OK)
+        == "NRCallConnect"
+    )
+
+
 @pytest.mark.parametrize(
     ("state_factory", "test_type"),
     [
@@ -142,6 +151,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "RecallChange",
         "DUTAxisChange",
         "TestTypeChange",
+        "SetupSpectrumAnalyzerStartupLevel",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",

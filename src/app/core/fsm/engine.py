@@ -106,6 +106,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         RotateTurntableState,
         SetSwitchBoxState,
         SetupSpectrumAnalyzerState,
+        SetupSpectrumAnalyzerStartupLevelState,
     )
     from app.core.fsm.states.measurement.harmonic import (
         MeasureFundamentalState,
@@ -150,6 +151,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(TestTypeChangeState())
 
     # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)
+    engine.register(SetupSpectrumAnalyzerStartupLevelState())
     engine.register(SetSwitchBoxState())
     engine.register(SetupSpectrumAnalyzerState())
     engine.register(RotateTurntableState())

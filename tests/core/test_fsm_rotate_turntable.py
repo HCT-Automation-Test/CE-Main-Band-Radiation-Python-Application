@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -20,6 +21,7 @@ from app.models.enums import (
     TestType as MeasurementTestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -34,6 +36,7 @@ class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
         self.progress = _SignalRecorder()
+        self.turntable_info_changed = _SignalRecorder()
 
 
 class _FakeSignal:
@@ -103,6 +106,7 @@ def _make_ctx(
     commands: _Commands,
     client: _FakeClient | None = None,
     current_angle: float = 0.0,
+    settings: TestRunSettings | None = None,
 ) -> tuple[SessionContext, _Events]:
     events = _Events()
     ctx = SessionContext(
@@ -111,8 +115,25 @@ def _make_ctx(
         events=events,  # type: ignore[arg-type]
         client=client if client is not None else _FakeClient(),
         current_angle=current_angle,
+        settings=settings,
     )
     return ctx, events
+
+
+def _make_settings(tmp_path: Path, *, saturation_time_sec: float) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=saturation_time_sec,
+        connection_waiting_time_sec=5,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -162,6 +183,10 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
     ]
     assert commands.stop_calls == []
     assert events.progress.values == [0, 100]
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 360.0},
+    ]
     assert state.next_state(ctx, result) == "MeasureHarmonics"
 
 
@@ -183,6 +208,35 @@ def test_rotate_360_to_zero_toggle() -> None:
     assert commands.rotate_calls == [
         (client, {"angle": 0.0, "turntable_speed": 4}),
     ]
+
+
+def test_rotate_uses_settings_saturation_time_instead_of_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(common_module, "_SETTLING_SEC", 0.5)
+    monkeypatch.setattr(common_module, "_POLL_INTERVAL_SEC", 0.005)
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, _ = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        settings=_make_settings(tmp_path, saturation_time_sec=0.0),
+    )
+    state = RotateTurntableState()
+
+    thread = _emit_after(
+        client, 0.02, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    started_at = time.monotonic()
+    result = _drive_state(state, ctx)
+    elapsed = time.monotonic() - started_at
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert elapsed < 0.3
 
 
 def test_band_group_speed_for_n78() -> None:
@@ -289,11 +343,57 @@ def test_inband_routes_to_measure_inband() -> None:
     assert state.next_state(ctx, result) == "MeasureInBand"
 
 
-def test_progress_events_are_ignored_until_complete() -> None:
+def test_progress_events_emit_current_angle_without_updating_context() -> None:
     commands = _Commands()
     client = _FakeClient()
     case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
-    ctx, _ = _make_ctx(case, commands=commands, client=client)
+    ctx, events = _make_ctx(case, commands=commands, client=client)
+    state = RotateTurntableState()
+    angles_during_progress: list[float] = []
+
+    def emit_sequence() -> None:
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": 90.0},
+            )
+        )
+        angles_during_progress.append(ctx.current_angle)
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": "270.0"},
+            )
+        )
+        angles_during_progress.append(ctx.current_angle)
+        time.sleep(0.02)
+        client.event_received.emit(
+            _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+        )
+
+    thread = threading.Thread(target=emit_sequence, daemon=True)
+    thread.start()
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert angles_during_progress == [0.0, 0.0]
+    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 90.0},
+        {"current_angle": 270.0},
+        {"current_angle": 360.0},
+    ]
+
+
+def test_progress_event_ignores_unapproved_angle_key() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client)
     state = RotateTurntableState()
 
     def emit_sequence() -> None:
@@ -302,13 +402,6 @@ def test_progress_events_are_ignored_until_complete() -> None:
             _FakeEvent(
                 common_module._COMMAND_TURNTABLE_PROGRESS,
                 {"current_angle": 90.0},
-            )
-        )
-        time.sleep(0.02)
-        client.event_received.emit(
-            _FakeEvent(
-                common_module._COMMAND_TURNTABLE_PROGRESS,
-                {"current_angle": 270.0},
             )
         )
         time.sleep(0.02)
@@ -322,4 +415,7 @@ def test_progress_events_are_ignored_until_complete() -> None:
     thread.join(timeout=1.0)
 
     assert result is StateResult.OK
-    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 360.0},
+    ]

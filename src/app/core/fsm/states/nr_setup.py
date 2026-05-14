@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
 logger = logging.getLogger(__name__)
+_DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -32,6 +33,9 @@ class NRCallConnectState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         test_case = ctx.current_case
+        waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
         try:
             band = parse_band_number(test_case.band.value)
             bw = int(test_case.bandwidth)
@@ -48,6 +52,7 @@ class NRCallConnectState(State):
                 rb_size=test_case.rb_size,
                 rb_offset=test_case.rb_offset,
                 channel=channel,
+                waiting_time=waiting_time,
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Call 연결 실패: {exc}")

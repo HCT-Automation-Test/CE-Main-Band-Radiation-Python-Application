@@ -12,6 +12,7 @@ class RunnerEvents(QObject):
     current_case_changed = Signal(object)   # TestCase
     spectrum_analyzer_info_changed = Signal(object)  # dict
     switch_box_info_changed = Signal(object)  # dict
+    turntable_info_changed = Signal(object)  # dict
     polarization_info_changed = Signal(object)  # dict
     state_changed = Signal(str)             # state name
     progress = Signal(int)                  # percent
