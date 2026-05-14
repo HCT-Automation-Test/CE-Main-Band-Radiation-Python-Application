@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from app.core.fsm.base import StateResult
@@ -15,6 +16,7 @@ from app.models.enums import (
     TestType as MeasurementTestType,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 
 class _SignalRecorder:
@@ -54,6 +56,22 @@ def _make_case() -> TestCase:
     )
 
 
+def _make_settings(tmp_path: Path, *, connection_waiting_time_sec: int) -> TestRunSettings:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshots"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.mkdir(exist_ok=True)
+    return TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=5,
+        connection_waiting_time_sec=connection_waiting_time_sec,
+        atten_level_db=0,
+        next_peak_search_level_db=0,
+    )
+
+
 def test_nr_call_connect_calls_setup_mt8000_with_current_case_params() -> None:
     commands = _Commands(connected=True)
     client = object()
@@ -77,9 +95,29 @@ def test_nr_call_connect_calls_setup_mt8000_with_current_case_params() -> None:
                 "rb_size": 135,
                 "rb_offset": 67,
                 "channel": 636666,
+                "waiting_time": 5,
             },
         )
     ]
+
+
+def test_nr_call_connect_uses_settings_connection_waiting_time(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands(connected=True)
+    client = object()
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=commands,
+        events=_Events(),  # type: ignore[arg-type]
+        client=client,
+        settings=_make_settings(tmp_path, connection_waiting_time_sec=7),
+    )
+
+    result = NRCallConnectState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.calls[0][1]["waiting_time"] == 7
 
 
 def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:

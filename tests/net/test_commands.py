@@ -222,6 +222,22 @@ def test_call_handover_sends_nr_handover_params() -> None:
     ]
 
 
+def test_call_handover_sends_explicit_waiting_time() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.call_handover(
+        client,
+        band=78,
+        bw=100,
+        modulation="256QAM",
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        waiting_time=11,
+    ) is True
+    assert client.calls[0][2]["Waiting Time"] == 11
+
+
 def test_setup_sa_sends_range_setting_params() -> None:
     client = _Client(_default_ok())
 
