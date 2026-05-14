@@ -294,8 +294,8 @@ def test_nr_parameter_dialog_updates_preview_when_bandwidth_changes(qtbot) -> No
 
     assert table.item(13, 8).text() == "636666"
     assert table.item(13, 9).text() == "3549.99"
-    assert table.item(13, 10).text() == "135"
-    assert table.item(13, 11).text() == "67"
+    assert table.item(13, 10).text() == "1"
+    assert table.item(13, 11).text() == "1"
 
 
 def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
@@ -320,6 +320,34 @@ def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
 
     assert parameters.bandwidth == 100.0
     assert parameters.dut_ant_position is DUTAntPosition.LOWER
+
+
+def test_nr_parameter_dialog_uses_requested_rb_and_eut_ant_defaults(qtbot) -> None:
+    """NR Table은 요청된 RB Allocation/EUT ANT 기본값과 표시 순서를 사용한다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    rb_combo = parameter_dialog.findChild(QComboBox, "nrParamRbAllocation_n78")
+    eut_ant_combo = parameter_dialog.findChild(QComboBox, "nrParamDutAntPosition_n78")
+    assert rb_combo is not None
+    assert eut_ant_combo is not None
+
+    assert rb_combo.currentData() is RBAllocation.INNER_1RB_LEFT
+    assert [rb_combo.itemData(index) for index in range(rb_combo.count())] == [
+        RBAllocation.INNER_1RB_LEFT,
+        RBAllocation.INNER_1RB_RIGHT,
+        RBAllocation.INNER_FULL,
+    ]
+    assert eut_ant_combo.currentData() is DUTAntPosition.LOWER
+    assert [eut_ant_combo.itemData(index) for index in range(eut_ant_combo.count())] == [
+        DUTAntPosition.LOWER,
+        DUTAntPosition.UPPER,
+    ]
 
 
 def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
@@ -405,11 +433,11 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert panel.test_cases == (case,)
     assert table.rowCount() == 1
     assert table.item(0, 0).text() == "NR"
-    assert table.item(0, 1).text() == "B78"
+    assert table.item(0, 1).text() == "n78"
     assert table.item(0, 4).text() == "100"
     assert table.item(0, 7).text() == "135"
     assert table.item(0, 8).text() == "67"
-    assert table.item(0, 12).text() == "harmonic"
+    assert table.item(0, 12).text() == "6"
     assert table.item(0, 13).text() == "6000"
     assert table.item(0, 14).text() == "18000"
     assert table.item(0, 0).foreground().color().name() == "#111111"
@@ -434,7 +462,7 @@ def test_test_manager_delete_button_removes_selected_single_case(qtbot) -> None:
 
     assert panel.test_cases == (inband_case,)
     assert table.rowCount() == 1
-    assert table.item(0, 12).text() == "inband"
+    assert table.item(0, 12).text() == "5"
 
 
 def test_test_manager_delete_button_ignores_missing_selection(qtbot) -> None:
@@ -500,7 +528,7 @@ def test_test_manager_load_button_appends_csv_cases(
     assert table is not None
     assert panel.test_cases == (existing_case, loaded_case)
     assert table.rowCount() == 2
-    assert table.item(1, 12).text() == "inband"
+    assert table.item(1, 12).text() == "5"
 
 
 def test_test_manager_load_button_rejects_non_csv_file(

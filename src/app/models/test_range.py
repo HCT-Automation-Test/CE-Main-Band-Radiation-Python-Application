@@ -94,7 +94,7 @@ RANGE_2 = TestRange(
     vbw=3.0,
     limit=-30.0,
     sweep_point=30001,
-    input_path=InputPath.INPUT2,
+    input_path=InputPath.INPUT1,
     filter_mode=FilterMode.BRF,
 )
 

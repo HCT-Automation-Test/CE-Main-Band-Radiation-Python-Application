@@ -21,12 +21,28 @@ logger = logging.getLogger(__name__)
 
 _HARMONIC_SCREENSHOT_NAME = "harmonic.png"
 _FUNDAMENTAL_SCREENSHOT_NAME = "fundamental.png"
+_FUNDAMENTAL_SPAN_MHZ = 200.0
+_FUNDAMENTAL_RBW_MHZ = 1.0
+_FUNDAMENTAL_VBW_MHZ = 1.0
+_FUNDAMENTAL_SWEEP_POINT = 10001
+_FUNDAMENTAL_TRACE_MODE = "View"
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
     logger.error(message)
     if ctx.events is not None:
         ctx.events.error.emit(message)
+
+
+def _emit_spectrum_analyzer_info(
+    ctx: "SessionContext",
+    info: dict[str, object],
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "spectrum_analyzer_info_changed", None)
+    if signal is not None:
+        signal.emit(info)
 
 
 def _normalize_harmonic_levels(raw_levels: object) -> list[float]:
@@ -108,6 +124,18 @@ class MeasureFundamentalState(State):
                     ctx.client,
                     target_freq=target_frequency_mhz,
                 )
+            )
+            half_span_mhz = _FUNDAMENTAL_SPAN_MHZ / 2
+            _emit_spectrum_analyzer_info(
+                ctx,
+                {
+                    "start_freq": target_frequency_mhz - half_span_mhz,
+                    "stop_freq": target_frequency_mhz + half_span_mhz,
+                    "trace_mode": _FUNDAMENTAL_TRACE_MODE,
+                    "rbw": _FUNDAMENTAL_RBW_MHZ,
+                    "vbw": _FUNDAMENTAL_VBW_MHZ,
+                    "sweep_point": _FUNDAMENTAL_SWEEP_POINT,
+                },
             )
         except Exception as exc:
             _emit_error(ctx, f"Fundamental 측정 실패: {exc}")

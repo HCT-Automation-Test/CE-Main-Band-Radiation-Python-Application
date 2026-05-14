@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from app.core.events import RunnerEvents
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 
 if TYPE_CHECKING:
     from app.report.report_writer import ReportWriter
@@ -33,6 +34,7 @@ class SessionContext:
     current_angle: float = 0.0
     fundamental_frequency_mhz: float | None = None
     temp_dir: Path | None = None
+    settings: TestRunSettings | None = None
     model_name: str = ""
     template_path: Path | None = None
     screenshot_root_dir: Path | None = None

@@ -26,30 +26,45 @@ from app.models.test_range import TestRange
 
 class _SignalRecorder:
     def __init__(self) -> None:
-        self.messages: list[str] = []
+        self.messages: list[Any] = []
 
-    def emit(self, message: str) -> None:
+    def emit(self, message: Any) -> None:
         self.messages.append(message)
 
 
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.spectrum_analyzer_info_changed = _SignalRecorder()
+        self.switch_box_info_changed = _SignalRecorder()
 
 
 class _Commands:
-    def __init__(self, *, switch_box_configured: bool = True, sa_configured: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        switch_box_configured: bool = True,
+        switch_box_exception: Exception | None = None,
+        sa_configured: bool = True,
+        sa_exception: Exception | None = None,
+    ) -> None:
         self.switch_box_configured = switch_box_configured
+        self.switch_box_exception = switch_box_exception
         self.sa_configured = sa_configured
+        self.sa_exception = sa_exception
         self.switch_box_calls: list[tuple[Any, dict[str, Any]]] = []
         self.setup_sa_calls: list[tuple[Any, TestRange]] = []
 
     def set_switch_box(self, client: Any, **params: Any) -> bool:
         self.switch_box_calls.append((client, params))
+        if self.switch_box_exception is not None:
+            raise self.switch_box_exception
         return self.switch_box_configured
 
     def setup_sa(self, client: Any, *, test_range: TestRange) -> bool:
         self.setup_sa_calls.append((client, test_range))
+        if self.sa_exception is not None:
+            raise self.sa_exception
         return self.sa_configured
 
 
@@ -70,10 +85,11 @@ def _make_case(test_type: MeasurementTestType) -> TestCase:
 def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
     commands = _Commands()
     client = object()
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         client=client,
     )
 
@@ -89,15 +105,49 @@ def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
             },
         )
     ]
+    assert events.switch_box_info_changed.messages == [
+        {"mast": "Bilog", "filter": "6G HPF"}
+    ]
+
+
+def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
+    commands = _Commands(switch_box_configured=False)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = ResetSwitchBoxState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.switch_box_info_changed.messages == []
+
+
+def test_reset_switch_box_does_not_emit_info_on_exception() -> None:
+    commands = _Commands(switch_box_exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = ResetSwitchBoxState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.switch_box_info_changed.messages == []
 
 
 def test_set_switch_box_resolves_brf_filter_path_by_band() -> None:
     commands = _Commands()
     client = object()
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case(MeasurementTestType.INBAND)],
         commands=commands,
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         client=client,
     )
 
@@ -112,6 +162,9 @@ def test_set_switch_box_resolves_brf_filter_path_by_band() -> None:
                 "filter_path": FilterPath.PORT_14,
             },
         )
+    ]
+    assert events.switch_box_info_changed.messages == [
+        {"mast": "Bilog", "filter": "Port 14"}
     ]
 
 
@@ -134,14 +187,45 @@ def test_set_switch_box_returns_fail_and_stops_on_false_result() -> None:
     ]
 
 
+def test_set_switch_box_does_not_emit_info_on_false_result() -> None:
+    commands = _Commands(switch_box_configured=False)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetSwitchBoxState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.switch_box_info_changed.messages == []
+
+
+def test_set_switch_box_does_not_emit_info_on_exception() -> None:
+    commands = _Commands(switch_box_exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetSwitchBoxState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.switch_box_info_changed.messages == []
+
+
 def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     commands = _Commands()
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
+    events = _Events()
     ctx = SessionContext(
         queue=[case],
         commands=commands,
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         client=client,
     )
 
@@ -156,6 +240,16 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     assert test_range.vbw == 3.0
     assert test_range.limit == -30.0
     assert test_range.sweep_point == 30001
+    assert events.spectrum_analyzer_info_changed.messages == [
+        {
+            "start_freq": 6000.0,
+            "stop_freq": 18000.0,
+            "trace_mode": "Max Hold",
+            "rbw": 1.0,
+            "vbw": 3.0,
+            "sweep_point": 30001,
+        }
+    ]
 
 
 def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
@@ -177,13 +271,44 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
     ]
 
 
-def test_reset_switch_box_uses_input1_and_thru() -> None:
-    commands = _Commands()
-    client = object()
+def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
+    commands = _Commands(sa_configured=False)
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == []
+
+
+def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
+    commands = _Commands(sa_exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.spectrum_analyzer_info_changed.messages == []
+
+
+def test_reset_switch_box_uses_input1_and_thru() -> None:
+    commands = _Commands()
+    client = object()
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
         client=client,
     )
 
@@ -198,6 +323,9 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
                 "filter_path": FilterPath.THRU,
             },
         )
+    ]
+    assert events.switch_box_info_changed.messages == [
+        {"mast": "3m", "filter": "THRU"}
     ]
 
 

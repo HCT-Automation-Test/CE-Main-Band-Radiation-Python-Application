@@ -98,6 +98,15 @@ _PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
     105,
     210,
 )
+_RB_ALLOCATION_OPTIONS: tuple[RBAllocation, ...] = (
+    RBAllocation.INNER_1RB_LEFT,
+    RBAllocation.INNER_1RB_RIGHT,
+    RBAllocation.INNER_FULL,
+)
+_DUT_ANT_POSITION_OPTIONS: tuple[DUTAntPosition, ...] = (
+    DUTAntPosition.LOWER,
+    DUTAntPosition.UPPER,
+)
 
 
 @dataclass(frozen=True)
@@ -228,9 +237,9 @@ def _default_parameters_for_band(band: NRBand) -> NRCaseParameters:
     return NRCaseParameters(
         bandwidth=bandwidth,
         modulation=Modulation.QPSK,
-        rb_allocation=RBAllocation.INNER_FULL,
+        rb_allocation=RBAllocation.INNER_1RB_LEFT,
         test_channel=TestChannel.MID if TestChannel.MID in channels else channels[0],
-        dut_ant_position=DUTAntPosition.UPPER,
+        dut_ant_position=DUTAntPosition.LOWER,
     )
 
 
@@ -488,7 +497,7 @@ class NRParameterDialog(QDialog):
             _RB_ALLOCATION_COLUMN,
             band,
             "rb_allocation",
-            tuple(RBAllocation),
+            _RB_ALLOCATION_OPTIONS,
             parameters.rb_allocation,
         )
         self._set_combo(
@@ -504,7 +513,7 @@ class NRParameterDialog(QDialog):
             _EUT_ANT_COLUMN,
             band,
             "dut_ant_position",
-            tuple(DUTAntPosition),
+            _DUT_ANT_POSITION_OPTIONS,
             parameters.dut_ant_position,
         )
         for column in (

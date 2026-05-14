@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
 from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
+from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.manual_test_panel import ManualTestPanel
@@ -65,7 +66,29 @@ class MainWindow(QMainWindow):
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
         )
+        self._runner.events.current_case_changed.connect(
+            self.on_current_case_changed,
+        )
+        self._runner.events.spectrum_analyzer_info_changed.connect(
+            self._test_manager_panel.set_analyzer_info,
+        )
+        self._runner.events.switch_box_info_changed.connect(
+            self._test_manager_panel.set_switch_box_info,
+        )
+        self._runner.events.polarization_info_changed.connect(
+            self._test_manager_panel.update_polarization_info,
+        )
+        self._runner.instrument_connection_service.connection_started.connect(
+            self._test_manager_panel.set_connection_connecting,
+        )
+        self._runner.instrument_connection_service.connection_finished.connect(
+            self._test_manager_panel.set_connection_state,
+        )
+        self._runner.instrument_connection_service.error_occurred.connect(
+            self._test_manager_panel.set_connection_failed,
+        )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
+        self._test_manager_panel.set_connection_state(self._runner.equipment_state)
 
     def _setup_main_layout(self) -> None:
         """좌측 서브 윈도우 선택 버튼과 우측 화면 스택을 구성한다."""
@@ -227,11 +250,12 @@ class MainWindow(QMainWindow):
     def on_start_requested(self) -> None:
         """Test Manager의 시작 요청을 Runner에 전달한다."""
 
+        settings = self._test_manager_panel.build_test_run_settings()
+        if settings is None:
+            return
         self._runner.start(
             list(self._test_manager_panel.test_cases),
-            model_name=self._test_manager_panel.eut_name,
-            template_path=self._test_manager_panel.excel_template_path,
-            screenshot_root_dir=self._test_manager_panel.screenshot_root_dir,
+            settings=settings,
         )
 
     def on_measurement_active_changed(self, active: bool) -> None:
@@ -240,6 +264,12 @@ class MainWindow(QMainWindow):
         self._instrument_check_panel.set_connection_block_reason(
             INSTRUMENT_CONNECTION_BLOCK_MESSAGE if active else None
         )
+        self._test_manager_panel.set_run_settings_locked(active)
+
+    def on_current_case_changed(self, case: TestCase) -> None:
+        """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
+
+        self._test_manager_panel.set_current_case(case)
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""

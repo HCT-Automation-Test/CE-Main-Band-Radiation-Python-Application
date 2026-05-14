@@ -18,6 +18,7 @@ from app.core.instrument_connection import (
     should_preserve_equipment_state_on_connection_error,
 )
 from app.models.test_case import TestCase
+from app.models.test_run_settings import TestRunSettings
 from app.net import commands as default_commands
 from app.net.tcp_client import TcpClient
 from app.report.excel_writer import ExcelReportWriter
@@ -236,6 +237,7 @@ class Runner(QObject):
         self,
         cases: list[TestCase],
         *,
+        settings: TestRunSettings | None = None,
         model_name: str = "",
         template_path: Path | None = None,
         screenshot_root_dir: Path | None = None,
@@ -256,7 +258,19 @@ class Runner(QObject):
         if not cases:
             self._emit_error("시험 시작 실패: TestCase queue is empty")
             return
-        normalized_model_name = model_name.strip()
+        try:
+            run_settings = self._normalize_run_settings(
+                settings=settings,
+                model_name=model_name,
+                template_path=template_path,
+                screenshot_root_dir=screenshot_root_dir,
+            )
+        except ValueError as exc:
+            self._emit_error(f"시험 시작 실패: {exc}")
+            return
+        normalized_model_name = run_settings.eut_name
+        template_path = run_settings.template_path
+        screenshot_root_dir = run_settings.screenshot_root_dir
         if not normalized_model_name:
             self._emit_error("시험 시작 실패: model_name is required")
             return
@@ -290,6 +304,7 @@ class Runner(QObject):
         ctx.current_angle = 0.0
         ctx.fundamental_frequency_mhz = None
         ctx.temp_dir = self._temp_dir
+        ctx.settings = run_settings
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
@@ -345,6 +360,32 @@ class Runner(QObject):
     def _emit_error(self, message: str) -> None:
         logger.error(message)
         self.events.error.emit(message)
+
+    def _normalize_run_settings(
+        self,
+        *,
+        settings: TestRunSettings | None,
+        model_name: str,
+        template_path: Path | None,
+        screenshot_root_dir: Path | None,
+    ) -> TestRunSettings:
+        if settings is not None:
+            return settings
+        if not model_name.strip():
+            raise ValueError("model_name is required")
+        if template_path is None:
+            raise ValueError("template_path is required")
+        if screenshot_root_dir is None:
+            raise ValueError("screenshot_root_dir is required")
+        return TestRunSettings(
+            eut_name=model_name,
+            template_path=Path(template_path),
+            screenshot_root_dir=Path(screenshot_root_dir),
+            saturation_time_sec=5,
+            connection_waiting_time_sec=5,
+            atten_level_db=0,
+            next_peak_search_level_db=0,
+        )
 
     def _is_waiting_for_start(self) -> bool:
         if self._worker is None or self._worker.engine is None:
