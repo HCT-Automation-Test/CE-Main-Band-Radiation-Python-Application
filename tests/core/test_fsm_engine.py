@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 
 import pytest
@@ -89,6 +90,26 @@ def test_engine_runs_registered_states_in_order() -> None:
     assert engine.current_state_name is None
 
 
+def test_engine_logs_state_entry(caplog: pytest.LogCaptureFixture) -> None:
+    engine = _make_engine()
+    log: list[str] = []
+    engine.register(_State("A", log, next_name="B"))
+    engine.register(_State("B", log, next_name=None))
+
+    with caplog.at_level(logging.INFO, logger="app.core.fsm.engine"):
+        engine.run("A")
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "app.core.fsm.engine"
+    ]
+    assert messages == [
+        "FSM state entered: A",
+        "FSM state entered: B",
+    ]
+
+
 def test_engine_retries_same_state_for_retry_result() -> None:
     engine = _make_engine()
     log: list[str] = []
@@ -106,6 +127,29 @@ def test_engine_retries_same_state_for_retry_result() -> None:
         "A.run",
         "A.exit",
         "A.next",
+    ]
+
+
+def test_engine_logs_retried_state_entry(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine = _make_engine()
+    log: list[str] = []
+    engine.register(
+        _State("A", log, results=(StateResult.RETRY, StateResult.OK))
+    )
+
+    with caplog.at_level(logging.INFO, logger="app.core.fsm.engine"):
+        engine.run("A")
+
+    messages = [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == "app.core.fsm.engine"
+    ]
+    assert messages == [
+        "FSM state entered: A",
+        "FSM state entered: A",
     ]
 
 

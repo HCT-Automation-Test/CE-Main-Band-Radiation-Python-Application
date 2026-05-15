@@ -69,6 +69,7 @@ class FSMEngine:
 
             if self._ctx.events is not None:
                 self._ctx.events.state_changed.emit(state.name)
+            logger.info("FSM state entered: %s", state.name)
 
             result = self._run_state(state)
             if self._ctx.stopped:
