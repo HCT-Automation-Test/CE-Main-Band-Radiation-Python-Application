@@ -207,7 +207,7 @@ def _axis_options() -> tuple[NRPositionOption, ...]:
         NRPositionOption("Y", (DUTAxis.Y,)),
         NRPositionOption("Z", (DUTAxis.Z,)),
         NRPositionOption("X->Y->Z", (DUTAxis.X, DUTAxis.Y, DUTAxis.Z)),
-        NRPositionOption("Z->Y->Z", (DUTAxis.Z, DUTAxis.Y, DUTAxis.Z)),
+        NRPositionOption("Z->Y->X", (DUTAxis.Z, DUTAxis.Y, DUTAxis.X)),
     )
 
 

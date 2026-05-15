@@ -111,6 +111,116 @@ def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
         assert page.findChild(panel_class) is not None
 
 
+def test_main_window_user_action_popup_completes_runner_action(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """수동 조작 요청 팝업의 완료 버튼이 Runner 완료 입력으로 이어진다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    completed: list[bool] = []
+
+    def fake_user_action_completed() -> None:
+        completed.append(True)
+
+    monkeypatch.setattr(
+        window._runner,
+        "user_action_completed",
+        fake_user_action_completed,
+    )
+
+    window._runner.events.user_action_required.emit("DUT Axis 변경: X -> Y")
+
+    qtbot.waitUntil(
+        lambda: (
+            window.findChild(QDialog, "userActionRequiredDialog") is not None
+            and window.findChild(QDialog, "userActionRequiredDialog").isVisible()
+        ),
+        timeout=1000,
+    )
+    dialog = window.findChild(QDialog, "userActionRequiredDialog")
+    assert dialog is not None
+    assert dialog.windowTitle() == "User Action Required"
+    label = dialog.findChild(QLabel, "userActionRequiredLabel")
+    complete_button = dialog.findChild(QPushButton, "userActionCompleteButton")
+    stop_button = dialog.findChild(QPushButton, "userActionStopButton")
+
+    assert label is not None
+    assert label.text() == "DUT Axis 변경: X -> Y"
+    assert complete_button is not None
+    assert complete_button.text() == "완료"
+    assert stop_button is not None
+    assert stop_button.text() == "중단"
+
+    complete_button.click()
+
+    qtbot.waitUntil(lambda: completed == [True], timeout=1000)
+    assert not dialog.isVisible()
+
+
+def test_main_window_user_action_popup_stops_runner_action(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """수동 조작 중단 버튼이 Runner 중단 입력으로 이어진다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    stopped: list[bool] = []
+
+    def fake_stop() -> None:
+        stopped.append(True)
+
+    monkeypatch.setattr(window._runner, "stop", fake_stop)
+
+    window._runner.events.user_action_required.emit("DUT Axis 변경: X -> Y")
+
+    qtbot.waitUntil(
+        lambda: (
+            window.findChild(QDialog, "userActionRequiredDialog") is not None
+            and window.findChild(QDialog, "userActionRequiredDialog").isVisible()
+        ),
+        timeout=1000,
+    )
+    dialog = window.findChild(QDialog, "userActionRequiredDialog")
+    assert dialog is not None
+    stop_button = dialog.findChild(QPushButton, "userActionStopButton")
+
+    assert stop_button is not None
+    assert stop_button.text() == "중단"
+
+    stop_button.click()
+
+    qtbot.waitUntil(lambda: stopped == [True], timeout=1000)
+    assert not dialog.isVisible()
+
+
+def test_main_window_user_action_popup_ignores_reject(qtbot) -> None:
+    """수동 조작 팝업은 Esc/reject만으로 닫히지 않는다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._runner.events.user_action_required.emit("DUT Axis 변경: X -> Y")
+
+    qtbot.waitUntil(
+        lambda: (
+            window.findChild(QDialog, "userActionRequiredDialog") is not None
+            and window.findChild(QDialog, "userActionRequiredDialog").isVisible()
+        ),
+        timeout=1000,
+    )
+    dialog = window.findChild(QDialog, "userActionRequiredDialog")
+    assert dialog is not None
+
+    dialog.reject()
+    qtbot.wait(50)
+
+    assert dialog.isVisible()
+    assert window.findChild(QDialog, "userActionRequiredDialog") is dialog
+
+
 def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     """Instrument Check가 Runner 소유 연결 서비스를 사용한다."""
 

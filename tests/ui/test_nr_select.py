@@ -371,6 +371,32 @@ def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
     assert settings.antenna_pol_sequence == (AntennaPol.V, AntennaPol.H)
 
 
+def test_nr_parameter_dialog_uses_correct_reverse_axis_sequence(qtbot) -> None:
+    """Axis 역방향 선택지는 Z->Y->X 순서로 수집된다."""
+
+    select_dialog = NRSelectDialog()
+    parameter_dialog = NRParameterDialog(
+        select_dialog.parameters_by_band,
+        select_dialog.group_settings,
+    )
+    qtbot.addWidget(parameter_dialog)
+
+    axis_sequence = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_Z_to_Y_to_X")
+    typo_axis_sequence = parameter_dialog.findChild(
+        QCheckBox,
+        "nrAxisCheck_lb_Z_to_Y_to_Z",
+    )
+    assert axis_sequence is not None
+    assert axis_sequence.text() == "Z->Y->X"
+    assert typo_axis_sequence is None
+
+    axis_sequence.click()
+
+    settings = parameter_dialog.group_settings()["lb"]
+
+    assert settings.axis_sequence == (DUTAxis.Z, DUTAxis.Y, DUTAxis.X)
+
+
 def test_nr_select_add_expands_ranges_axis_and_pol_sequences(qtbot) -> None:
     """Add 버튼이 Test 대역, Axis, Pol 시퀀스 조합을 모두 펼친다."""
 

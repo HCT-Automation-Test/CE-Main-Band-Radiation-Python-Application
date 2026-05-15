@@ -146,12 +146,10 @@ def harmonic_level_cell(
 def harmonic_frequency_cell(
     layout: ReportLayout,
     order: int,
-    antenna_pol: AntennaPol,
 ) -> str:
     """Harmonic frequency 셀 좌표를 반환한다."""
 
     row = layout.harmonic_base_row + HARMONIC_ROW_OFFSETS[order]
-    row += POL_ROW_OFFSETS[antenna_pol]
     return validate_single_cell(f"A{row}")
 
 

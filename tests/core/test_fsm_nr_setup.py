@@ -33,12 +33,20 @@ class _Events:
 
 
 class _Commands:
-    def __init__(self, connected: bool) -> None:
+    def __init__(
+        self,
+        connected: bool,
+        *,
+        exception: Exception | None = None,
+    ) -> None:
         self.connected = connected
+        self.exception = exception
         self.calls: list[tuple[Any, dict[str, Any]]] = []
 
     def setup_mt8000(self, client: Any, **params: Any) -> bool:
         self.calls.append((client, params))
+        if self.exception is not None:
+            raise self.exception
         return self.connected
 
 
@@ -136,4 +144,23 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
     assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "NR Call 연결 실패: setup_mt8000 returned false"
+    ]
+
+
+def test_nr_call_connect_returns_fail_and_emits_error_on_exception() -> None:
+    commands = _Commands(connected=True, exception=RuntimeError("instrument timeout"))
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+    state = NRCallConnectState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert events.error.messages == [
+        "NR Call 연결 실패: instrument timeout"
     ]

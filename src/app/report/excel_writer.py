@@ -54,12 +54,26 @@ class ExcelReportWriter:
         frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
         worksheet[frequency_cell] = frequency_mhz
         for order in (2, 3, 4, 5):
-            worksheet[
-                harmonic_frequency_cell(layout, order, test_case.antenna_pol)
-            ] = frequency_mhz * order
+            worksheet[harmonic_frequency_cell(layout, order)] = frequency_mhz * order
 
         self._save()
         return True
+
+    def read_fundamental_frequency(self, test_case: TestCase) -> float | None:
+        """현재 Band sheet에 기록된 fundamental frequency를 읽는다."""
+
+        worksheet = self._worksheet_for_case(test_case)
+        layout = self._layout_for_case(test_case)
+        frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
+        value = worksheet[frequency_cell].value
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(
+                f"Invalid fundamental frequency value at "
+                f"{worksheet.title}!{frequency_cell}: {value!r}"
+            )
+        return float(value)
 
     def write_harmonic(
         self,

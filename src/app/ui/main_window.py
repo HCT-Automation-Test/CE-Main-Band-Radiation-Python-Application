@@ -9,7 +9,9 @@ from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QCloseEvent, QShowEvent
 from PySide6.QtWidgets import (
     QButtonGroup,
+    QDialog,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QPushButton,
     QSizePolicy,
@@ -40,6 +42,16 @@ _SWP_NOSIZE = 0x0001
 _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
+
+
+class _UserActionDialog(QDialog):
+    """수동 조작 팝업이 Esc/reject로 사라지지 않도록 제한한다."""
+
+    def reject(self) -> None:
+        return
+
+    def close_without_action(self) -> None:
+        super().reject()
 
 
 class MainWindow(QMainWindow):
@@ -80,6 +92,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.polarization_info_changed.connect(
             self._test_manager_panel.update_polarization_info,
+        )
+        self._runner.events.user_action_required.connect(
+            self.on_user_action_required,
         )
         self._runner.instrument_connection_service.connection_started.connect(
             self._test_manager_panel.set_connection_connecting,
@@ -273,6 +288,60 @@ class MainWindow(QMainWindow):
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
 
         self._test_manager_panel.set_current_case(case)
+
+    def on_user_action_required(self, message: str) -> None:
+        """시험원이 수동 조작 완료를 입력할 수 있는 팝업을 표시한다."""
+
+        existing_dialog = getattr(self, "_user_action_dialog", None)
+        if existing_dialog is not None:
+            close_without_action = getattr(existing_dialog, "close_without_action", None)
+            if callable(close_without_action):
+                close_without_action()
+            else:
+                existing_dialog.close()
+
+        dialog = _UserActionDialog(self)
+        dialog.setObjectName("userActionRequiredDialog")
+        dialog.setWindowTitle("User Action Required")
+        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        dialog.setWindowFlag(Qt.WindowType.WindowCloseButtonHint, False)
+
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        label = QLabel(message, dialog)
+        label.setObjectName("userActionRequiredLabel")
+        label.setWordWrap(True)
+        layout.addWidget(label)
+
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)
+
+        stop_button = QPushButton("중단", dialog)
+        stop_button.setObjectName("userActionStopButton")
+        stop_button.clicked.connect(lambda _checked=False: self._runner.stop())
+        stop_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(stop_button)
+
+        complete_button = QPushButton("완료", dialog)
+        complete_button.setObjectName("userActionCompleteButton")
+        complete_button.clicked.connect(
+            lambda _checked=False: self._runner.user_action_completed()
+        )
+        complete_button.clicked.connect(dialog.accept)
+        button_layout.addWidget(complete_button)
+        layout.addLayout(button_layout)
+
+        dialog.finished.connect(lambda _result: self._clear_user_action_dialog(dialog))
+        self._user_action_dialog = dialog
+        dialog.show()
+
+    def _clear_user_action_dialog(self, dialog: QDialog) -> None:
+        """현재 수동 조작 팝업 참조를 정리한다."""
+
+        if getattr(self, "_user_action_dialog", None) is dialog:
+            self._user_action_dialog = None
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""

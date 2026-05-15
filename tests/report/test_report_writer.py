@@ -124,6 +124,22 @@ def test_write_fundamental_writes_excel_and_stores_fundamental_screenshot(
     assert events.screenshot_saved.messages == [str(destination)]
 
 
+def test_read_fundamental_frequency_delegates_to_excel_writer(tmp_path: Path) -> None:
+    report_path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = _make_writer(
+        report_path=report_path,
+        screenshot_root=tmp_path / "screenshots",
+    )
+    writer.excel_writer.workbook["Sub6 n78"]["J49"] = 3550.25
+
+    assert (
+        writer.read_fundamental_frequency(
+            _make_case(test_type=MeasurementTestType.HARMONIC)
+        )
+        == 3550.25
+    )
+
+
 @pytest.mark.parametrize(
     ("test_type", "result", "expected_cell", "expected_value", "source_name"),
     [

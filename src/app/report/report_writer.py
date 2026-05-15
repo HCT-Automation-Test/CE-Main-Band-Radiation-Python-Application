@@ -52,6 +52,11 @@ class ReportWriter:
         )
         return True
 
+    def read_fundamental_frequency(self, test_case: TestCase) -> float | None:
+        """Excel에 이미 기록된 Fundamental frequency를 읽는다."""
+
+        return self.excel_writer.read_fundamental_frequency(test_case)
+
     def write_harmonic(
         self,
         test_case: TestCase,

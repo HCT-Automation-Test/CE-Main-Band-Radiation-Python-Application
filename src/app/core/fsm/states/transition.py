@@ -7,11 +7,15 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.models.enums import AntennaPol, InputPath
+from app.models.nr_channel_lookup import resolve_call_channel
+from app.models.switch_box import parse_band_number
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
 logger = logging.getLogger(__name__)
+_DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
+_USER_ACTION_WAIT_INTERVAL_SEC = 0.1
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -50,18 +54,16 @@ def _emit_polarization_info(
 
 
 class AntPolChangeState(State):
-    """안테나 편파(Ant Pol) 변경. 시험원이 물리적으로 변경 후 확인.
+    """안테나 편파(Ant Pol) 변경 설정을 수행한다.
 
-    변경 후 Call 연결 상태를 확인하여:
-    - Call 유지 시 → MeasureFundamental로 전이
-    - Call 끊김 시 → NRCallDisconnected로 전이
+    설정 성공 시 현재 TC의 측정 시작 state로 전이하고, 설정 실패/예외는
+    에러를 발생시킨 뒤 FSM을 종료한다.
     """
 
     name = "AntPolChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 편파 변경 후 사용자 확인/장비 응답/Call 상태 확인 순서 확정 필요.
-        # TODO(spec): Call 끊김 감지 시 NRCallDisconnected로 전이하는 결과 표현 방식 확정 필요.
+        # TODO(spec): 편파 변경 후 사용자 확인/장비 응답 순서 확정 필요.
         test_case = ctx.current_case
         input_path = test_case.range_definition.input_path
         pol = test_case.antenna_pol
@@ -87,8 +89,6 @@ class AntPolChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        # TODO(spec): 현재는 편파 설정 성공 시 측정 시작 state로 임시 전이한다.
-        # Call 상태 분기 확정 후 NRCallDisconnected 경로를 추가해야 한다.
         return measurement_start_state_for(ctx.current_case.test_type)
 
 
@@ -102,16 +102,48 @@ class HandoverState(State):
     name = "Handover"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.handover(client, from_band=..., to_band=...)
-        raise NotImplementedError("spec TODO")
+        test_case = ctx.current_case
+        waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
+
+        try:
+            band = parse_band_number(test_case.band.value)
+            bw = int(test_case.bandwidth)
+            channel = resolve_call_channel(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
+            )
+            handed_over = ctx.commands.call_handover(
+                ctx.client,
+                band=band,
+                bw=bw,
+                modulation=test_case.modulation,
+                rb_size=test_case.rb_size,
+                rb_offset=test_case.rb_offset,
+                channel=channel,
+                waiting_time=waiting_time,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"NR Handover 실패: {exc}")
+            return StateResult.FAIL
+
+        if handed_over:
+            return StateResult.OK
+
+        _emit_error(ctx, "NR Handover 실패: call_handover returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): Handover 결과에 따라 분기
-        # Call OK → "MeasureFundamental"
-        # Call 끊김 → "NRCallDisconnected"
-        raise NotImplementedError("spec TODO")
+        if result is StateResult.OK:
+            # TODO(spec): INBAND/BILOG 확장 시 test_type별 시작 state로 분기한다.
+            return "MeasureFundamental"
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
 
 
 class RecallChangeState(State):
@@ -145,11 +177,29 @@ class DUTAxisChangeState(State):
     def run(self, ctx: "SessionContext") -> StateResult:
         # calls: ctx.events.user_action_required.emit("DUT Axis 변경: X → Y")
         # TODO(spec): 사용자 확인 대기
-        raise NotImplementedError("spec TODO")
+        prev_axis = ctx.prev_case.dut_axis.value
+        current_axis = ctx.current_case.dut_axis.value
+        ctx.user_action_completed.clear()
+
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit(
+                f"DUT Axis 변경: {prev_axis} -> {current_axis}"
+            )
+
+        while not ctx.stopped:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"
 
 
@@ -165,14 +215,23 @@ class TestTypeChangeState(State):
     name = "TestTypeChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.check_call_status(client)
-        # TODO(spec): Call 연결 상태 확인
-        raise NotImplementedError("spec TODO")
+        try:
+            call_connected = ctx.commands.check_call_status(ctx.client)
+        except Exception as exc:
+            _emit_error(ctx, f"NR Call 상태 확인 실패: {exc}")
+            return StateResult.FAIL
+
+        if call_connected:
+            return StateResult.OK
+
+        _emit_error(ctx, "NR Call 상태 확인 실패: check_call_status returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): Call 상태에 따라 분기
-        # Call OK → measurement_start_state_for(ctx.current_case.test_type)
-        # Call 끊김 → "NRCallDisconnected"
-        raise NotImplementedError("spec TODO")
+        if result is StateResult.OK:
+            return measurement_start_state_for(ctx.current_case.test_type)
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
