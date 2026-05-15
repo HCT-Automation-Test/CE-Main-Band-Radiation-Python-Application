@@ -248,10 +248,12 @@ def test_ant_pol_change_does_not_emit_display_info_on_false_result() -> None:
         test_type=NRTestType.HARMONIC,
     )
     ctx, _, events, _ = _make_ctx(case, commands=command_facade)
+    state = AntPolChangeState()
 
-    result = AntPolChangeState().run(ctx)
+    result = state.run(ctx)
 
     assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == [
         "Antenna Pol 설정 실패: set_antenna_pol returned false"
@@ -266,10 +268,12 @@ def test_ant_pol_change_does_not_emit_display_info_on_exception() -> None:
         test_type=NRTestType.HARMONIC,
     )
     ctx, _, events, _ = _make_ctx(case, commands=command_facade)
+    state = AntPolChangeState()
 
-    result = AntPolChangeState().run(ctx)
+    result = state.run(ctx)
 
     assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == ["Antenna Pol 설정 실패: instrument timeout"]
 

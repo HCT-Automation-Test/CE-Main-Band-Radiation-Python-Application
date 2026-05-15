@@ -54,18 +54,16 @@ def _emit_polarization_info(
 
 
 class AntPolChangeState(State):
-    """안테나 편파(Ant Pol) 변경. 시험원이 물리적으로 변경 후 확인.
+    """안테나 편파(Ant Pol) 변경 설정을 수행한다.
 
-    변경 후 Call 연결 상태를 확인하여:
-    - Call 유지 시 → MeasureFundamental로 전이
-    - Call 끊김 시 → NRCallDisconnected로 전이
+    설정 성공 시 현재 TC의 측정 시작 state로 전이하고, 설정 실패/예외는
+    에러를 발생시킨 뒤 FSM을 종료한다.
     """
 
     name = "AntPolChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # TODO(spec): 편파 변경 후 사용자 확인/장비 응답/Call 상태 확인 순서 확정 필요.
-        # TODO(spec): Call 끊김 감지 시 NRCallDisconnected로 전이하는 결과 표현 방식 확정 필요.
+        # TODO(spec): 편파 변경 후 사용자 확인/장비 응답 순서 확정 필요.
         test_case = ctx.current_case
         input_path = test_case.range_definition.input_path
         pol = test_case.antenna_pol
@@ -91,8 +89,6 @@ class AntPolChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        # TODO(spec): 현재는 편파 설정 성공 시 측정 시작 state로 임시 전이한다.
-        # Call 상태 분기 확정 후 NRCallDisconnected 경로를 추가해야 한다.
         return measurement_start_state_for(ctx.current_case.test_type)
 
 
