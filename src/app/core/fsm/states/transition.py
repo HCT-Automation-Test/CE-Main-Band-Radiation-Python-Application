@@ -139,6 +139,7 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
+            # TODO(spec): INBAND/BILOG 확장 시 test_type별 시작 state로 분기한다.
             return "MeasureFundamental"
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
