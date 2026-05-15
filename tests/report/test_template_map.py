@@ -42,7 +42,7 @@ def test_layout_cells_are_valid_single_cells(layout_key: str) -> None:
 
     for order in (2, 3, 4, 5):
         cells.append(harmonic_level_cell(layout, order, DUTAxis.X, AntennaPol.V))
-        cells.append(harmonic_frequency_cell(layout, order, AntennaPol.V))
+        cells.append(harmonic_frequency_cell(layout, order))
 
     if layout.bilog_base_row is not None:
         cells.append(bilog_level_cell(layout, DUTAxis.X, AntennaPol.V))

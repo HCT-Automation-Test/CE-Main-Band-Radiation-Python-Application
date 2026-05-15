@@ -54,9 +54,7 @@ class ExcelReportWriter:
         frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
         worksheet[frequency_cell] = frequency_mhz
         for order in (2, 3, 4, 5):
-            worksheet[
-                harmonic_frequency_cell(layout, order, test_case.antenna_pol)
-            ] = frequency_mhz * order
+            worksheet[harmonic_frequency_cell(layout, order)] = frequency_mhz * order
 
         self._save()
         return True

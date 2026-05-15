@@ -155,6 +155,26 @@ def test_write_harmonic_saves_default_axis_and_pol_cells(tmp_path: Path) -> None
     assert _cell(path, sheet, "C73") == -37.5
 
 
+def test_write_fundamental_uses_common_harmonic_frequency_cells_for_pol(
+    tmp_path: Path,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    case = _make_case(antenna_pol=AntennaPol.H)
+
+    writer.write_fundamental(
+        case,
+        FundamentalResult(fundamental_frequency_mhz=3550.25),
+    )
+
+    workbook = load_workbook(path)
+    worksheet = workbook["Sub6 n78"]
+    assert worksheet["A66"].value == 7100.5
+    assert worksheet["A67"].value is None
+    assert worksheet["A68"].value == 10650.75
+    assert worksheet["A69"].value is None
+
+
 def test_write_harmonic_writes_dash_for_missing_levels(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)
