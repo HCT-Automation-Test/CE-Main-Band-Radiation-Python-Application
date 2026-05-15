@@ -13,6 +13,7 @@ from app.core.fsm.states.transition import (
     AntPolChangeState,
     DUTAxisChangeState,
     HandoverState,
+    TestTypeChangeState,
 )
 from app.models.enums import (
     AntennaPol,
@@ -51,6 +52,8 @@ class _Commands:
         exception: Exception | None = None,
         handover_configured: bool = True,
         handover_exception: Exception | None = None,
+        call_connected: bool = True,
+        call_status_exception: Exception | None = None,
     ) -> None:
         self.configured = configured
         self.exception = exception
@@ -58,6 +61,9 @@ class _Commands:
         self.handover_configured = handover_configured
         self.handover_exception = handover_exception
         self.handover_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.call_connected = call_connected
+        self.call_status_exception = call_status_exception
+        self.call_status_calls: list[Any] = []
 
     def set_antenna_pol(self, client: Any, **params: Any) -> bool:
         self.calls.append((client, params))
@@ -70,6 +76,12 @@ class _Commands:
         if self.handover_exception is not None:
             raise self.handover_exception
         return self.handover_configured
+
+    def check_call_status(self, client: Any) -> bool:
+        self.call_status_calls.append(client)
+        if self.call_status_exception is not None:
+            raise self.call_status_exception
+        return self.call_connected
 
 
 def _make_case(
@@ -372,4 +384,65 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
     assert events.error.messages == [
         "NR Handover 실패: No NR channel lookup for "
         "band='n28', bandwidth='25', test_channel='mid'"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("test_type", "expected"),
+    [
+        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.INBAND, "SetSwitchBox"),
+        (NRTestType.BILOG, "SetSwitchBox"),
+    ],
+)
+def test_test_type_change_checks_call_status_and_routes_to_measurement_start(
+    test_type: NRTestType,
+    expected: str,
+) -> None:
+    ctx, commands, events, client = _make_ctx(_make_case(test_type=test_type))
+    state = TestTypeChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.call_status_calls == [client]
+    assert state.next_state(ctx, result) == expected
+    assert events.error.messages == []
+
+
+def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None:
+    command_facade = _Commands(call_connected=False)
+    ctx, commands, events, client = _make_ctx(
+        _make_case(),
+        commands=command_facade,
+    )
+    state = TestTypeChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.call_status_calls == [client]
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == [
+        "NR Call 상태 확인 실패: check_call_status returned false"
+    ]
+
+
+def test_test_type_change_goes_to_nr_call_disconnected_on_exception() -> None:
+    command_facade = _Commands(
+        call_status_exception=RuntimeError("instrument timeout")
+    )
+    ctx, commands, events, client = _make_ctx(
+        _make_case(),
+        commands=command_facade,
+    )
+    state = TestTypeChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.call_status_calls == [client]
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == [
+        "NR Call 상태 확인 실패: instrument timeout"
     ]

@@ -218,14 +218,23 @@ class TestTypeChangeState(State):
     name = "TestTypeChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: net.commands.check_call_status(client)
-        # TODO(spec): Call 연결 상태 확인
-        raise NotImplementedError("spec TODO")
+        try:
+            call_connected = ctx.commands.check_call_status(ctx.client)
+        except Exception as exc:
+            _emit_error(ctx, f"NR Call 상태 확인 실패: {exc}")
+            return StateResult.FAIL
+
+        if call_connected:
+            return StateResult.OK
+
+        _emit_error(ctx, "NR Call 상태 확인 실패: check_call_status returned false")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        # TODO(spec): Call 상태에 따라 분기
-        # Call OK → measurement_start_state_for(ctx.current_case.test_type)
-        # Call 끊김 → "NRCallDisconnected"
-        raise NotImplementedError("spec TODO")
+        if result is StateResult.OK:
+            return measurement_start_state_for(ctx.current_case.test_type)
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
