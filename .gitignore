@@ -19,6 +19,7 @@ dist/
 .pytest-*/
 pytest-work*/
 test-temp/
+temp/
 .codex-pytest-temp/
 .tmp/
 .mypy_cache/
