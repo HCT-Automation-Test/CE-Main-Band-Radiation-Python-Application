@@ -94,10 +94,21 @@ class _ReportWriter:
         *,
         return_value: bool = True,
         exception: Exception | None = None,
+        cached_fundamental_frequency_mhz: float | None = None,
+        read_exception: Exception | None = None,
     ) -> None:
         self.return_value = return_value
         self.exception = exception
+        self.cached_fundamental_frequency_mhz = cached_fundamental_frequency_mhz
+        self.read_exception = read_exception
         self.calls: list[tuple[str, TestCase, object]] = []
+        self.read_fundamental_frequency_calls: list[TestCase] = []
+
+    def read_fundamental_frequency(self, test_case: TestCase) -> float | None:
+        self.read_fundamental_frequency_calls.append(test_case)
+        if self.read_exception is not None:
+            raise self.read_exception
+        return self.cached_fundamental_frequency_mhz
 
     def write_fundamental(
         self,
@@ -238,6 +249,37 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     ]
 
 
+def test_measure_fundamental_reuses_excel_frequency_without_measurement(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter(cached_fundamental_frequency_mhz=3550.25)
+    screenshot_path = tmp_path / "fundamental.png"
+    screenshot_path.write_bytes(b"stale")
+    commands = _Commands(
+        fundamental_frequency_mhz=3549.99,
+        fundamental_screenshot_path=screenshot_path,
+    )
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.OK
+    assert report_writer.read_fundamental_frequency_calls == [ctx.current_case]
+    assert report_writer.calls == []
+    assert commands.measure_fundamental_calls == []
+    assert ctx.fundamental_frequency_mhz == 3550.25
+    assert screenshot_path.read_bytes() == b"stale"
+    assert events.screenshot_saved.messages == []
+    assert events.spectrum_analyzer_info_changed.messages == []
+
+
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     tmp_path: Path,
 ) -> None:
@@ -353,6 +395,30 @@ def test_measure_fundamental_returns_fail_when_lookup_raises() -> None:
             "No NR channel lookup for band='n28', bandwidth='25', "
             "test_channel='mid'"
         )
+    ]
+
+
+def test_measure_fundamental_returns_fail_when_cached_frequency_is_invalid() -> None:
+    events = _Events()
+    commands = _Commands()
+    report_writer = _ReportWriter(read_exception=ValueError("invalid cached value"))
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+    )
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert ctx.fundamental_frequency_mhz is None
+    assert commands.measure_fundamental_calls == []
+    assert report_writer.calls == []
+    assert events.error.messages == [
+        "Fundamental frequency 재사용 실패: invalid cached value"
     ]
 
 

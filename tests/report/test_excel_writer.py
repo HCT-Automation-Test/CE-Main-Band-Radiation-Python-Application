@@ -90,6 +90,49 @@ def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) 
     assert worksheet["A72"].value == 17751.25
 
 
+def test_read_fundamental_frequency_returns_none_for_empty_cell(
+    tmp_path: Path,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+
+    assert writer.read_fundamental_frequency(_make_case()) is None
+
+
+def test_read_fundamental_frequency_reads_default_layout_cell(
+    tmp_path: Path,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    writer.workbook["Sub6 n78"]["J49"] = 3550.25
+
+    assert writer.read_fundamental_frequency(_make_case()) == 3550.25
+
+
+def test_read_fundamental_frequency_reads_lb_layout_cell(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N5)
+    writer = ExcelReportWriter(path)
+    writer.workbook["Sub6 n5"]["J44"] = 836
+
+    assert (
+        writer.read_fundamental_frequency(_make_case(band=NRBand.N5, bandwidth=20.0))
+        == 836.0
+    )
+
+
+@pytest.mark.parametrize("value", [True, "3550.25", "=SUM(1, 2)"])
+def test_read_fundamental_frequency_rejects_invalid_cell_values(
+    tmp_path: Path,
+    value: object,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    writer.workbook["Sub6 n78"]["J49"] = value
+
+    with pytest.raises(ValueError, match="Invalid fundamental frequency value"):
+        writer.read_fundamental_frequency(_make_case())
+
+
 def test_write_harmonic_saves_default_axis_and_pol_cells(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)

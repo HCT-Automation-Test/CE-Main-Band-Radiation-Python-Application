@@ -61,6 +61,22 @@ class ExcelReportWriter:
         self._save()
         return True
 
+    def read_fundamental_frequency(self, test_case: TestCase) -> float | None:
+        """현재 Band sheet에 기록된 fundamental frequency를 읽는다."""
+
+        worksheet = self._worksheet_for_case(test_case)
+        layout = self._layout_for_case(test_case)
+        frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
+        value = worksheet[frequency_cell].value
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(
+                f"Invalid fundamental frequency value at "
+                f"{worksheet.title}!{frequency_cell}: {value!r}"
+            )
+        return float(value)
+
     def write_harmonic(
         self,
         test_case: TestCase,

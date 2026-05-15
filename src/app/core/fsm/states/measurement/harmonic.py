@@ -99,6 +99,17 @@ class MeasureFundamentalState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         test_case = ctx.current_case
+        writer = ctx.report_writer
+        if writer is not None:
+            try:
+                cached_frequency_mhz = writer.read_fundamental_frequency(test_case)
+            except Exception as exc:
+                _emit_error(ctx, f"Fundamental frequency 재사용 실패: {exc}")
+                return StateResult.FAIL
+            if cached_frequency_mhz is not None:
+                ctx.fundamental_frequency_mhz = cached_frequency_mhz
+                return StateResult.OK
+
         try:
             target_frequency_mhz = resolve_target_frequency_mhz(
                 test_case.band,
