@@ -9,7 +9,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal
+from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtNetwork import QAbstractSocket, QTcpSocket
 
 from app.net.protocol import (
@@ -308,10 +308,7 @@ class TcpClient(QObject):
             return
 
         self._thread = _SocketThread()
-        self._thread.event_message.connect(
-            self.event_received.emit,
-            Qt.ConnectionType.DirectConnection,
-        )
+        self._thread.event_message.connect(self.event_received.emit)
         self._thread.connected_state_changed.connect(self.connected_changed.emit)
         self._thread.error_message.connect(self.error_occurred.emit)
         self._thread.start()

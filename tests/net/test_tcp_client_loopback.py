@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import threading
 
 import pytest
 
@@ -64,6 +65,39 @@ def test_tcp_client_emits_event(qtbot) -> None:
 
         received = blocker.args[0]
         assert received == event
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_tcp_client_event_consumer_does_not_run_on_socket_thread(qtbot) -> None:
+    server = MockServer()
+    server.start()
+    client = TcpClient()
+    test_thread_id = threading.get_ident()
+    received_thread_ids: list[int] = []
+
+    def record_event_thread(_event: Event) -> None:
+        received_thread_ids.append(threading.get_ident())
+
+    client.event_received.connect(record_event_thread)
+
+    try:
+        with qtbot.waitSignal(client.connected_changed, timeout=1000):
+            client.connect_to(server.host, server.port)
+
+        server.send_event(
+            Event(
+                id="evt-thread",
+                target="co3000",
+                command="turntable_complete",
+                params={},
+            )
+        )
+
+        qtbot.waitUntil(lambda: len(received_thread_ids) == 1, timeout=1000)
+
+        assert received_thread_ids == [test_thread_id]
     finally:
         client.disconnect_from_host()
         server.stop()

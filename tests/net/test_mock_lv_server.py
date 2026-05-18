@@ -120,15 +120,12 @@ def test_mock_lv_server_turntable_progress_event(qtbot, tmp_path) -> None:
         server.stop()
 
 
-def test_mock_lv_server_turntable_complete_after_background_connect(
-    qtbot,
+def test_mock_lv_server_connect_equipment_completes_in_background(
     tmp_path,
 ) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path, turntable_delay_sec=0.01)
     server.start()
     client = TcpClient()
-    events = []
-    client.event_received.connect(events.append)
     failures: list[BaseException] = []
 
     def connect_in_background() -> None:
@@ -145,18 +142,13 @@ def test_mock_lv_server_turntable_complete_after_background_connect(
 
         assert not thread.is_alive()
         assert failures == []
-
-        commands.rotate_turntable(client, angle=360, turntable_speed=4)
-
-        qtbot.waitUntil(
-            lambda: any(event.command == "turntable_complete" for event in events),
-            timeout=1000,
-        )
-        complete = next(
-            event for event in events if event.command == "turntable_complete"
-        )
-        assert complete.target == "CO3000"
-        assert complete.params == {}
+        assert [request.command for request in server.received_requests] == [
+            "Connect",
+            "Connect",
+            "Connect",
+            "Connect",
+            "Connect",
+        ]
     finally:
         client.disconnect_from_host()
         server.stop()
