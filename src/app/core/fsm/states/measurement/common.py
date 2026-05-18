@@ -243,6 +243,7 @@ class RotateTurntableState(State):
         self._completed.clear()
         self._failed_reason = None
         self._ctx = ctx
+        self._discard_buffered_turntable_events(ctx)
         if ctx.client is not None:
             ctx.client.event_received.connect(
                 self._on_event_received, Qt.DirectConnection
@@ -254,6 +255,7 @@ class RotateTurntableState(State):
                 ctx.client.event_received.disconnect(self._on_event_received)
             except (RuntimeError, TypeError):
                 pass
+        self._discard_buffered_turntable_events(ctx)
         self._ctx = None
 
     def run(self, ctx: "SessionContext") -> StateResult:
@@ -283,7 +285,11 @@ class RotateTurntableState(State):
         ctx.events.progress.emit(0)
 
         deadline = time.monotonic() + _ROTATION_TIMEOUT_SEC
+        self._drain_buffered_events(ctx)
         while not self._completed.wait(_POLL_INTERVAL_SEC):
+            self._drain_buffered_events(ctx)
+            if self._completed.is_set():
+                break
             if ctx.stopped:
                 self._send_stop(ctx)
                 return StateResult.FAIL
@@ -326,6 +332,49 @@ class RotateTurntableState(State):
             self._failed_reason = str(params.get("message", "unknown"))
             self._completed.set()
 
+    def _drain_buffered_events(self, ctx: "SessionContext") -> None:
+        events = self._pop_buffered_turntable_events(ctx)
+        last_progress_angle: float | None = None
+        control_events: list[Any] = []
+        for event in events:
+            if getattr(event, "command", None) == _COMMAND_TURNTABLE_PROGRESS:
+                angle = self._progress_angle_from_event(event)
+                if angle is not None:
+                    last_progress_angle = angle
+                continue
+            control_events.append(event)
+
+        if last_progress_angle is not None:
+            _emit_turntable_info(ctx, {"current_angle": last_progress_angle})
+
+        for event in control_events:
+            self._on_event_received(event)
+
+    def _discard_buffered_turntable_events(self, ctx: "SessionContext") -> None:
+        self._pop_buffered_turntable_events(ctx)
+
+    def _pop_buffered_turntable_events(self, ctx: "SessionContext") -> list[Any]:
+        pop_events = getattr(ctx.client, "pop_events", None)
+        if pop_events is None:
+            return []
+
+        try:
+            return list(pop_events(self._is_turntable_event))
+        except Exception as exc:
+            logger.warning("TCP event buffer read failed: %s", exc)
+            return []
+
+    def _is_turntable_event(self, event: Any) -> bool:
+        return (
+            getattr(event, "target", None) == _TARGET_TURNTABLE
+            and getattr(event, "command", None)
+            in {
+                _COMMAND_TURNTABLE_PROGRESS,
+                _COMMAND_TURNTABLE_COMPLETE,
+                _COMMAND_EQUIPMENT_ERROR,
+            }
+        )
+
     def _send_stop(self, ctx: "SessionContext") -> None:
         try:
             ctx.commands.stop_turntable(ctx.client)
@@ -337,15 +386,21 @@ class RotateTurntableState(State):
         if ctx is None:
             return
 
+        current_angle = self._progress_angle_from_event(event)
+        if current_angle is None:
+            return
+
+        _emit_turntable_info(ctx, {"current_angle": current_angle})
+
+    def _progress_angle_from_event(self, event: Any) -> float | None:
         params = getattr(event, "params", {}) or {}
         try:
             current_angle = float(params["Current Angle"])
         except (KeyError, TypeError, ValueError):
-            return
+            return None
         if not math.isfinite(current_angle):
-            return
-
-        _emit_turntable_info(ctx, {"current_angle": current_angle})
+            return None
+        return current_angle
 
 
 class ResetSwitchBoxState(State):

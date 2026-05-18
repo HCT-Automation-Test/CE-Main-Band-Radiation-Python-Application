@@ -402,6 +402,32 @@ class TestManagerPanel(QWidget):
             "Setting Speed",
         )
 
+    def update_turntable_info(self, info: object) -> None:
+        """Turn Table 부분 변경 이벤트에 포함된 표시값만 갱신한다."""
+
+        self._update_info_text_if_present(
+            info,
+            "targetAngleEdit",
+            "target_angle",
+            "Target Angle",
+            "targetAngle",
+        )
+        self._update_info_text_if_present(
+            info,
+            "currentAngleEdit",
+            "current_angle",
+            "Current Angle",
+            "currentAngle",
+        )
+        self._update_info_text_if_present(
+            info,
+            "settingSpeedEdit",
+            "setting_speed",
+            "turntable_speed",
+            "Turn Table Speed",
+            "Setting Speed",
+        )
+
     def set_polarization_info(self, info: object) -> None:
         """편파 관련 표시값을 외부 상태로 갱신한다."""
 

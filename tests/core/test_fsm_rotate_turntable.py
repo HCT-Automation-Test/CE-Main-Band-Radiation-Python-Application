@@ -57,6 +57,21 @@ class _FakeSignal:
 class _FakeClient:
     def __init__(self) -> None:
         self.event_received = _FakeSignal()
+        self._event_buffer: list[_FakeEvent] = []
+
+    def buffer_event(self, event: "_FakeEvent") -> None:
+        self._event_buffer.append(event)
+
+    def pop_events(self, predicate: Any) -> list["_FakeEvent"]:
+        matched: list[_FakeEvent] = []
+        remaining: list[_FakeEvent] = []
+        for event in self._event_buffer:
+            if predicate(event):
+                matched.append(event)
+            else:
+                remaining.append(event)
+        self._event_buffer = remaining
+        return matched
 
 
 class _FakeEvent:
@@ -72,8 +87,14 @@ class _FakeEvent:
 
 
 class _Commands:
-    def __init__(self, *, raise_on_rotate: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        raise_on_rotate: Exception | None = None,
+        buffer_on_rotate: _FakeEvent | list[_FakeEvent] | None = None,
+    ) -> None:
         self.raise_on_rotate = raise_on_rotate
+        self.buffer_on_rotate = buffer_on_rotate
         self.rotate_calls: list[tuple[Any, dict[str, Any]]] = []
         self.stop_calls: list[Any] = []
 
@@ -81,6 +102,14 @@ class _Commands:
         self.rotate_calls.append((client, kwargs))
         if self.raise_on_rotate is not None:
             raise self.raise_on_rotate
+        if self.buffer_on_rotate is not None:
+            events = (
+                self.buffer_on_rotate
+                if isinstance(self.buffer_on_rotate, list)
+                else [self.buffer_on_rotate]
+            )
+            for event in events:
+                client.buffer_event(event)
 
     def stop_turntable(self, client: Any) -> None:
         self.stop_calls.append(client)
@@ -188,6 +217,137 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
         {"current_angle": 360.0},
     ]
     assert state.next_state(ctx, result) == "MeasureHarmonics"
+
+
+def test_rotate_consumes_buffered_complete_event_from_command() -> None:
+    complete = _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    commands = _Commands(buffer_on_rotate=complete)
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    state = RotateTurntableState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_angle == 360.0
+    assert commands.stop_calls == []
+    assert events.progress.values == [0, 100]
+
+
+def test_rotate_discards_stale_complete_event_before_start(tmp_path: Path) -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    client.buffer_event(_FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE))
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, _ = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=0.0,
+        settings=_make_settings(tmp_path, saturation_time_sec=0.0),
+    )
+    state = RotateTurntableState()
+
+    started_at = time.monotonic()
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    result = _drive_state(state, ctx)
+    elapsed = time.monotonic() - started_at
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert elapsed >= 0.04
+    assert ctx.current_angle == 360.0
+
+
+def test_rotate_discards_live_event_duplicate_from_buffer(tmp_path: Path) -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, _ = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=0.0,
+        settings=_make_settings(tmp_path, saturation_time_sec=0.0),
+    )
+    state = RotateTurntableState()
+
+    def emit_sequence() -> None:
+        time.sleep(0.02)
+        complete = _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+        client.buffer_event(complete)
+        client.event_received.emit(complete)
+
+    thread = threading.Thread(target=emit_sequence, daemon=True)
+    thread.start()
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert client.pop_events(lambda event: True) == []
+
+
+def test_rotate_consumes_buffered_progress_event_for_display_only() -> None:
+    commands = _Commands(
+        buffer_on_rotate=[
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": 90.0},
+            ),
+            _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE),
+        ]
+    )
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    state = RotateTurntableState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 90.0},
+        {"current_angle": 360.0},
+    ]
+
+
+def test_rotate_uses_last_valid_buffered_progress_angle() -> None:
+    commands = _Commands(
+        buffer_on_rotate=[
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": 30.0},
+            ),
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"current_angle": 120.0},
+            ),
+            _FakeEvent(
+                common_module._COMMAND_TURNTABLE_PROGRESS,
+                {"Current Angle": "180.0"},
+            ),
+            _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE),
+        ]
+    )
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    state = RotateTurntableState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 360.0, "setting_speed": 6},
+        {"current_angle": 180.0},
+        {"current_angle": 360.0},
+    ]
 
 
 def test_rotate_360_to_zero_toggle() -> None:

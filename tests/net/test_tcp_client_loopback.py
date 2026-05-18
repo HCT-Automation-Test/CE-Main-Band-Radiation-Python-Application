@@ -70,6 +70,30 @@ def test_tcp_client_emits_event(qtbot) -> None:
         server.stop()
 
 
+def test_tcp_client_buffers_received_events(qtbot) -> None:
+    server = MockServer()
+    server.start()
+    client = TcpClient()
+
+    try:
+        client.connect_to(server.host, server.port)
+
+        event = Event(
+            id="evt-buffer",
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
+        server.send_event(event)
+        qtbot.waitUntil(
+            lambda: bool(client.pop_events(lambda item: item.id == event.id)),
+            timeout=1000,
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_tcp_client_event_consumer_does_not_run_on_socket_thread(qtbot) -> None:
     server = MockServer()
     server.start()
