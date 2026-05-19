@@ -26,6 +26,7 @@ from app.models.enums import (
 )
 from app.models.test_case import TestCase
 from app.ui.nr_select import (
+    NRCaseParameters,
     NRGroupSettings,
     NRParameterDialog,
     NRSelectDialog,
@@ -677,9 +678,25 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
     class FakeDialog(QObject):
         test_cases_created = Signal(list)
 
-        def __init__(self, parent: QWidget | None = None) -> None:
+        def __init__(
+            self,
+            parent: QWidget | None = None,
+            *,
+            parameters_by_band=None,
+            group_settings=None,
+        ) -> None:
             super().__init__(parent)
             created["parent"] = parent
+            created["parameters_by_band"] = parameters_by_band
+            created["group_settings"] = group_settings
+
+        @property
+        def parameters_by_band(self) -> dict:
+            return {}
+
+        @property
+        def group_settings(self) -> dict:
+            return {}
 
         def exec(self) -> int:
             self.test_cases_created.emit([case])
@@ -693,4 +710,68 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
     panel.findChild(QPushButton, "nrButton").click()
 
     assert created["parent"] is panel
+    assert created["parameters_by_band"] is None
+    assert created["group_settings"] is None
     assert panel.test_cases == (case,)
+
+
+def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """Test Manager가 NR Table 설정을 다음 NR 팝업에 다시 전달한다."""
+
+    saved_parameters = {
+        NRBand.N78: NRCaseParameters(
+            bandwidth=100.0,
+            modulation=Modulation.QPSK,
+            rb_allocation=RBAllocation.INNER_FULL,
+            test_channel=NRTestChannel.MID,
+            dut_ant_position=DUTAntPosition.UPPER,
+        ),
+    }
+    saved_group_settings = {
+        "lb": NRGroupSettings(
+            selected_test_types=(NRTestType.HARMONIC,),
+            axis_sequence=(DUTAxis.X,),
+            antenna_pol_sequence=(AntennaPol.H,),
+        ),
+    }
+    calls: list[tuple[object, object]] = []
+
+    class FakeDialog(QObject):
+        test_cases_created = Signal(list)
+
+        def __init__(
+            self,
+            parent: QWidget | None = None,
+            *,
+            parameters_by_band=None,
+            group_settings=None,
+        ) -> None:
+            super().__init__(parent)
+            calls.append((parameters_by_band, group_settings))
+
+        @property
+        def parameters_by_band(self) -> dict:
+            return saved_parameters
+
+        @property
+        def group_settings(self) -> dict:
+            return saved_group_settings
+
+        def exec(self) -> int:
+            return 0
+
+    monkeypatch.setattr("app.ui.test_manager_panel.NRSelectDialog", FakeDialog)
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.findChild(QPushButton, "nrButton").click()
+    panel.findChild(QPushButton, "nrButton").click()
+
+    assert calls == [
+        (None, None),
+        (saved_parameters, saved_group_settings),
+    ]

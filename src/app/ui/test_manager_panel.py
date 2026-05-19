@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.tc_loader import load_csv, save_csv
-from app.models.enums import FilterMode, InputPath
+from app.models.enums import FilterMode, InputPath, NRBand
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
@@ -44,7 +44,7 @@ from app.models.test_case import TestCase
 from app.models.test_range import ALL_TEST_RANGES, TestRange
 from app.models.test_run_settings import TestRunSettings
 from app.ui.log_panel import LogPanel
-from app.ui.nr_select import NRSelectDialog
+from app.ui.nr_select import NRCaseParameters, NRGroupSettings, NRSelectDialog
 
 _TABLE_HEADERS: tuple[str, ...] = (
     "Generation",
@@ -217,6 +217,8 @@ class TestManagerPanel(QWidget):
         super().__init__(parent)
         self._test_cases: list[TestCase] = []
         self._connection_indicators: dict[str, QFrame] = {}
+        self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
+        self._nr_group_settings: dict[str, NRGroupSettings] | None = None
         self._setup_layout()
         self._connect_signals()
         self._apply_styles()
@@ -1048,9 +1050,15 @@ class TestManagerPanel(QWidget):
     def on_nr_button_clicked(self) -> None:
         """NR 버튼 클릭 시 TestCase 선택 팝업을 연다."""
 
-        dialog = NRSelectDialog(self)
+        dialog = NRSelectDialog(
+            self,
+            parameters_by_band=self._nr_parameters_by_band,
+            group_settings=self._nr_group_settings,
+        )
         dialog.test_cases_created.connect(self.add_test_cases)
         dialog.exec()
+        self._nr_parameters_by_band = dialog.parameters_by_band
+        self._nr_group_settings = dialog.group_settings
 
     def on_case_confirm_button_clicked(self) -> None:
         """Range 1~6 세팅 확인 팝업을 연다."""
