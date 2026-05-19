@@ -194,7 +194,13 @@ class _SocketThread(QThread):
         buffer.extend(data)
         for message in decode_frames(buffer):
             if isinstance(message, Event):
-                logger.info(
+                log = (
+                    logger.debug
+                    if message.target == "CO3000"
+                    and message.command == "turntable_progress"
+                    else logger.info
+                )
+                log(
                     "TCP event received: target=%s command=%s params=%s",
                     message.target,
                     message.command,
