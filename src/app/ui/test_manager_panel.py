@@ -1406,7 +1406,7 @@ class TestManagerPanel(QWidget):
 
         test_range = case.range_definition
         return (
-            "NR",
+            "NR_SA",
             self._format_band_label(case),
             case.dut_ant_position.value,
             str(case.scs_khz),

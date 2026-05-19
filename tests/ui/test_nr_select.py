@@ -458,7 +458,7 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert table is not None
     assert panel.test_cases == (case,)
     assert table.rowCount() == 1
-    assert table.item(0, 0).text() == "NR"
+    assert table.item(0, 0).text() == "NR_SA"
     assert table.item(0, 1).text() == "n78"
     assert table.item(0, 4).text() == "100"
     assert table.item(0, 7).text() == "135"
