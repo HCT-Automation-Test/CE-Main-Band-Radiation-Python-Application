@@ -66,6 +66,14 @@ def test_instrument_check_panel_exposes_expected_widgets(qtbot) -> None:
 
     assert panel.findChild(QLineEdit, "switchBoxIpEdit") is not None
     assert panel.findChild(QLineEdit, "switchBoxPortEdit") is not None
+    assert any(
+        label.text() == "CO3000(T.T, 3m/Bilog Mast)"
+        for label in panel.findChildren(QLabel)
+    )
+    assert any(
+        label.text() == "3D Controller(1m Mast)"
+        for label in panel.findChildren(QLabel)
+    )
     assert panel.findChild(QPushButton, "refreshVisaButton") is None
     assert panel.findChild(QPushButton, "connectInstrumentButton") is not None
     assert panel.findChild(QWidget, "instrumentCheckContentPanel") is not None

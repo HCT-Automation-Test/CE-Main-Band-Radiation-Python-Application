@@ -33,7 +33,7 @@ from app.net.commands import EquipmentConnectionConfig
 from app.ui.log_panel import LogPanel
 
 _VISA_EQUIPMENT: tuple[tuple[str, str, str], ...] = (
-    ("CO3000(T.T, 3m Mast)", "co3000", "co3000ResourceCombo"),
+    ("CO3000(T.T, 3m/Bilog Mast)", "co3000", "co3000ResourceCombo"),
     ("3D Controller(1m Mast)", "controller_3d", "controller3dResourceCombo"),
     ("FSV40 Spectrum", "fsv40", "fsv40ResourceCombo"),
     ("MT8000A", "mt8000a", "mt8000aResourceCombo"),

@@ -24,8 +24,8 @@ _FILTER_PATH_BY_MODE = {
 
 _INPUT_PATH_DISPLAY_LABELS = {
     InputPath.INPUT1: "3m",
-    InputPath.INPUT2: "1m",
-    InputPath.INPUT3: "Bilog",
+    InputPath.INPUT2: "Bilog",
+    InputPath.INPUT3: "1m",
 }
 
 _FILTER_PATH_DISPLAY_LABELS = {

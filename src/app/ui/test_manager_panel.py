@@ -402,17 +402,49 @@ class TestManagerPanel(QWidget):
             "Setting Speed",
         )
 
+    def update_turntable_info(self, info: object) -> None:
+        """Turn Table 부분 변경 이벤트에 포함된 표시값만 갱신한다."""
+
+        self._update_info_text_if_present(
+            info,
+            "targetAngleEdit",
+            "target_angle",
+            "Target Angle",
+            "targetAngle",
+        )
+        self._update_info_text_if_present(
+            info,
+            "currentAngleEdit",
+            "current_angle",
+            "Current Angle",
+            "currentAngle",
+        )
+        self._update_info_text_if_present(
+            info,
+            "settingSpeedEdit",
+            "setting_speed",
+            "turntable_speed",
+            "Turn Table Speed",
+            "Setting Speed",
+        )
+
     def set_polarization_info(self, info: object) -> None:
         """편파 관련 표시값을 외부 상태로 갱신한다."""
 
         self._set_info_text(info, "polarization3mEdit", "3m", "pol_3m", "polarization_3m")
-        self._set_info_text(info, "polarization1mEdit", "1m", "pol_1m", "polarization_1m")
         self._set_info_text(
             info,
             "polarizationBilogEdit",
             "bilog",
             "Bilog",
             "polarization_bilog",
+        )
+        self._set_info_text(
+            info,
+            "polarization1mEdit",
+            "1m",
+            "pol_1m",
+            "polarization_1m",
         )
 
     def update_polarization_info(self, info: object) -> None:
@@ -427,17 +459,17 @@ class TestManagerPanel(QWidget):
         )
         self._update_info_text_if_present(
             info,
-            "polarization1mEdit",
-            "1m",
-            "pol_1m",
-            "polarization_1m",
-        )
-        self._update_info_text_if_present(
-            info,
             "polarizationBilogEdit",
             "bilog",
             "Bilog",
             "polarization_bilog",
+        )
+        self._update_info_text_if_present(
+            info,
+            "polarization1mEdit",
+            "1m",
+            "pol_1m",
+            "polarization_1m",
         )
 
     def set_run_settings_locked(self, locked: bool) -> None:
@@ -777,8 +809,8 @@ class TestManagerPanel(QWidget):
 
         for label_text, object_name in (
             ("3m", "polarization3mEdit"),
-            ("1m", "polarization1mEdit"),
             ("Bilog", "polarizationBilogEdit"),
+            ("1m", "polarization1mEdit"),
         ):
             layout.addWidget(self._create_labeled_edit(label_text, object_name, group))
 

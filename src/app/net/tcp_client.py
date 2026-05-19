@@ -6,10 +6,12 @@ import queue
 import threading
 import time
 import uuid
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal
 from PySide6.QtNetwork import QAbstractSocket, QTcpSocket
 
 from app.net.protocol import (
@@ -192,6 +194,18 @@ class _SocketThread(QThread):
         buffer.extend(data)
         for message in decode_frames(buffer):
             if isinstance(message, Event):
+                log = (
+                    logger.debug
+                    if message.target == "CO3000"
+                    and message.command == "turntable_progress"
+                    else logger.info
+                )
+                log(
+                    "TCP event received: target=%s command=%s params=%s",
+                    message.target,
+                    message.command,
+                    message.params,
+                )
                 self.event_message.emit(message)
             elif isinstance(message, Response):
                 responses[message.id] = message
@@ -242,6 +256,8 @@ class TcpClient(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._thread: _SocketThread | None = None
+        self._event_buffer: deque[Event] = deque(maxlen=1000)
+        self._event_buffer_lock = threading.Lock()
 
     def connect_to(self, host: str, port: int, timeout: float = 5.0) -> None:
         """호스트에 연결 시도."""
@@ -293,6 +309,21 @@ class TcpClient(QObject):
             raise TcpClientError("TCP response is empty")
         return socket_command.response
 
+    def pop_events(self, predicate: Callable[[Event], bool]) -> list[Event]:
+        """이미 수신된 비동기 Event 중 predicate와 맞는 항목을 꺼낸다."""
+
+        with self._event_buffer_lock:
+            matched: list[Event] = []
+            remaining: deque[Event] = deque(maxlen=self._event_buffer.maxlen)
+            while self._event_buffer:
+                event = self._event_buffer.popleft()
+                if predicate(event):
+                    matched.append(event)
+                else:
+                    remaining.append(event)
+            self._event_buffer = remaining
+        return matched
+
     def close(self) -> None:
         """명시적 정리용 alias."""
         self.disconnect_from_host()
@@ -302,10 +333,15 @@ class TcpClient(QObject):
             return
 
         self._thread = _SocketThread()
+        self._thread.event_message.connect(self._buffer_event, Qt.DirectConnection)
         self._thread.event_message.connect(self.event_received.emit)
         self._thread.connected_state_changed.connect(self.connected_changed.emit)
         self._thread.error_message.connect(self.error_occurred.emit)
         self._thread.start()
+
+    def _buffer_event(self, event: Event) -> None:
+        with self._event_buffer_lock:
+            self._event_buffer.append(event)
 
     def _submit_and_wait(self, command: _SocketCommand, timeout: float) -> None:
         if self._thread is None:

@@ -539,6 +539,23 @@ def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
     assert panel.findChild(QWidget, "technologyButtonPanel") is not None
 
 
+def test_test_manager_panel_polarization_labels_match_physical_masts(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    expected_labels = {
+        "polarization3mEdit": "3m",
+        "polarizationBilogEdit": "Bilog",
+        "polarization1mEdit": "1m",
+    }
+    for object_name, expected_label in expected_labels.items():
+        edit = panel.findChild(QLineEdit, object_name)
+        assert edit is not None
+        label = edit.parent().findChild(QLabel)
+        assert label is not None
+        assert label.text() == expected_label
+
+
 def test_log_panel_mirrors_logging_messages(qtbot) -> None:
     """LogPanel이 logging 메시지를 QPlainTextEdit에 표시한다."""
 
@@ -968,6 +985,26 @@ def test_main_window_updates_turntable_info_from_runner_event(qtbot) -> None:
     assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
 
 
+def test_main_window_keeps_missing_turntable_fields_from_runner_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+
+    panel.set_turntable_info(
+        {
+            "target_angle": 360,
+            "current_angle": 0,
+            "setting_speed": 4,
+        }
+    )
+
+    window._runner.events.turntable_info_changed.emit({"current_angle": 180})
+
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "360"
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "180"
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+
+
 def test_main_window_updates_switch_box_info_from_runner_event(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
@@ -992,14 +1029,14 @@ def test_main_window_updates_polarization_info_from_runner_event(qtbot) -> None:
     window._runner.events.polarization_info_changed.emit(
         {
             "polarization_3m": "H",
-            "polarization_1m": "V",
-            "polarization_bilog": "90°",
+            "polarization_bilog": "V",
+            "polarization_1m": "90°",
         }
     )
 
     assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
-    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "90°"
 
 
 def test_main_window_keeps_missing_polarization_fields_from_runner_event(qtbot) -> None:
@@ -1010,16 +1047,16 @@ def test_main_window_keeps_missing_polarization_fields_from_runner_event(qtbot) 
     panel.set_polarization_info(
         {
             "polarization_3m": "H",
-            "polarization_1m": "V",
-            "polarization_bilog": "90°",
+            "polarization_bilog": "V",
+            "polarization_1m": "90°",
         }
     )
 
     window._runner.events.polarization_info_changed.emit({"polarization_3m": "V"})
 
     assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "90°"
 
 
 def test_main_window_updates_co3000_polarization_pair_from_runner_event(qtbot) -> None:
@@ -1030,24 +1067,24 @@ def test_main_window_updates_co3000_polarization_pair_from_runner_event(qtbot) -
     panel.set_polarization_info(
         {
             "polarization_3m": "H",
-            "polarization_1m": "H",
-            "polarization_bilog": "0°",
+            "polarization_bilog": "H",
+            "polarization_1m": "0°",
         }
     )
 
     window._runner.events.polarization_info_changed.emit(
         {
             "polarization_3m": "V",
-            "polarization_1m": "V",
+            "polarization_bilog": "V",
         }
     )
 
     assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "0°"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "0°"
 
 
-def test_main_window_updates_bilog_polarization_only_from_runner_event(qtbot) -> None:
+def test_main_window_updates_1m_polarization_only_from_runner_event(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
     panel = window._test_manager_panel
@@ -1055,18 +1092,16 @@ def test_main_window_updates_bilog_polarization_only_from_runner_event(qtbot) ->
     panel.set_polarization_info(
         {
             "polarization_3m": "H",
-            "polarization_1m": "H",
-            "polarization_bilog": "0°",
+            "polarization_bilog": "H",
+            "polarization_1m": "0°",
         }
     )
 
-    window._runner.events.polarization_info_changed.emit(
-        {"polarization_bilog": "90°"}
-    )
+    window._runner.events.polarization_info_changed.emit({"polarization_1m": "90°"})
 
     assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
-    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "H"
-    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "90°"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "H"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "90°"
 
 
 def test_main_window_keeps_switch_box_mast_after_analyzer_event(qtbot) -> None:
@@ -1256,8 +1291,8 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     panel.set_polarization_info(
         SimpleNamespace(
             polarization_3m="H",
-            polarization_1m="V",
-            polarization_bilog="H/V",
+            polarization_bilog="V",
+            polarization_1m="90°",
         )
     )
 
@@ -1273,8 +1308,8 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "180"
     assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
     assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "H"
-    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "V"
-    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "H/V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "90°"
     assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "9"
     assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "10"
     assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "11"

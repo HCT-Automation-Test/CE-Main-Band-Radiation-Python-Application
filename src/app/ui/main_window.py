@@ -88,7 +88,7 @@ class MainWindow(QMainWindow):
             self._test_manager_panel.set_switch_box_info,
         )
         self._runner.events.turntable_info_changed.connect(
-            self._test_manager_panel.set_turntable_info,
+            self._test_manager_panel.update_turntable_info,
         )
         self._runner.events.polarization_info_changed.connect(
             self._test_manager_panel.update_polarization_info,

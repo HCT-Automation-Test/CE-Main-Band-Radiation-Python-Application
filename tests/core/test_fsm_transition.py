@@ -183,7 +183,7 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
                 test_type=NRTestType.HARMONIC,
                 antenna_pol=AntennaPol.H,
             ),
-            {"polarization_3m": "H", "polarization_1m": "H"},
+            {"polarization_3m": "H", "polarization_bilog": "H"},
         ),
         (
             _make_case(
@@ -192,7 +192,7 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
                 test_type=NRTestType.HARMONIC,
                 antenna_pol=AntennaPol.V,
             ),
-            {"polarization_3m": "V", "polarization_1m": "V"},
+            {"polarization_3m": "V", "polarization_bilog": "V"},
         ),
         (
             _make_case(
@@ -201,7 +201,7 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
                 test_type=NRTestType.BILOG,
                 antenna_pol=AntennaPol.H,
             ),
-            {"polarization_3m": "H", "polarization_1m": "H"},
+            {"polarization_3m": "H", "polarization_bilog": "H"},
         ),
         (
             _make_case(
@@ -210,15 +210,15 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
                 test_type=NRTestType.BILOG,
                 antenna_pol=AntennaPol.V,
             ),
-            {"polarization_3m": "V", "polarization_1m": "V"},
+            {"polarization_3m": "V", "polarization_bilog": "V"},
         ),
         (
             _make_case(test_type=NRTestType.HARMONIC, antenna_pol=AntennaPol.V),
-            {"polarization_bilog": "0°"},
+            {"polarization_1m": "0°"},
         ),
         (
             _make_case(test_type=NRTestType.HARMONIC, antenna_pol=AntennaPol.H),
-            {"polarization_bilog": "90°"},
+            {"polarization_1m": "90°"},
         ),
     ],
 )
