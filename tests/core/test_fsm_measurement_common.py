@@ -259,7 +259,7 @@ def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
         )
     ]
     assert events.switch_box_info_changed.messages == [
-        {"mast": "Bilog", "filter": "6G HPF"}
+        {"mast": "1m", "filter": "6G HPF"}
     ]
 
 
@@ -322,7 +322,7 @@ def test_set_switch_box_resolves_brf_filter_path_by_band() -> None:
         )
     ]
     assert events.switch_box_info_changed.messages == [
-        {"mast": "Bilog", "filter": "Port 14"}
+        {"mast": "1m", "filter": "Port 14"}
     ]
 
 

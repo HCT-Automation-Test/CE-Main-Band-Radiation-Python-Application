@@ -41,14 +41,14 @@ def _emit_polarization_info(
         signal.emit(
             {
                 "polarization_3m": pol_value,
-                "polarization_1m": pol_value,
+                "polarization_bilog": pol_value,
             }
         )
     elif input_path is InputPath.INPUT3:
-        # TODO(spec): Bilog Mast angle readback/event 프로토콜 협의 필요.
+        # TODO(spec): 1m Mast angle readback/event 프로토콜 협의 필요.
         # 현재 H -> 90°, V -> 0° 매핑은 표시용 임시값이다.
         angle = "0°" if pol is AntennaPol.V else "90°"
-        signal.emit({"polarization_bilog": angle})
+        signal.emit({"polarization_1m": angle})
     else:
         _emit_error(ctx, f"Unknown input path for polarization display: {input_path!r}")
 

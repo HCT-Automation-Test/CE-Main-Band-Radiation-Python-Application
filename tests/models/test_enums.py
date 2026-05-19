@@ -38,8 +38,8 @@ def test_filter_mode_resolves_direct_hpf_paths() -> None:
 
 def test_switch_box_display_input_path_labels() -> None:
     assert display_input_path(InputPath.INPUT1) == "3m"
-    assert display_input_path(InputPath.INPUT2) == "1m"
-    assert display_input_path(InputPath.INPUT3) == "Bilog"
+    assert display_input_path(InputPath.INPUT2) == "Bilog"
+    assert display_input_path(InputPath.INPUT3) == "1m"
 
 
 def test_switch_box_display_filter_path_labels() -> None:
