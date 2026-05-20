@@ -197,6 +197,7 @@ def test_call_handover_sends_nr_handover_params() -> None:
 
     assert commands.call_handover(
         client,
+        mid_channel=636666,
         band=78,
         bw=100,
         modulation="256QAM",
@@ -209,33 +210,35 @@ def test_call_handover_sends_nr_handover_params() -> None:
             "MT8000A",
             "NR Handover",
             {
+                "Mid Channel": 636666,
                 "Band": 78,
                 "BandWidth": 100,
                 "Center Channel": 636666,
                 "RB Size": 135,
                 "RB Offset": 67,
                 "Modulation": "256QAM",
-                "Max Retry Count": 3,
-                "Waiting Time": 5,
             },
         )
     ]
 
 
-def test_call_handover_sends_explicit_waiting_time() -> None:
+def test_call_handover_sends_separate_mid_and_center_channel() -> None:
     client = _Client(_default_ok())
 
     assert commands.call_handover(
         client,
+        mid_channel=636666,
         band=78,
         bw=100,
         modulation="256QAM",
         rb_size=135,
         rb_offset=67,
-        channel=636666,
-        waiting_time=11,
+        channel=650000,
     ) is True
-    assert client.calls[0][2]["Waiting Time"] == 11
+    assert client.calls[0][2]["Mid Channel"] == 636666
+    assert client.calls[0][2]["Center Channel"] == 650000
+    assert "Waiting Time" not in client.calls[0][2]
+    assert "Max Retry Count" not in client.calls[0][2]
 
 
 def test_setup_sa_sends_range_setting_params() -> None:

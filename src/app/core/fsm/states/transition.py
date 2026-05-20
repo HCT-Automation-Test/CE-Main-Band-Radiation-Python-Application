@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
-from app.models.enums import AntennaPol, InputPath
+from app.models.enums import AntennaPol, InputPath, TestChannel
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -14,7 +14,6 @@ if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
 
 logger = logging.getLogger(__name__)
-_DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
 _USER_ACTION_WAIT_INTERVAL_SEC = 0.1
 
 
@@ -103,13 +102,19 @@ class HandoverState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         test_case = ctx.current_case
-        waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
-        if ctx.settings is not None:
-            waiting_time = ctx.settings.connection_waiting_time_sec
+        prev_case = ctx.prev_case
+        if prev_case is None:
+            _emit_error(ctx, "NR Handover 실패: previous test case is not set")
+            return StateResult.FAIL
 
         try:
             band = parse_band_number(test_case.band.value)
             bw = int(test_case.bandwidth)
+            mid_channel = resolve_call_channel(
+                prev_case.band,
+                prev_case.bandwidth,
+                TestChannel.MID,
+            )
             channel = resolve_call_channel(
                 test_case.band,
                 test_case.bandwidth,
@@ -117,13 +122,13 @@ class HandoverState(State):
             )
             handed_over = ctx.commands.call_handover(
                 ctx.client,
+                mid_channel=mid_channel,
                 band=band,
                 bw=bw,
                 modulation=test_case.modulation,
                 rb_size=test_case.rb_size,
                 rb_offset=test_case.rb_offset,
                 channel=channel,
-                waiting_time=waiting_time,
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Handover 실패: {exc}")
