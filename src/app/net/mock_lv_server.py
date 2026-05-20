@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import random
+import shutil
 import signal
 import threading
 import time
@@ -92,12 +94,20 @@ class MockLvServer:
         temp_dir: Path | str = "temp",
         scenario: MockLvScenario = "normal",
         turntable_delay_sec: float = 1.0,
+        screenshot_fixture_dir: Path | str | None = None,
+        screenshot_random_seed: int | None = None,
     ) -> None:
         self.host = host
         self.port = port
         self.temp_dir = Path(temp_dir)
         self.scenario = scenario
         self.turntable_delay_sec = float(turntable_delay_sec)
+        self.screenshot_fixture_dir = (
+            Path(screenshot_fixture_dir)
+            if screenshot_fixture_dir is not None
+            else None
+        )
+        self._screenshot_random = random.Random(screenshot_random_seed)
         self.state = MockLvState()
         self._server = MockServer(
             host=host,
@@ -285,7 +295,39 @@ class MockLvServer:
     def _write_png(self, name: str) -> None:
         path = self.temp_dir / name
         path.parent.mkdir(parents=True, exist_ok=True)
+        fixture = self._select_screenshot_fixture()
+        if fixture is not None:
+            shutil.copy2(fixture, path)
+            logger.info(
+                "Mock LV screenshot fixture copied: source=%s destination=%s",
+                fixture,
+                path,
+            )
+            return
         path.write_bytes(_MINIMAL_PNG)
+
+    def _select_screenshot_fixture(self) -> Path | None:
+        if self.screenshot_fixture_dir is None:
+            return None
+        if not self.screenshot_fixture_dir.is_dir():
+            logger.warning(
+                "Mock LV screenshot fixture dir not found: %s",
+                self.screenshot_fixture_dir,
+            )
+            return None
+
+        fixtures = sorted(
+            path
+            for path in self.screenshot_fixture_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".png"
+        )
+        if not fixtures:
+            logger.info(
+                "Mock LV screenshot fixture dir has no PNG files: %s",
+                self.screenshot_fixture_dir,
+            )
+            return None
+        return self._screenshot_random.choice(fixtures)
 
 
 def _ok(request: Request, result: dict[str, Any] | None = None) -> Response:
@@ -331,6 +373,8 @@ def main(argv: list[str] | None = None) -> int:
         default="normal",
     )
     parser.add_argument("--turntable-delay-sec", type=float, default=1.0)
+    parser.add_argument("--screenshot-fixture-dir", type=Path, default=None)
+    parser.add_argument("--screenshot-random-seed", type=int, default=None)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -340,6 +384,8 @@ def main(argv: list[str] | None = None) -> int:
         temp_dir=args.temp_dir,
         scenario=args.scenario,
         turntable_delay_sec=args.turntable_delay_sec,
+        screenshot_fixture_dir=args.screenshot_fixture_dir,
+        screenshot_random_seed=args.screenshot_random_seed,
     )
 
     stopped = threading.Event()
@@ -352,11 +398,13 @@ def main(argv: list[str] | None = None) -> int:
 
     server.start()
     logger.info(
-        "Mock LV server started on %s:%s (scenario=%s, temp_dir=%s)",
+        "Mock LV server started on %s:%s (scenario=%s, temp_dir=%s, "
+        "screenshot_fixture_dir=%s)",
         server.host,
         server.port,
         server.scenario,
         server.temp_dir,
+        server.screenshot_fixture_dir,
     )
     try:
         while not stopped.wait(0.2):
