@@ -87,6 +87,27 @@ def _build_mt8000_params(
     }
 
 
+def _build_handover_params(
+    *,
+    mid_channel: int,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+) -> dict[str, Any]:
+    return {
+        "Mid Channel": int(mid_channel),
+        "Band": int(band),
+        "BandWidth": int(bw),
+        "Center Channel": int(channel),
+        "RB Size": int(rb_size),
+        "RB Offset": int(rb_offset),
+        "Modulation": _normalize_modulation(modulation),
+    }
+
+
 def _build_connect_params(
     config: EquipmentConnectionConfig | None,
     target: str,
@@ -163,29 +184,27 @@ def setup_mt8000(
 def call_handover(
     client: Any,
     *,
+    mid_channel: int,
     band: int,
     bw: int,
     modulation: Modulation | str,
     rb_size: int,
     rb_offset: int,
     channel: int,
-    max_retry_count: int = 3,
-    waiting_time: int = 5,
 ) -> bool:
     """Call Handover 수행."""
     response = _send_request(
         client,
         _TARGET_MT8000A,
         _COMMAND_NR_HANDOVER,
-        _build_mt8000_params(
+        _build_handover_params(
+            mid_channel=mid_channel,
             band=band,
             bw=bw,
             modulation=modulation,
             rb_size=rb_size,
             rb_offset=rb_offset,
             channel=channel,
-            max_retry_count=max_retry_count,
-            waiting_time=waiting_time,
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_HANDOVER)

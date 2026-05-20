@@ -812,13 +812,19 @@ class NRSelectDialog(QDialog):
 
     test_cases_created = Signal(list)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        parameters_by_band: Mapping[NRBand, NRCaseParameters] | None = None,
+        group_settings: Mapping[str, NRGroupSettings] | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setObjectName("nrSelectDialog")
         self.setWindowTitle("NR Select")
         self._band_checks: dict[NRBand, QCheckBox] = {}
-        self._parameters_by_band = _create_default_parameters()
-        self._group_settings = _create_default_group_settings()
+        self._parameters_by_band = dict(parameters_by_band or _create_default_parameters())
+        self._group_settings = dict(group_settings or _create_default_group_settings())
         self._setup_layout()
         self._apply_styles()
 
