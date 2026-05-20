@@ -93,6 +93,9 @@ class MainWindow(QMainWindow):
         self._runner.events.polarization_info_changed.connect(
             self._test_manager_panel.update_polarization_info,
         )
+        self._runner.events.screenshot_saved.connect(
+            self._test_plot_screenshot_panel.on_screenshot_saved,
+        )
         self._runner.events.user_action_required.connect(
             self.on_user_action_required,
         )
@@ -142,6 +145,7 @@ class MainWindow(QMainWindow):
             service=self._runner.instrument_connection_service,
         )
         self._test_manager_panel = TestManagerPanel(self._page_stack)
+        self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
 
         self._add_navigation_page(
             navigation_layout,
@@ -176,7 +180,7 @@ class MainWindow(QMainWindow):
             index=4,
             button_text="Test Plot\nScreenshot",
             object_name="testPlotScreenshot",
-            page_widget=TestPlotScreenshotPanel(self._page_stack),
+            page_widget=self._test_plot_screenshot_panel,
         )
 
         navigation_layout.addStretch(1)

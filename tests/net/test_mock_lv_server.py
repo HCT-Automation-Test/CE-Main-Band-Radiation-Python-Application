@@ -7,7 +7,7 @@ import pytest
 from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import RANGE_6
 from app.net import commands
-from app.net.mock_lv_server import MockLvServer
+from app.net.mock_lv_server import MockLvServer, _MINIMAL_PNG
 from app.net.tcp_client import TcpClient
 
 
@@ -92,6 +92,77 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
         assert server.state.switch_input_path == 3
         assert server.state.switch_filter_path == 6
         assert server.state.antenna_pol == "V"
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_copies_random_screenshot_fixture(
+    qtbot,
+    tmp_path,
+) -> None:
+    fixture_dir = tmp_path / "mock_screenshots"
+    fixture_dir.mkdir()
+    fixture_bytes = {
+        b"fixture-a-png": fixture_dir / "a.png",
+        b"fixture-b-png": fixture_dir / "b.png",
+    }
+    for content, path in fixture_bytes.items():
+        path.write_bytes(content)
+    (fixture_dir / "ignored.jpg").write_bytes(b"ignored")
+
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        turntable_delay_sec=0.01,
+        screenshot_fixture_dir=fixture_dir,
+        screenshot_random_seed=7,
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.measure_fundamental(client, target_freq=3550.0) == 3550.25
+        assert (tmp_path / "fundamental.png").read_bytes() in fixture_bytes
+
+        assert commands.measure_harmonics(client, fundamental=3550.25) == [
+            -42.1,
+            -48.0,
+            -51.0,
+            -56.2,
+        ]
+        assert (tmp_path / "harmonic.png").read_bytes() in fixture_bytes
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+@pytest.mark.parametrize("fixture_dir_name", ["missing", "empty"])
+def test_mock_lv_server_falls_back_to_minimal_png_without_fixtures(
+    qtbot,
+    tmp_path,
+    fixture_dir_name,
+) -> None:
+    fixture_dir = tmp_path / fixture_dir_name
+    if fixture_dir_name == "empty":
+        fixture_dir.mkdir()
+
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        turntable_delay_sec=0.01,
+        screenshot_fixture_dir=fixture_dir,
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.measure_fundamental(client, target_freq=3550.0) == 3550.25
+        assert (tmp_path / "fundamental.png").read_bytes() == _MINIMAL_PNG
     finally:
         client.disconnect_from_host()
         server.stop()
