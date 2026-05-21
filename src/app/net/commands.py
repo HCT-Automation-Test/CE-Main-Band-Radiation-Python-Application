@@ -31,6 +31,8 @@ _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
 _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
+_COMMAND_SET_REFERENCE = "Set Reference"
+_COMMAND_SELF_ALIGNMENT = "Self Alignment"
 
 _CONNECT_TARGETS = (
     _TARGET_FSV40,
@@ -208,6 +210,16 @@ def call_handover(
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_HANDOVER)
+
+
+def set_reference_co3000(client: Any) -> bool:
+    response = _send_request(client, _TARGET_CO3000, _COMMAND_SET_REFERENCE, {})
+    return _action_ok(response, _TARGET_CO3000, _COMMAND_SET_REFERENCE)
+
+
+def self_align_fsv40(client: Any) -> bool:
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT)
 
 
 def measure_fundamental(client: Any, *, target_freq: float) -> float:

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import threading
+import time
 from typing import Any
 
+import pytest
+
+from app.core import instrument_set
 from app.core.instrument_connection import (
     InstrumentConnectionService,
     _DETACHED_THREADS,
@@ -67,6 +71,63 @@ class _BlockingCommands:
             "Switch Box": True,
             "3D Controller": True,
         }
+
+
+class _InstrumentSetSignal:
+    def __init__(self) -> None:
+        self._slots: list[Any] = []
+        self.connected = threading.Event()
+
+    @property
+    def slot_count(self) -> int:
+        return len(self._slots)
+
+    def connect(self, slot: Any, *args: Any, **kwargs: Any) -> None:
+        _ = args, kwargs
+        self._slots.append(slot)
+        self.connected.set()
+
+    def disconnect(self, slot: Any) -> None:
+        self._slots.remove(slot)
+
+    def emit(self, event: Any) -> None:
+        for slot in list(self._slots):
+            slot(event)
+
+
+class _InstrumentSetClient:
+    def __init__(self) -> None:
+        self.event_received = _InstrumentSetSignal()
+        self._event_buffer: list[_InstrumentSetEvent] = []
+        self.pop_calls = 0
+
+    def buffer_event(self, event: "_InstrumentSetEvent") -> None:
+        self._event_buffer.append(event)
+
+    def pop_events(self, predicate: Any) -> list["_InstrumentSetEvent"]:
+        self.pop_calls += 1
+        matched: list[_InstrumentSetEvent] = []
+        remaining: list[_InstrumentSetEvent] = []
+        for event in self._event_buffer:
+            if predicate(event):
+                matched.append(event)
+            else:
+                remaining.append(event)
+        self._event_buffer = remaining
+        return matched
+
+
+class _InstrumentSetEvent:
+    def __init__(
+        self,
+        *,
+        target: str = "CO3000",
+        command: str = instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        params: dict[str, Any] | None = None,
+    ) -> None:
+        self.target = target
+        self.command = command
+        self.params = params or {}
 
 
 def _connection_config():
@@ -357,3 +418,121 @@ def test_instrument_connection_service_ignores_requests_after_shutdown() -> None
 
     assert calls == 0
     assert commands.calls == []
+
+
+def test_wait_for_equipment_set_event_returns_on_complete_event() -> None:
+    client = _InstrumentSetClient()
+    errors: list[BaseException] = []
+
+    thread = _start_instrument_set_wait(client, errors)
+    client.event_received.emit(
+        _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert client.event_received.slot_count == 0
+
+
+def test_wait_for_equipment_set_event_discards_stale_complete_event() -> None:
+    client = _InstrumentSetClient()
+    client.buffer_event(
+        _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
+    )
+    errors: list[BaseException] = []
+
+    thread = _start_instrument_set_wait(client, errors)
+    time.sleep(0.1)
+
+    assert thread.is_alive()
+    assert client.pop_calls >= 1
+
+    client.event_received.emit(
+        _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert client.event_received.slot_count == 0
+
+
+def test_wait_for_equipment_set_event_raises_on_equipment_error_event() -> None:
+    client = _InstrumentSetClient()
+    errors: list[BaseException] = []
+
+    thread = _start_instrument_set_wait(client, errors)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            command=instrument_set.COMMAND_EQUIPMENT_ERROR,
+            params={"message": "reference failed"},
+        )
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], instrument_set.InstrumentSetError)
+    assert str(errors[0]) == "CO3000 / Set Reference failed: reference failed"
+    assert client.event_received.slot_count == 0
+
+
+def test_wait_for_equipment_set_event_raises_on_timeout() -> None:
+    client = _InstrumentSetClient()
+
+    with pytest.raises(
+        instrument_set.InstrumentSetTimeoutError,
+        match=r"CO3000 / Set Reference completion timeout",
+    ):
+        instrument_set.wait_for_equipment_set_event(
+            client,
+            target="CO3000",
+            complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+            source_command="Set Reference",
+            timeout_s=0.01,
+        )
+
+    assert client.event_received.slot_count == 0
+
+
+def test_wait_for_equipment_set_event_disconnects_after_buffered_error() -> None:
+    client = _InstrumentSetClient()
+    errors: list[BaseException] = []
+
+    thread = _start_instrument_set_wait(client, errors)
+    client.buffer_event(
+        _InstrumentSetEvent(
+            command=instrument_set.COMMAND_EQUIPMENT_ERROR,
+            params={},
+        )
+    )
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert len(errors) == 1
+    assert isinstance(errors[0], instrument_set.InstrumentSetError)
+    assert str(errors[0]) == "CO3000 / Set Reference failed"
+    assert client.event_received.slot_count == 0
+
+
+def _start_instrument_set_wait(
+    client: _InstrumentSetClient,
+    errors: list[BaseException],
+) -> threading.Thread:
+    def run() -> None:
+        try:
+            instrument_set.wait_for_equipment_set_event(
+                client,
+                target="CO3000",
+                complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+                source_command="Set Reference",
+                timeout_s=1.0,
+            )
+        except BaseException as exc:
+            errors.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    assert client.event_received.connected.wait(1.0)
+    return thread
