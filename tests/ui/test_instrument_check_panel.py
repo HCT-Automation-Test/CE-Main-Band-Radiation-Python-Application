@@ -21,11 +21,17 @@ class _Service(QObject):
     connection_started = Signal()
     connection_finished = Signal(dict)
     error_occurred = Signal(str)
+    set_started = Signal()
+    set_step_changed = Signal(str)
+    set_finished = Signal()
+    set_failed = Signal(str)
+    equipment_disconnected = Signal(dict)
 
     def __init__(self) -> None:
         super().__init__()
         self.refresh_calls = 0
         self.connect_configs = []
+        self.set_states = []
         self.shutdown_calls = 0
 
     def refresh_visa_resources(self) -> None:
@@ -33,6 +39,9 @@ class _Service(QObject):
 
     def connect_equipment(self, config) -> None:
         self.connect_configs.append(config)
+
+    def set_equipment(self, equipment_state) -> None:
+        self.set_states.append(dict(equipment_state))
 
     def shutdown(self) -> None:
         self.shutdown_calls += 1
@@ -45,6 +54,16 @@ def _fill_valid_connection_fields(panel: InstrumentCheckPanel) -> None:
     panel.set_resource_text("controller_3d", "ASRL2::INSTR")
     panel.findChild(QLineEdit, "switchBoxIpEdit").setText("192.168.0.10")
     panel.findChild(QLineEdit, "switchBoxPortEdit").setText("5000")
+
+
+def _ready_equipment_state() -> dict[str, bool]:
+    return {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
 
 
 def test_instrument_check_panel_exposes_expected_widgets(qtbot) -> None:
@@ -76,6 +95,13 @@ def test_instrument_check_panel_exposes_expected_widgets(qtbot) -> None:
     )
     assert panel.findChild(QPushButton, "refreshVisaButton") is None
     assert panel.findChild(QPushButton, "connectInstrumentButton") is not None
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    assert set_button is not None
+    assert set_button.text() == "Set"
+    assert not set_button.isEnabled()
+    set_status = panel.findChild(QLabel, "instrumentSetStatusLabel")
+    assert set_status is not None
+    assert set_status.text() == "장비 Set 대기"
     assert panel.findChild(QWidget, "instrumentCheckContentPanel") is not None
     assert panel.findChild(LogPanel, "instrumentCheckLogPanel") is not None
     assert panel.findChild(QPlainTextEdit, "logTextEdit") is not None
@@ -328,6 +354,230 @@ def test_instrument_check_panel_connects_and_updates_statuses(qtbot) -> None:
         "Switch Box": False,
         "3D Controller": True,
     }
+
+
+def test_instrument_check_panel_enables_set_after_all_equipment_connected(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    assert set_button is not None
+    assert not set_button.isEnabled()
+
+    service.connection_finished.emit(_ready_equipment_state())
+
+    assert set_button.isEnabled()
+
+
+def test_instrument_check_panel_keeps_set_disabled_for_partial_connection(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    service.connection_finished.emit(
+        {
+            "FSV40": True,
+            "MT8000A": True,
+            "CO3000": True,
+            "Switch Box": False,
+            "3D Controller": True,
+        }
+    )
+
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    assert set_button is not None
+    assert not set_button.isEnabled()
+
+
+def test_instrument_check_panel_set_click_calls_service_with_equipment_state(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    ready_states = _ready_equipment_state()
+    service.connection_finished.emit(ready_states)
+
+    panel.findChild(QPushButton, "setInstrumentButton").click()
+
+    assert service.set_states == [ready_states]
+
+
+def test_instrument_check_panel_rejects_set_when_not_connected(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+
+    panel.on_set_clicked()
+
+    assert service.set_states == []
+    assert warnings == ["Instrument Check 연결을 먼저 완료하세요."]
+
+
+def test_instrument_check_panel_set_started_disables_connect_and_set(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+
+    service.set_started.emit()
+
+    connect_button = panel.findChild(QPushButton, "connectInstrumentButton")
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    assert connect_button is not None
+    assert set_button is not None
+    assert not connect_button.isEnabled()
+    assert not set_button.isEnabled()
+    assert set_button.text() == "Setting..."
+
+
+def test_instrument_check_panel_set_step_updates_status_label(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    service.set_step_changed.emit("CO3000 Set Reference 진행 중")
+
+    label = panel.findChild(QLabel, "instrumentSetStatusLabel")
+    assert label is not None
+    assert label.text() == "CO3000 Set Reference 진행 중"
+
+
+def test_instrument_check_panel_set_finished_shows_info_and_updates_buttons(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+    infos: list[str] = []
+    monkeypatch.setattr(panel, "_show_info", infos.append)
+
+    service.set_started.emit()
+    service.set_finished.emit()
+
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    label = panel.findChild(QLabel, "instrumentSetStatusLabel")
+    assert set_button is not None
+    assert label is not None
+    assert set_button.isEnabled()
+    assert set_button.text() == "Set"
+    assert label.text() == "장비 Set 완료"
+    assert infos == ["장비 Set이 완료되었습니다."]
+
+
+def test_instrument_check_panel_set_failed_preserves_equipment_state(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+
+    service.set_started.emit()
+    service.set_failed.emit("timeout")
+
+    assert panel.equipment_state == _ready_equipment_state()
+    assert warnings == ["장비 Set 실패: timeout"]
+    assert panel.findChild(QLabel, "instrumentSetStatusLabel").text() == "장비 Set 실패"
+    assert panel.findChild(QPushButton, "setInstrumentButton").isEnabled()
+    for object_name in (
+        "mt8000aStatusLabel",
+        "fsv40StatusLabel",
+        "co3000StatusLabel",
+        "controller_3dStatusLabel",
+        "switch_boxStatusLabel",
+    ):
+        status = panel.findChild(QLabel, object_name)
+        assert status is not None
+        assert status.text() == "Connected"
+        assert status.property("connectionStatus") == "connected"
+
+
+def test_instrument_check_panel_equipment_disconnected_marks_not_connected(
+    qtbot,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+
+    service.equipment_disconnected.emit(
+        {
+            "FSV40": False,
+            "MT8000A": False,
+            "CO3000": False,
+            "Switch Box": False,
+            "3D Controller": False,
+        }
+    )
+
+    assert panel.equipment_state == {}
+    assert not panel.findChild(QPushButton, "setInstrumentButton").isEnabled()
+    for object_name in (
+        "mt8000aStatusLabel",
+        "fsv40StatusLabel",
+        "co3000StatusLabel",
+        "controller_3dStatusLabel",
+        "switch_boxStatusLabel",
+    ):
+        status = panel.findChild(QLabel, object_name)
+        assert status is not None
+        assert status.text() == "Not Connected"
+        assert status.property("connectionStatus") == "not_connected"
+
+
+def test_instrument_check_panel_set_stays_disabled_with_block_reason(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+    monkeypatch.setattr(panel, "_show_info", lambda message: None)
+
+    panel.set_connection_block_reason("blocked")
+    service.set_started.emit()
+    service.set_finished.emit()
+
+    set_button = panel.findChild(QPushButton, "setInstrumentButton")
+    assert set_button is not None
+    assert not set_button.isEnabled()
 
 
 def test_instrument_check_panel_emits_success_when_all_equipment_connected(

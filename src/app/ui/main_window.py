@@ -326,7 +326,7 @@ class MainWindow(QMainWindow):
         """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
 
         self._test_manager_panel.set_connection_state(states)
-        self._instrument_check_panel.on_connection_finished(states)
+        self._instrument_check_panel.mark_all_equipment_disconnected()
 
     def _update_instrument_operation_lock(self) -> None:
         block_reason = None

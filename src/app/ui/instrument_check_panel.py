@@ -93,6 +93,7 @@ class InstrumentCheckPanel(QWidget):
         self._equipment_state: dict[str, bool] = {}
         self._connection_block_reason: str | None = None
         self._connection_in_progress = False
+        self._set_in_progress = False
         self._visa_discovery_started = False
         self._shutdown_started = False
         self._visa_initial_refresh_timer = QTimer(self)
@@ -215,9 +216,20 @@ class InstrumentCheckPanel(QWidget):
         button_layout.setSpacing(8)
         self._connect_button = QPushButton("Connect", self)
         self._connect_button.setObjectName("connectInstrumentButton")
+        self._set_button = QPushButton("Set", self)
+        self._set_button.setObjectName("setInstrumentButton")
+        self._set_button.setEnabled(False)
         button_layout.addWidget(self._connect_button)
+        button_layout.addWidget(self._set_button)
         button_layout.addStretch(1)
         content_layout.addLayout(button_layout)
+
+        self._set_status_label = QLabel("장비 Set 대기", self)
+        self._set_status_label.setObjectName("instrumentSetStatusLabel")
+        content_layout.addWidget(
+            self._set_status_label,
+            alignment=Qt.AlignmentFlag.AlignLeft,
+        )
 
         hint = QLabel(
             "Connected 상태: Close Device\nDisconnected 상태: Open Device",
@@ -247,6 +259,7 @@ class InstrumentCheckPanel(QWidget):
         """버튼과 서비스 시그널을 연결한다."""
 
         self._connect_button.clicked.connect(self.on_connect_clicked)
+        self._set_button.clicked.connect(self.on_set_clicked)
         self._visa_initial_refresh_timer.timeout.connect(self._refresh_visa_resources)
         self._visa_refresh_timer.timeout.connect(self._refresh_visa_resources)
         self._service.visa_resources_discovered.connect(
@@ -258,6 +271,13 @@ class InstrumentCheckPanel(QWidget):
         self._service.connection_started.connect(self.on_connection_started)
         self._service.connection_finished.connect(self.on_connection_finished)
         self._service.error_occurred.connect(self.on_service_error)
+        self._service.set_started.connect(self.on_set_started)
+        self._service.set_step_changed.connect(self.on_set_step_changed)
+        self._service.set_finished.connect(self.on_set_finished)
+        self._service.set_failed.connect(self.on_set_failed)
+        self._service.equipment_disconnected.connect(
+            self.on_equipment_disconnected,
+        )
 
     def shutdown(self) -> None:
         """패널 제거 시 자동 탐색/연결 worker를 정리한다."""
@@ -267,7 +287,7 @@ class InstrumentCheckPanel(QWidget):
         self._shutdown_started = True
         self._visa_initial_refresh_timer.stop()
         self._visa_refresh_timer.stop()
-        self._update_connect_button_enabled()
+        self._update_action_buttons_enabled()
         if self._owns_service:
             shutdown = getattr(self._service, "shutdown", None)
             if shutdown is not None:
@@ -301,7 +321,7 @@ class InstrumentCheckPanel(QWidget):
         """상위 실행 상태에 따라 연결 버튼 차단 사유를 설정한다."""
 
         self._connection_block_reason = reason
-        self._update_connect_button_enabled()
+        self._update_action_buttons_enabled()
 
     def _apply_styles(self) -> None:
         self.setStyleSheet(
@@ -406,8 +426,22 @@ class InstrumentCheckPanel(QWidget):
         logger.info("Instrument 연결 요청")
         self._last_connection_config = config
         self._connection_in_progress = True
-        self._connect_button.setEnabled(False)
+        self._update_action_buttons_enabled()
         self._service.connect_equipment(config)
+
+    def on_set_clicked(self) -> None:
+        """연결 완료 상태의 장비 Set 작업을 요청한다."""
+
+        if self._connection_block_reason:
+            self._show_warning(self._connection_block_reason)
+            return
+
+        if not self.is_fully_connected:
+            self._show_warning("Instrument Check 연결을 먼저 완료하세요.")
+            return
+
+        logger.info("Instrument Set 요청")
+        self._service.set_equipment(dict(self._equipment_state))
 
     def on_visa_resources_discovered(self, resources: list[str]) -> None:
         """탐색된 VISA Resource를 콤보박스에 반영한다."""
@@ -438,7 +472,7 @@ class InstrumentCheckPanel(QWidget):
         logger.info("Instrument 연결 진행 중")
         self._equipment_state = {}
         self._connection_in_progress = True
-        self._update_connect_button_enabled()
+        self._update_action_buttons_enabled()
         for _, key in _STATUS_KEYS:
             self._set_status(key, "connecting")
 
@@ -447,10 +481,10 @@ class InstrumentCheckPanel(QWidget):
 
         logger.info("Instrument 연결 결과: %s", states)
         self._connection_in_progress = False
-        self._update_connect_button_enabled()
         self._equipment_state = normalize_equipment_state(states)
         for target, key in _RESULT_KEY_TO_STATUS_KEY.items():
             self._set_status(key, "connected" if states.get(target) else "failed")
+        self._update_action_buttons_enabled()
         if self.is_fully_connected:
             self.connection_succeeded.emit(
                 self._last_connection_config,
@@ -471,7 +505,6 @@ class InstrumentCheckPanel(QWidget):
             block_reason=self._connection_block_reason,
         )
         self._connection_in_progress = False
-        self._update_connect_button_enabled()
         if not preserve_state:
             self._equipment_state = {}
         if not preserve_state and any(
@@ -480,8 +513,55 @@ class InstrumentCheckPanel(QWidget):
         ):
             for _, key in _STATUS_KEYS:
                 self._set_status(key, "failed")
+        self._update_action_buttons_enabled()
         self.connection_failed.emit(message)
         self._show_warning(message)
+
+    def on_set_started(self) -> None:
+        """장비 Set 진행 상태를 UI에 반영한다."""
+
+        self._set_in_progress = True
+        self._set_button.setText("Setting...")
+        self._set_status_label.setText("장비 Set 진행 중")
+        self._update_action_buttons_enabled()
+
+    def on_set_step_changed(self, message: str) -> None:
+        """장비 Set 단계 변경 메시지를 표시한다."""
+
+        self._set_status_label.setText(message)
+        logger.info("Instrument Set 단계: %s", message)
+
+    def on_set_finished(self) -> None:
+        """장비 Set 완료 상태를 UI에 반영한다."""
+
+        self._set_in_progress = False
+        self._set_button.setText("Set")
+        self._set_status_label.setText("장비 Set 완료")
+        self._update_action_buttons_enabled()
+        self._show_info("장비 Set이 완료되었습니다.")
+
+    def on_set_failed(self, message: str) -> None:
+        """장비 Set 실패 상태를 UI에 반영한다."""
+
+        self._set_in_progress = False
+        self._set_button.setText("Set")
+        self._set_status_label.setText("장비 Set 실패")
+        self._update_action_buttons_enabled()
+        self._show_warning(f"장비 Set 실패: {message}")
+
+    def on_equipment_disconnected(self, states: dict[str, bool]) -> None:
+        """장비 상태가 불명확해진 실제 실패/timeout을 disconnected로 표시한다."""
+
+        _ = states
+        self.mark_all_equipment_disconnected()
+
+    def mark_all_equipment_disconnected(self) -> None:
+        """모든 장비 표시를 Not Connected 상태로 초기화한다."""
+
+        self._equipment_state = {}
+        for _, key in _STATUS_KEYS:
+            self._set_status(key, "not_connected")
+        self._update_action_buttons_enabled()
 
     def _build_config_or_warn(self) -> EquipmentConnectionConfig | None:
         missing = self._missing_fields()
@@ -571,10 +651,58 @@ class InstrumentCheckPanel(QWidget):
         enabled = (
             not self._shutdown_started
             and not self._connection_in_progress
+            and not self._set_in_progress
             and self._connection_block_reason is None
         )
         self._connect_button.setEnabled(enabled)
         self._connect_button.setToolTip(self._connection_block_reason or "")
+
+    def _update_set_button_enabled(self) -> None:
+        enabled = (
+            not self._shutdown_started
+            and not self._connection_in_progress
+            and not self._set_in_progress
+            and self._connection_block_reason is None
+            and self.is_fully_connected
+        )
+        self._set_button.setEnabled(enabled)
+        self._set_button.setToolTip(self._connection_block_reason or "")
+
+    def _update_action_buttons_enabled(self) -> None:
+        self._update_connect_button_enabled()
+        self._update_set_button_enabled()
+
+    def _show_info(self, message: str) -> None:
+        """어두운 OS 테마에서도 읽히는 안내 팝업을 표시한다."""
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Instrument Check")
+        box.setText(message)
+        box.setStandardButtons(QMessageBox.StandardButton.Ok)
+        box.setStyleSheet(
+            """
+            QMessageBox {
+                background: #202124;
+                color: #ffffff;
+            }
+            QMessageBox QLabel {
+                color: #ffffff;
+                background: transparent;
+            }
+            QMessageBox QPushButton {
+                background: #3b3f45;
+                color: #ffffff;
+                border: 1px solid #8a9199;
+                padding: 5px 18px;
+                min-width: 72px;
+            }
+            QMessageBox QPushButton:hover {
+                background: #4b5159;
+            }
+            """
+        )
+        box.exec()
 
     def _show_warning(self, message: str) -> None:
         """어두운 OS 테마에서도 읽히는 경고 팝업을 표시한다."""

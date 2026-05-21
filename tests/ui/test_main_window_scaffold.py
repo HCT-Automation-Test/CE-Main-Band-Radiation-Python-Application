@@ -1187,6 +1187,7 @@ def test_main_window_locks_instrument_operations_while_set_active(
     assert instrument_panel is not None
     assert connect_button is not None
     monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    monkeypatch.setattr(instrument_panel, "_show_info", lambda message: None)
     failures: list[str] = []
     instrument_panel.connection_failed.connect(failures.append)
 
@@ -1205,12 +1206,18 @@ def test_main_window_locks_instrument_operations_while_set_active(
     assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
 
 
-def test_main_window_keeps_measurement_lock_after_set_finishes(qtbot) -> None:
+def test_main_window_keeps_measurement_lock_after_set_finishes(
+    qtbot,
+    monkeypatch,
+) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
     connect_button = window.findChild(QPushButton, "connectInstrumentButton")
     service = window._runner.instrument_connection_service
+    assert instrument_panel is not None
     assert connect_button is not None
+    monkeypatch.setattr(instrument_panel, "_show_info", lambda message: None)
 
     window._runner._set_measurement_active(True)
     service.set_started.emit()
@@ -1235,7 +1242,17 @@ def test_main_window_marks_equipment_disconnected_after_set_failure(qtbot) -> No
     window._runner.instrument_connection_service.equipment_disconnected.emit(states)
 
     assert window._runner.equipment_state == {}
-    assert instrument_panel.equipment_state == states
+    assert instrument_panel.equipment_state == {}
+    for object_name in (
+        "mt8000aStatusLabel",
+        "fsv40StatusLabel",
+        "co3000StatusLabel",
+        "controller_3dStatusLabel",
+        "switch_boxStatusLabel",
+    ):
+        status = window.findChild(QLabel, object_name)
+        assert status is not None
+        assert status.text() == "Not Connected"
     for index in range(1, 6):
         indicator = window.findChild(QWidget, f"connectionStatus{index}")
         assert indicator is not None
