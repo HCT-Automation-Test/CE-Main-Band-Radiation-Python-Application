@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -449,6 +450,10 @@ def test_instrument_check_panel_set_started_disables_connect_and_set(qtbot) -> N
     assert not connect_button.isEnabled()
     assert not set_button.isEnabled()
     assert set_button.text() == "Setting..."
+    dialog = panel.findChild(QDialog, "instrumentSetProgressDialog")
+    assert dialog is not None
+    assert dialog.isVisible()
+    assert not dialog.isModal()
 
 
 def test_instrument_check_panel_set_step_updates_status_label(qtbot) -> None:
@@ -465,6 +470,23 @@ def test_instrument_check_panel_set_step_updates_status_label(qtbot) -> None:
     assert label.text() == "CO3000 Set Reference 진행 중"
 
 
+def test_instrument_check_panel_set_step_updates_progress_dialog(qtbot) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    service.set_started.emit()
+    service.set_step_changed.emit("CO3000 Set Reference 진행 중")
+
+    dialog = panel.findChild(QDialog, "instrumentSetProgressDialog")
+    assert dialog is not None
+    step_label = dialog.findChild(QLabel, "instrumentSetProgressStepLabel")
+    assert step_label is not None
+    assert step_label.text() == "CO3000 Set Reference 진행 중"
+
+
 def test_instrument_check_panel_set_finished_shows_info_and_updates_buttons(
     qtbot,
     monkeypatch,
@@ -479,7 +501,10 @@ def test_instrument_check_panel_set_finished_shows_info_and_updates_buttons(
     monkeypatch.setattr(panel, "_show_info", infos.append)
 
     service.set_started.emit()
+    dialog = panel.findChild(QDialog, "instrumentSetProgressDialog")
+    assert dialog is not None
     service.set_finished.emit()
+    qtbot.wait(0)
 
     set_button = panel.findChild(QPushButton, "setInstrumentButton")
     label = panel.findChild(QLabel, "instrumentSetStatusLabel")
@@ -488,6 +513,8 @@ def test_instrument_check_panel_set_finished_shows_info_and_updates_buttons(
     assert set_button.isEnabled()
     assert set_button.text() == "Set"
     assert label.text() == "장비 Set 완료"
+    assert not dialog.isVisible()
+    assert panel.findChild(QDialog, "instrumentSetProgressDialog") is None
     assert infos == ["장비 Set이 완료되었습니다."]
 
 
@@ -505,12 +532,17 @@ def test_instrument_check_panel_set_failed_preserves_equipment_state(
     monkeypatch.setattr(panel, "_show_warning", warnings.append)
 
     service.set_started.emit()
+    dialog = panel.findChild(QDialog, "instrumentSetProgressDialog")
+    assert dialog is not None
     service.set_failed.emit("timeout")
+    qtbot.wait(0)
 
     assert panel.equipment_state == _ready_equipment_state()
     assert warnings == ["장비 Set 실패: timeout"]
     assert panel.findChild(QLabel, "instrumentSetStatusLabel").text() == "장비 Set 실패"
     assert panel.findChild(QPushButton, "setInstrumentButton").isEnabled()
+    assert not dialog.isVisible()
+    assert panel.findChild(QDialog, "instrumentSetProgressDialog") is None
     for object_name in (
         "mt8000aStatusLabel",
         "fsv40StatusLabel",

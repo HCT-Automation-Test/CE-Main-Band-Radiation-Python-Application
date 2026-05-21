@@ -30,6 +30,7 @@ from app.core.instrument_connection import (
     should_preserve_equipment_state_on_connection_error,
 )
 from app.net.commands import EquipmentConnectionConfig
+from app.ui.instrument_set_progress_dialog import InstrumentSetProgressDialog
 from app.ui.log_panel import LogPanel
 
 _VISA_EQUIPMENT: tuple[tuple[str, str, str], ...] = (
@@ -94,6 +95,7 @@ class InstrumentCheckPanel(QWidget):
         self._connection_block_reason: str | None = None
         self._connection_in_progress = False
         self._set_in_progress = False
+        self._set_progress_dialog: InstrumentSetProgressDialog | None = None
         self._visa_discovery_started = False
         self._shutdown_started = False
         self._visa_initial_refresh_timer = QTimer(self)
@@ -287,6 +289,7 @@ class InstrumentCheckPanel(QWidget):
         self._shutdown_started = True
         self._visa_initial_refresh_timer.stop()
         self._visa_refresh_timer.stop()
+        self._close_set_progress_dialog()
         self._update_action_buttons_enabled()
         if self._owns_service:
             shutdown = getattr(self._service, "shutdown", None)
@@ -523,12 +526,15 @@ class InstrumentCheckPanel(QWidget):
         self._set_in_progress = True
         self._set_button.setText("Setting...")
         self._set_status_label.setText("장비 Set 진행 중")
+        self._show_set_progress_dialog("장비 Set 진행 중")
         self._update_action_buttons_enabled()
 
     def on_set_step_changed(self, message: str) -> None:
         """장비 Set 단계 변경 메시지를 표시한다."""
 
         self._set_status_label.setText(message)
+        if self._set_progress_dialog is not None:
+            self._set_progress_dialog.set_step(message)
         logger.info("Instrument Set 단계: %s", message)
 
     def on_set_finished(self) -> None:
@@ -537,6 +543,7 @@ class InstrumentCheckPanel(QWidget):
         self._set_in_progress = False
         self._set_button.setText("Set")
         self._set_status_label.setText("장비 Set 완료")
+        self._close_set_progress_dialog()
         self._update_action_buttons_enabled()
         self._show_info("장비 Set이 완료되었습니다.")
 
@@ -546,6 +553,7 @@ class InstrumentCheckPanel(QWidget):
         self._set_in_progress = False
         self._set_button.setText("Set")
         self._set_status_label.setText("장비 Set 실패")
+        self._close_set_progress_dialog()
         self._update_action_buttons_enabled()
         self._show_warning(f"장비 Set 실패: {message}")
 
@@ -671,6 +679,25 @@ class InstrumentCheckPanel(QWidget):
     def _update_action_buttons_enabled(self) -> None:
         self._update_connect_button_enabled()
         self._update_set_button_enabled()
+
+    def _show_set_progress_dialog(self, initial_step: str) -> None:
+        """장시간 장비 Set 진행 상태를 modeless dialog로 표시한다."""
+
+        self._close_set_progress_dialog()
+        dialog = InstrumentSetProgressDialog(self, initial_step=initial_step)
+        self._set_progress_dialog = dialog
+        dialog.start()
+
+    def _close_set_progress_dialog(self) -> None:
+        """Set 완료/실패 또는 패널 정리 시 진행 dialog를 닫는다."""
+
+        dialog = self._set_progress_dialog
+        if dialog is None:
+            return
+        self._set_progress_dialog = None
+        dialog.close_without_action()
+        dialog.setParent(None)
+        dialog.deleteLater()
 
     def _show_info(self, message: str) -> None:
         """어두운 OS 테마에서도 읽히는 안내 팝업을 표시한다."""
