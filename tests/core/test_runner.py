@@ -8,8 +8,15 @@ from typing import Any
 import pytest
 
 from app.core.fsm.context import SessionContext
-from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
-from app.core.instrument_connection import build_equipment_connection_config
+from app.core.runner import (
+    INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
+    INSTRUMENT_SET_BLOCK_MESSAGE,
+    Runner,
+)
+from app.core.instrument_connection import (
+    build_equipment_connection_config,
+    disconnected_equipment_state,
+)
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
@@ -312,6 +319,75 @@ def test_start_populates_context_and_sets_start_request(
 
     runner.events.state_changed.emit("Idle")
     assert not runner.is_measurement_active
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_start_rejects_while_instrument_set_is_active(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    engines: list[_FakeEngine] = []
+    messages: list[str] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.error.connect(messages.append)
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+    runner.instrument_connection_service._set_thread = object()  # type: ignore[assignment]
+
+    runner.start(
+        [_make_case()],
+        settings=_make_settings(tmp_path),
+    )
+
+    assert messages == [f"시험 시작 실패: {INSTRUMENT_SET_BLOCK_MESSAGE}"]
+    assert runner.context is not None
+    assert not runner.context.test_start_requested.is_set()
+    assert not runner.is_measurement_active
+
+    runner.instrument_connection_service._set_thread = None
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_equipment_disconnected_clears_runner_equipment_state(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    engines: list[_FakeEngine] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+
+    runner.instrument_connection_service.equipment_disconnected.emit(
+        disconnected_equipment_state()
+    )
+
+    assert runner.equipment_state == {}
+    assert runner.context is not None
+    assert runner.context.equipment_state == {}
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
