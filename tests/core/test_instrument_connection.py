@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import threading
-import time
 from typing import Any
 
 import pytest
@@ -11,6 +10,7 @@ from app.core.instrument_connection import (
     InstrumentConnectionService,
     _DETACHED_THREADS,
     build_equipment_connection_config,
+    disconnected_equipment_state,
     describe_equipment_not_ready,
     discover_visa_resources,
     is_required_equipment_ready,
@@ -100,6 +100,14 @@ class _InstrumentSetClient:
         self.event_received = _InstrumentSetSignal()
         self._event_buffer: list[_InstrumentSetEvent] = []
         self.pop_calls = 0
+        self.connect_calls: list[tuple[str, int]] = []
+        self.closed = False
+
+    def connect_to(self, host: str, port: int) -> None:
+        self.connect_calls.append((host, port))
+
+    def close(self) -> None:
+        self.closed = True
 
     def buffer_event(self, event: "_InstrumentSetEvent") -> None:
         self._event_buffer.append(event)
@@ -130,6 +138,25 @@ class _InstrumentSetEvent:
         self.params = params or {}
 
 
+class _EquipmentSetCommands:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.co3000_called = threading.Event()
+        self.fsv40_called = threading.Event()
+
+    def set_reference_co3000(self, client: Any) -> bool:
+        _ = client
+        self.calls.append("CO3000 Set Reference")
+        self.co3000_called.set()
+        return True
+
+    def self_align_fsv40(self, client: Any) -> bool:
+        _ = client
+        self.calls.append("FSV40 Self Alignment")
+        self.fsv40_called.set()
+        return True
+
+
 def _connection_config():
     return build_equipment_connection_config(
         mt8000a_visa_resource="MT",
@@ -139,6 +166,16 @@ def _connection_config():
         switch_box_ip_address="192.168.0.10",
         switch_box_port=5000,
     )
+
+
+def _ready_equipment_state() -> dict[str, bool]:
+    return {
+        "FSV40": True,
+        "MT8000A": True,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
 
 
 def test_build_equipment_connection_config_trims_and_coerces_port() -> None:
@@ -420,6 +457,462 @@ def test_instrument_connection_service_ignores_requests_after_shutdown() -> None
     assert commands.calls == []
 
 
+def test_instrument_connection_service_sets_equipment_in_sequence(qtbot) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        tcp_host="127.0.0.10",
+        tcp_port=5026,
+        instrument_set_timeout_s=1.0,
+    )
+    steps: list[str] = []
+    service.set_step_changed.connect(steps.append)
+
+    with qtbot.waitSignal(service.set_finished, timeout=1000):
+        service.set_equipment(_ready_equipment_state())
+        qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+
+        assert service.is_setting
+        assert commands.calls == ["CO3000 Set Reference"]
+        assert steps == ["CO3000 Set Reference 진행 중"]
+
+        qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+        client.event_received.emit(
+            _InstrumentSetEvent(
+                target="CO3000",
+                command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+            )
+        )
+        qtbot.waitUntil(commands.fsv40_called.is_set, timeout=1000)
+
+        assert commands.calls == [
+            "CO3000 Set Reference",
+            "FSV40 Self Alignment",
+        ]
+        assert steps == [
+            "CO3000 Set Reference 진행 중",
+            "FSV40 Self Alignment 진행 중",
+        ]
+
+        qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+        client.event_received.emit(
+            _InstrumentSetEvent(
+                target="FSV40",
+                command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+            )
+        )
+
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert not service.is_setting
+    assert client.connect_calls == [("127.0.0.10", 5026)]
+    assert client.closed is True
+
+
+def test_instrument_connection_service_uses_buffered_set_complete_events(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+
+    def complete_reference(_client: Any) -> bool:
+        commands.calls.append("CO3000 Set Reference")
+        commands.co3000_called.set()
+        client.buffer_event(
+            _InstrumentSetEvent(
+                target="CO3000",
+                command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+            )
+        )
+        return True
+
+    def complete_alignment(_client: Any) -> bool:
+        commands.calls.append("FSV40 Self Alignment")
+        commands.fsv40_called.set()
+        client.buffer_event(
+            _InstrumentSetEvent(
+                target="FSV40",
+                command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+            )
+        )
+        return True
+
+    commands.set_reference_co3000 = complete_reference  # type: ignore[method-assign]
+    commands.self_align_fsv40 = complete_alignment  # type: ignore[method-assign]
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+
+    with qtbot.waitSignal(service.set_finished, timeout=1000):
+        service.set_equipment(_ready_equipment_state())
+
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "FSV40 Self Alignment",
+    ]
+    assert client.pop_calls >= 2
+
+
+def test_instrument_connection_service_discards_stale_set_complete_events(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    client.buffer_event(
+        _InstrumentSetEvent(
+            target="CO3000",
+            command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+    )
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+    qtbot.waitUntil(lambda: client.pop_calls >= 2, timeout=1000)
+    qtbot.wait(100)
+
+    assert commands.calls == ["CO3000 Set Reference"]
+    assert not commands.fsv40_called.is_set()
+
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="CO3000",
+            command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(commands.fsv40_called.is_set, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="FSV40",
+            command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "FSV40 Self Alignment",
+    ]
+
+
+def test_instrument_connection_service_rejects_set_when_equipment_not_ready(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+    )
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        service.set_equipment({"FSV40": True})
+
+    assert blocker.args == [
+        "장비 Set 실패: missing equipment: MT8000A, CO3000, Switch Box, "
+        "3D Controller"
+    ]
+    assert service._set_thread is None
+    assert client.connect_calls == []
+    assert commands.calls == []
+
+
+def test_instrument_connection_service_rejects_set_while_connecting(qtbot) -> None:
+    client = _BlockingClient()
+    commands = _BlockingCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+    )
+
+    service.connect_equipment(_connection_config())
+    qtbot.waitUntil(commands.started.is_set, timeout=1000)
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        service.set_equipment(_ready_equipment_state())
+
+    service.shutdown()
+    qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
+
+    assert blocker.args == ["장비 연결 요청이 이미 진행 중입니다."]
+
+
+def test_instrument_connection_service_rejects_connect_while_setting(qtbot) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+
+    with qtbot.waitSignal(service.error_occurred, timeout=1000) as blocker:
+        service.connect_equipment(_connection_config())
+
+    qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="CO3000",
+            command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(commands.fsv40_called.is_set, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="FSV40",
+            command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "FSV40 Self Alignment",
+    ]
+
+
+def test_instrument_connection_service_rejects_duplicate_set(qtbot) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        service.set_equipment(_ready_equipment_state())
+
+    qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="CO3000",
+            command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(commands.fsv40_called.is_set, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="FSV40",
+            command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+        )
+    )
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "FSV40 Self Alignment",
+    ]
+
+
+def test_instrument_connection_service_rejects_set_when_guard_blocks(qtbot) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        connection_guard=lambda: "blocked",
+    )
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        service.set_equipment(_ready_equipment_state())
+
+    assert blocker.args == ["blocked"]
+    assert client.connect_calls == []
+    assert commands.calls == []
+
+
+def test_instrument_connection_service_co3000_timeout_disconnects_equipment(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=0.01,
+    )
+    failures: list[str] = []
+    disconnected: list[dict[str, bool]] = []
+    service.set_failed.connect(failures.append)
+    service.equipment_disconnected.connect(disconnected.append)
+
+    service.set_equipment(_ready_equipment_state())
+
+    qtbot.waitUntil(lambda: bool(failures), timeout=1000)
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert failures == [
+        "장비 Set timeout: CO3000 Set Reference 완료 event를 수신하지 못했습니다."
+    ]
+    assert disconnected == [disconnected_equipment_state()]
+    assert commands.calls == ["CO3000 Set Reference"]
+
+
+def test_instrument_connection_service_fsv40_timeout_disconnects_equipment(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=0.01,
+    )
+    failures: list[str] = []
+    disconnected: list[dict[str, bool]] = []
+    service.set_failed.connect(failures.append)
+    service.equipment_disconnected.connect(disconnected.append)
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+    qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+    client.event_received.emit(
+        _InstrumentSetEvent(
+            target="CO3000",
+            command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+    )
+
+    qtbot.waitUntil(lambda: bool(failures), timeout=1000)
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert failures == [
+        "장비 Set timeout: FSV40 Self Alignment 완료 event를 수신하지 못했습니다."
+    ]
+    assert disconnected == [disconnected_equipment_state()]
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "FSV40 Self Alignment",
+    ]
+
+
+def test_instrument_connection_service_equipment_error_disconnects_equipment(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+    disconnected: list[dict[str, bool]] = []
+    service.equipment_disconnected.connect(disconnected.append)
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+        client.event_received.emit(
+            _InstrumentSetEvent(
+                target="CO3000",
+                command=instrument_set.COMMAND_EQUIPMENT_ERROR,
+                params={"message": "reference failed"},
+            )
+        )
+
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert blocker.args == [
+        "장비 Set 실패: CO3000 / Set Reference failed: reference failed"
+    ]
+    assert disconnected == [disconnected_equipment_state()]
+    assert commands.calls == ["CO3000 Set Reference"]
+
+
+def test_instrument_connection_service_shutdown_detaches_running_set_worker(
+    qtbot,
+) -> None:
+    release = threading.Event()
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+
+    def block_after_command(_client: Any) -> bool:
+        commands.calls.append("CO3000 Set Reference")
+        commands.co3000_called.set()
+        assert release.wait(2.0)
+        return True
+
+    commands.set_reference_co3000 = block_after_command  # type: ignore[method-assign]
+    finished = []
+    failures = []
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=0.01,
+    )
+    service.set_finished.connect(lambda: finished.append(True))
+    service.set_failed.connect(failures.append)
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+
+    service.shutdown()
+
+    assert service._set_thread is None
+    assert service._set_worker is None
+    assert _DETACHED_THREADS
+
+    release.set()
+    qtbot.waitUntil(lambda: not _DETACHED_THREADS, timeout=3000)
+    qtbot.wait(0)
+
+    assert finished == []
+    assert failures == []
+
+
+def test_instrument_connection_service_shutdown_cancels_waiting_set_worker(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    finished = []
+    failures = []
+    disconnected = []
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=10.0,
+    )
+    service.set_finished.connect(lambda: finished.append(True))
+    service.set_failed.connect(failures.append)
+    service.equipment_disconnected.connect(disconnected.append)
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+    qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+
+    service.shutdown()
+
+    assert service._set_thread is None
+    assert service._set_worker is None
+    assert not _DETACHED_THREADS
+    assert client.closed is True
+    assert finished == []
+    assert failures == []
+    assert disconnected == []
+
+
 def test_wait_for_equipment_set_event_returns_on_complete_event() -> None:
     client = _InstrumentSetClient()
     errors: list[BaseException] = []
@@ -435,27 +928,42 @@ def test_wait_for_equipment_set_event_returns_on_complete_event() -> None:
     assert client.event_received.slot_count == 0
 
 
-def test_wait_for_equipment_set_event_discards_stale_complete_event() -> None:
+def test_wait_for_equipment_set_event_discards_buffered_complete_by_default() -> None:
+    client = _InstrumentSetClient()
+    client.buffer_event(
+        _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
+    )
+
+    with pytest.raises(
+        instrument_set.InstrumentSetTimeoutError,
+        match=r"CO3000 / Set Reference completion timeout",
+    ):
+        instrument_set.wait_for_equipment_set_event(
+            client,
+            target="CO3000",
+            complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+            source_command="Set Reference",
+            timeout_s=0.01,
+        )
+
+    assert client.event_received.slot_count == 0
+    assert client.pop_calls >= 1
+
+
+def test_wait_for_equipment_set_event_accepts_buffered_complete_when_enabled() -> None:
     client = _InstrumentSetClient()
     client.buffer_event(
         _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
     )
     errors: list[BaseException] = []
 
-    thread = _start_instrument_set_wait(client, errors)
-    time.sleep(0.1)
-
-    assert thread.is_alive()
-    assert client.pop_calls >= 1
-
-    client.event_received.emit(
-        _InstrumentSetEvent(command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE)
-    )
+    thread = _start_instrument_set_wait(client, errors, accept_buffered_events=True)
     thread.join(timeout=1.0)
 
     assert not thread.is_alive()
     assert errors == []
     assert client.event_received.slot_count == 0
+    assert client.pop_calls >= 1
 
 
 def test_wait_for_equipment_set_event_raises_on_equipment_error_event() -> None:
@@ -496,6 +1004,25 @@ def test_wait_for_equipment_set_event_raises_on_timeout() -> None:
     assert client.event_received.slot_count == 0
 
 
+def test_wait_for_equipment_set_event_returns_when_cancel_requested() -> None:
+    client = _InstrumentSetClient()
+    cancel_requested = threading.Event()
+    errors: list[BaseException] = []
+
+    thread = _start_instrument_set_wait(
+        client,
+        errors,
+        timeout_s=10.0,
+        cancel_requested=cancel_requested.is_set,
+    )
+    cancel_requested.set()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert errors == []
+    assert client.event_received.slot_count == 0
+
+
 def test_wait_for_equipment_set_event_disconnects_after_buffered_error() -> None:
     client = _InstrumentSetClient()
     errors: list[BaseException] = []
@@ -519,6 +1046,10 @@ def test_wait_for_equipment_set_event_disconnects_after_buffered_error() -> None
 def _start_instrument_set_wait(
     client: _InstrumentSetClient,
     errors: list[BaseException],
+    *,
+    timeout_s: float = 1.0,
+    cancel_requested: Any = None,
+    accept_buffered_events: bool = False,
 ) -> threading.Thread:
     def run() -> None:
         try:
@@ -527,7 +1058,9 @@ def _start_instrument_set_wait(
                 target="CO3000",
                 complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
                 source_command="Set Reference",
-                timeout_s=1.0,
+                timeout_s=timeout_s,
+                cancel_requested=cancel_requested,
+                accept_buffered_events=accept_buffered_events,
             )
         except BaseException as exc:
             errors.append(exc)

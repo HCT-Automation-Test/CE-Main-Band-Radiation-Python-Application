@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from typing import Any
 
 from PySide6.QtCore import Qt
@@ -32,6 +33,8 @@ def wait_for_equipment_set_event(
     complete_command: str,
     source_command: str,
     timeout_s: float,
+    cancel_requested: Callable[[], bool] | None = None,
+    accept_buffered_events: bool = False,
 ) -> None:
     """Instrument Set 명령 접수 후 완료/실패 event를 기다린다."""
 
@@ -72,11 +75,20 @@ def wait_for_equipment_set_event(
         for event in events:
             handle_event(event)
 
-    _discard_buffered_events(client, is_target_event)
     client.event_received.connect(handle_event, Qt.ConnectionType.DirectConnection)
     try:
         deadline = time.monotonic() + float(timeout_s)
+        if accept_buffered_events:
+            drain_buffered_events()
+        else:
+            discard_equipment_set_events(
+                client,
+                target=target,
+                complete_command=complete_command,
+            )
         while not completed.wait(_POLL_INTERVAL_S):
+            if cancel_requested is not None and cancel_requested():
+                return
             drain_buffered_events()
             if completed.is_set():
                 break
@@ -96,6 +108,27 @@ def wait_for_equipment_set_event(
             pass
 
 
+def discard_equipment_set_events(
+    client: Any,
+    *,
+    target: str,
+    complete_command: str,
+) -> None:
+    """Instrument Set 명령 전 남아 있는 이전 완료/실패 event를 제거한다."""
+
+    pop_events = getattr(client, "pop_events", None)
+    if pop_events is None:
+        return
+    try:
+        pop_events(
+            lambda event: getattr(event, "target", None) == target
+            and getattr(event, "command", None)
+            in {complete_command, COMMAND_EQUIPMENT_ERROR}
+        )
+    except Exception as exc:
+        logger.warning("TCP event buffer discard failed: %s", exc)
+
+
 def _error_message(event: Any, target: str, source_command: str) -> str:
     params = getattr(event, "params", {}) or {}
     if isinstance(params, dict):
@@ -103,13 +136,3 @@ def _error_message(event: Any, target: str, source_command: str) -> str:
         if message:
             return f"{target} / {source_command} failed: {message}"
     return f"{target} / {source_command} failed"
-
-
-def _discard_buffered_events(client: Any, predicate: Any) -> None:
-    pop_events = getattr(client, "pop_events", None)
-    if pop_events is None:
-        return
-    try:
-        pop_events(predicate)
-    except Exception as exc:
-        logger.warning("TCP event buffer discard failed: %s", exc)
