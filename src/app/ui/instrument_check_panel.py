@@ -555,7 +555,12 @@ class InstrumentCheckPanel(QWidget):
         self._set_status_label.setText("장비 Set 실패")
         self._close_set_progress_dialog()
         self._update_action_buttons_enabled()
-        self._show_warning(f"장비 Set 실패: {message}")
+        warning_message = (
+            message
+            if message.startswith("장비 Set 실패:")
+            else f"장비 Set 실패: {message}"
+        )
+        self._show_warning(warning_message)
 
     def on_equipment_disconnected(self, states: dict[str, bool]) -> None:
         """장비 상태가 불명확해진 실제 실패/timeout을 disconnected로 표시한다."""

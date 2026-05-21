@@ -556,6 +556,30 @@ def test_instrument_check_panel_set_failed_preserves_equipment_state(
         assert status.property("connectionStatus") == "connected"
 
 
+def test_instrument_check_panel_set_failed_does_not_duplicate_failure_prefix(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    panel = InstrumentCheckPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+    service.connection_finished.emit(_ready_equipment_state())
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+
+    service.set_started.emit()
+    service.set_failed.emit(
+        "장비 Set 실패: CO3000 / Set Reference failed: reference failed"
+    )
+    qtbot.wait(0)
+
+    assert warnings == [
+        "장비 Set 실패: CO3000 / Set Reference failed: reference failed"
+    ]
+
+
 def test_instrument_check_panel_equipment_disconnected_marks_not_connected(
     qtbot,
 ) -> None:
