@@ -24,6 +24,10 @@ MockLvScenario = Literal[
     "turntable-timeout",
     "call-disconnected",
     "bad-harmonic-result",
+    "set-reference-timeout",
+    "self-alignment-timeout",
+    "set-reference-error",
+    "self-alignment-error",
 ]
 
 _TARGET_FSV40 = "FSV40"
@@ -45,9 +49,13 @@ _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
 _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
+_COMMAND_SET_REFERENCE = "Set Reference"
+_COMMAND_SELF_ALIGNMENT = "Self Alignment"
 
 _COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
 _COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
+_COMMAND_SET_REFERENCE_COMPLETE = "set_reference_complete"
+_COMMAND_SELF_ALIGNMENT_COMPLETE = "self_alignment_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"
 _TURNTABLE_STEP_DEGREE = 30.0
 
@@ -94,6 +102,8 @@ class MockLvServer:
         temp_dir: Path | str = "temp",
         scenario: MockLvScenario = "normal",
         turntable_delay_sec: float = 1.0,
+        set_reference_delay_sec: float = 15.0,
+        self_alignment_delay_sec: float = 15.0,
         screenshot_fixture_dir: Path | str | None = None,
         screenshot_random_seed: int | None = None,
     ) -> None:
@@ -102,6 +112,8 @@ class MockLvServer:
         self.temp_dir = Path(temp_dir)
         self.scenario = scenario
         self.turntable_delay_sec = float(turntable_delay_sec)
+        self.set_reference_delay_sec = float(set_reference_delay_sec)
+        self.self_alignment_delay_sec = float(self_alignment_delay_sec)
         self.screenshot_fixture_dir = (
             Path(screenshot_fixture_dir)
             if screenshot_fixture_dir is not None
@@ -115,6 +127,8 @@ class MockLvServer:
             response_handler=self._handle_request,
         )
         self._turntable_thread: threading.Thread | None = None
+        self._set_stop_requested = threading.Event()
+        self._set_event_threads: list[threading.Thread] = []
 
     @property
     def received_requests(self) -> list[Request]:
@@ -124,16 +138,21 @@ class MockLvServer:
     def start(self) -> None:
         """서버를 시작하고 temp 디렉터리를 준비한다."""
         self.temp_dir.mkdir(parents=True, exist_ok=True)
+        self._set_stop_requested.clear()
         self._server.start()
         self.port = self._server.port
 
     def stop(self) -> None:
         """서버를 종료한다."""
         self.state.turntable_stop_requested.set()
+        self._set_stop_requested.set()
         self._server.stop()
         if self._turntable_thread is not None:
             self._turntable_thread.join(timeout=1.0)
             self._turntable_thread = None
+        for thread in self._set_event_threads:
+            thread.join(timeout=1.0)
+        self._set_event_threads.clear()
 
     def _handle_request(self, request: Request) -> Response:
         if request.target not in _SUPPORTED_TARGETS:
@@ -192,6 +211,17 @@ class MockLvServer:
             if self.scenario == "bad-harmonic-result":
                 return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0]})
             return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0, -56.2]})
+        if request.command == _COMMAND_SELF_ALIGNMENT:
+            self._start_set_event(
+                target=_TARGET_FSV40,
+                complete_command=_COMMAND_SELF_ALIGNMENT_COMPLETE,
+                source_command=_COMMAND_SELF_ALIGNMENT,
+                delay_sec=self.self_alignment_delay_sec,
+                timeout_scenario="self-alignment-timeout",
+                error_scenario="self-alignment-error",
+                error_message="mock self alignment error",
+            )
+            return _ok(request)
         return _error(request, "unsupported command")
 
     def _handle_switch_box(self, request: Request) -> Response:
@@ -217,7 +247,70 @@ class MockLvServer:
         if request.command == _COMMAND_CHANGE_ANT_POL:
             self.state.antenna_pol = str(request.params.get("pol", ""))
             return _ok(request)
+        if request.command == _COMMAND_SET_REFERENCE:
+            self._start_set_event(
+                target=_TARGET_CO3000,
+                complete_command=_COMMAND_SET_REFERENCE_COMPLETE,
+                source_command=_COMMAND_SET_REFERENCE,
+                delay_sec=self.set_reference_delay_sec,
+                timeout_scenario="set-reference-timeout",
+                error_scenario="set-reference-error",
+                error_message="mock set reference error",
+            )
+            return _ok(request)
         return _error(request, "unsupported command")
+
+    def _start_set_event(
+        self,
+        *,
+        target: str,
+        complete_command: str,
+        source_command: str,
+        delay_sec: float,
+        timeout_scenario: MockLvScenario,
+        error_scenario: MockLvScenario,
+        error_message: str,
+    ) -> None:
+        thread = threading.Thread(
+            target=self._run_set_event,
+            args=(
+                target,
+                complete_command,
+                source_command,
+                delay_sec,
+                timeout_scenario,
+                error_scenario,
+                error_message,
+                self._set_stop_requested,
+            ),
+            daemon=True,
+        )
+        self._set_event_threads.append(thread)
+        thread.start()
+
+    def _run_set_event(
+        self,
+        target: str,
+        complete_command: str,
+        source_command: str,
+        delay_sec: float,
+        timeout_scenario: MockLvScenario,
+        error_scenario: MockLvScenario,
+        error_message: str,
+        stop_requested: threading.Event,
+    ) -> None:
+        if stop_requested.wait(max(0.0, delay_sec)):
+            return
+        if self.scenario == timeout_scenario:
+            return
+        if self.scenario == error_scenario:
+            self._send_event(
+                target,
+                _COMMAND_EQUIPMENT_ERROR,
+                {"command": source_command, "message": error_message},
+            )
+            return
+        self._send_event(target, complete_command, {})
 
     def _start_turntable(self, params: dict[str, Any]) -> None:
         self.state.turntable_stop_requested.set()
@@ -276,16 +369,20 @@ class MockLvServer:
         self._send_turntable_event(_COMMAND_TURNTABLE_COMPLETE, {})
 
     def _send_turntable_event(self, command: str, params: dict[str, Any]) -> None:
+        self._send_event(_TARGET_CO3000, command, params)
+
+    def _send_event(self, target: str, command: str, params: dict[str, Any]) -> None:
         event = Event(
             id=f"evt-{uuid4()}",
-            target=_TARGET_CO3000,
+            target=target,
             command=command,
             params=params,
         )
         try:
             self._server.send_event(event)
             logger.info(
-                "Mock LV turntable event sent: command=%s params=%s",
+                "Mock LV event sent: target=%s command=%s params=%s",
+                target,
                 command,
                 params,
             )
@@ -369,10 +466,16 @@ def main(argv: list[str] | None = None) -> int:
             "turntable-timeout",
             "call-disconnected",
             "bad-harmonic-result",
+            "set-reference-timeout",
+            "self-alignment-timeout",
+            "set-reference-error",
+            "self-alignment-error",
         ],
         default="normal",
     )
     parser.add_argument("--turntable-delay-sec", type=float, default=1.0)
+    parser.add_argument("--set-reference-delay-sec", type=float, default=15.0)
+    parser.add_argument("--self-alignment-delay-sec", type=float, default=15.0)
     parser.add_argument("--screenshot-fixture-dir", type=Path, default=None)
     parser.add_argument("--screenshot-random-seed", type=int, default=None)
     args = parser.parse_args(argv)
@@ -384,6 +487,8 @@ def main(argv: list[str] | None = None) -> int:
         temp_dir=args.temp_dir,
         scenario=args.scenario,
         turntable_delay_sec=args.turntable_delay_sec,
+        set_reference_delay_sec=args.set_reference_delay_sec,
+        self_alignment_delay_sec=args.self_alignment_delay_sec,
         screenshot_fixture_dir=args.screenshot_fixture_dir,
         screenshot_random_seed=args.screenshot_random_seed,
     )

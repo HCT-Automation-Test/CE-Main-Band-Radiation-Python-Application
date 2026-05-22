@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 
 import pytest
 
@@ -191,6 +192,72 @@ def test_mock_lv_server_turntable_progress_event(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_server_set_reference_sends_complete_event(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        set_reference_delay_sec=0.01,
+    )
+    server.start()
+    client = TcpClient()
+    events = []
+    client.event_received.connect(events.append)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.set_reference_co3000(client)
+        qtbot.waitUntil(
+            lambda: any(
+                event.target == "CO3000"
+                and event.command == "set_reference_complete"
+                for event in events
+            ),
+            timeout=1000,
+        )
+
+        request = server.received_requests[-1]
+        assert request.target == "CO3000"
+        assert request.command == "Set Reference"
+        assert request.params == {}
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_self_alignment_sends_complete_event(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        self_alignment_delay_sec=0.01,
+    )
+    server.start()
+    client = TcpClient()
+    events = []
+    client.event_received.connect(events.append)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.self_align_fsv40(client)
+        qtbot.waitUntil(
+            lambda: any(
+                event.target == "FSV40"
+                and event.command == "self_alignment_complete"
+                for event in events
+            ),
+            timeout=1000,
+        )
+
+        request = server.received_requests[-1]
+        assert request.target == "FSV40"
+        assert request.command == "Self Alignment"
+        assert request.params == {}
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_connect_equipment_completes_in_background(
     tmp_path,
 ) -> None:
@@ -240,6 +307,209 @@ def test_mock_lv_server_stop_turntable_suppresses_complete(qtbot, tmp_path) -> N
         qtbot.wait(500)
 
         assert not any(event.command == "turntable_complete" for event in events)
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("scenario", "target", "command", "unexpected_event"),
+    [
+        (
+            "set-reference-timeout",
+            "CO3000",
+            "Set Reference",
+            "set_reference_complete",
+        ),
+        (
+            "self-alignment-timeout",
+            "FSV40",
+            "Self Alignment",
+            "self_alignment_complete",
+        ),
+    ],
+)
+def test_mock_lv_server_set_timeout_scenarios(
+    qtbot,
+    tmp_path,
+    scenario,
+    target,
+    command,
+    unexpected_event,
+) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        scenario=scenario,
+        set_reference_delay_sec=0.01,
+        self_alignment_delay_sec=0.01,
+    )
+    server.start()
+    client = TcpClient()
+    events = []
+    client.event_received.connect(events.append)
+
+    try:
+        _connect(client, server, qtbot)
+
+        if target == "FSV40":
+            assert commands.set_reference_co3000(client)
+            qtbot.waitUntil(
+                lambda: any(
+                    event.target == "CO3000"
+                    and event.command == "set_reference_complete"
+                    for event in events
+                ),
+                timeout=1000,
+            )
+            events.clear()
+
+        if command == "Set Reference":
+            assert commands.set_reference_co3000(client)
+        else:
+            assert commands.self_align_fsv40(client)
+        qtbot.wait(100)
+
+        assert not any(
+            event.target == target and event.command == unexpected_event
+            for event in events
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("scenario", "target", "command", "source_command", "message"),
+    [
+        (
+            "set-reference-error",
+            "CO3000",
+            "Set Reference",
+            "Set Reference",
+            "mock set reference error",
+        ),
+        (
+            "self-alignment-error",
+            "FSV40",
+            "Self Alignment",
+            "Self Alignment",
+            "mock self alignment error",
+        ),
+    ],
+)
+def test_mock_lv_server_set_error_scenarios(
+    qtbot,
+    tmp_path,
+    scenario,
+    target,
+    command,
+    source_command,
+    message,
+) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        scenario=scenario,
+        set_reference_delay_sec=0.01,
+        self_alignment_delay_sec=0.01,
+    )
+    server.start()
+    client = TcpClient()
+    events = []
+    client.event_received.connect(events.append)
+
+    try:
+        _connect(client, server, qtbot)
+
+        if target == "FSV40":
+            assert commands.set_reference_co3000(client)
+            qtbot.waitUntil(
+                lambda: any(
+                    event.target == "CO3000"
+                    and event.command == "set_reference_complete"
+                    for event in events
+                ),
+                timeout=1000,
+            )
+            events.clear()
+
+        if command == "Set Reference":
+            assert commands.set_reference_co3000(client)
+        else:
+            assert commands.self_align_fsv40(client)
+        qtbot.waitUntil(
+            lambda: any(
+                event.target == target and event.command == "equipment_error"
+                for event in events
+            ),
+            timeout=1000,
+        )
+
+        event = next(
+            event
+            for event in events
+            if event.target == target and event.command == "equipment_error"
+        )
+        assert event.params == {
+            "command": source_command,
+            "message": message,
+        }
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_stop_cancels_pending_set_event_thread(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        set_reference_delay_sec=15.0,
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+        assert commands.set_reference_co3000(client)
+        qtbot.waitUntil(lambda: bool(server._set_event_threads), timeout=1000)
+
+        started = time.monotonic()
+        server.stop()
+        elapsed = time.monotonic() - started
+
+        assert elapsed < 1.0
+        assert server._set_event_threads == []
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_restart_resets_set_stop_flag(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        set_reference_delay_sec=0.01,
+    )
+    server.start()
+    server.stop()
+    server.start()
+    client = TcpClient()
+    events = []
+    client.event_received.connect(events.append)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.set_reference_co3000(client)
+        qtbot.waitUntil(
+            lambda: any(
+                event.target == "CO3000"
+                and event.command == "set_reference_complete"
+                for event in events
+            ),
+            timeout=1000,
+        )
     finally:
         client.disconnect_from_host()
         server.stop()
