@@ -31,6 +31,7 @@ ReportWriterFactory = Callable[[Path, Path, str, RunnerEvents], ReportWriter]
 
 _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
+INSTRUMENT_SET_BLOCK_MESSAGE = "장비 Set이 진행 중입니다"
 INSTRUMENT_CONNECTION_BLOCK_MESSAGE = (
     "시험 실행 중에는 Instrument Check 연결을 시작할 수 없습니다."
 )
@@ -136,6 +137,9 @@ class Runner(QObject):
         self._instrument_connection_service.error_occurred.connect(
             self._on_instrument_connection_error
         )
+        self._instrument_connection_service.equipment_disconnected.connect(
+            self._on_equipment_disconnected
+        )
 
     @property
     def is_running(self) -> bool:
@@ -176,6 +180,12 @@ class Runner(QObject):
         """Instrument Check 연결 작업이 진행 중인지 반환한다."""
 
         return bool(getattr(self._instrument_connection_service, "is_connecting", False))
+
+    @property
+    def is_equipment_setting(self) -> bool:
+        """Instrument Set 작업이 진행 중인지 반환한다."""
+
+        return bool(getattr(self._instrument_connection_service, "is_setting", False))
 
     def initialize(self) -> None:
         """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
@@ -245,6 +255,9 @@ class Runner(QObject):
         """Idle 상태에서 시험 실행 요청을 주입한다."""
         if self.is_equipment_connecting:
             self._emit_error("시험 시작 실패: 장비 연결이 진행 중입니다")
+            return
+        if self.is_equipment_setting:
+            self._emit_error(f"시험 시작 실패: {INSTRUMENT_SET_BLOCK_MESSAGE}")
             return
         if not self.is_equipment_ready:
             self._emit_error("시험 시작 실패: Instrument Check 연결을 완료하세요")
@@ -423,6 +436,13 @@ class Runner(QObject):
             "장비 연결 실패: "
             + describe_equipment_not_ready(self._equipment_state)
         )
+
+    @Slot(dict)
+    def _on_equipment_disconnected(self, states: dict[str, bool]) -> None:
+        _ = states
+        self._equipment_state = {}
+        if self._ctx is not None:
+            self._ctx.equipment_state = {}
 
     @Slot(str)
     def _on_instrument_connection_error(self, message: str) -> None:

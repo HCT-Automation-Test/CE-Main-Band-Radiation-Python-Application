@@ -19,8 +19,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.instrument_connection import build_equipment_connection_config
-from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+from app.core.instrument_connection import (
+    build_equipment_connection_config,
+    disconnected_equipment_state,
+)
+from app.core.runner import (
+    INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
+    INSTRUMENT_SET_BLOCK_MESSAGE,
+)
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -1167,6 +1173,91 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         assert window.findChild(QLineEdit, object_name).isReadOnly()
     for object_name in browse_buttons:
         assert window.findChild(QPushButton, object_name).isEnabled()
+
+
+def test_main_window_locks_instrument_operations_while_set_active(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    connect_button = window.findChild(QPushButton, "connectInstrumentButton")
+    service = window._runner.instrument_connection_service
+    assert instrument_panel is not None
+    assert connect_button is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    monkeypatch.setattr(instrument_panel, "_show_info", lambda message: None)
+    failures: list[str] = []
+    instrument_panel.connection_failed.connect(failures.append)
+
+    service.set_started.emit()
+
+    assert not connect_button.isEnabled()
+    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+    instrument_panel.on_connect_clicked()
+
+    assert failures == [INSTRUMENT_SET_BLOCK_MESSAGE]
+
+    service.set_finished.emit()
+
+    assert connect_button.isEnabled()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+
+def test_main_window_keeps_measurement_lock_after_set_finishes(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    connect_button = window.findChild(QPushButton, "connectInstrumentButton")
+    service = window._runner.instrument_connection_service
+    assert instrument_panel is not None
+    assert connect_button is not None
+    monkeypatch.setattr(instrument_panel, "_show_info", lambda message: None)
+
+    window._runner._set_measurement_active(True)
+    service.set_started.emit()
+    service.set_finished.emit()
+
+    assert not connect_button.isEnabled()
+    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+    window._runner._set_measurement_active(False)
+
+    assert connect_button.isEnabled()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+
+def test_main_window_marks_equipment_disconnected_after_set_failure(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    assert instrument_panel is not None
+    states = disconnected_equipment_state()
+
+    window._runner.instrument_connection_service.equipment_disconnected.emit(states)
+
+    assert window._runner.equipment_state == {}
+    assert instrument_panel.equipment_state == {}
+    for object_name in (
+        "mt8000aStatusLabel",
+        "fsv40StatusLabel",
+        "co3000StatusLabel",
+        "controller_3dStatusLabel",
+        "switch_boxStatusLabel",
+    ):
+        status = window.findChild(QLabel, object_name)
+        assert status is not None
+        assert status.text() == "Not Connected"
+    for index in range(1, 6):
+        indicator = window.findChild(QWidget, f"connectionStatus{index}")
+        assert indicator is not None
+        assert indicator.property("connectionStatus") == "failed"
+        assert indicator.property("connected") is False
 
 
 def test_main_window_mirrors_instrument_connection_state_to_test_manager(

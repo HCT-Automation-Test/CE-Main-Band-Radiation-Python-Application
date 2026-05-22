@@ -22,7 +22,11 @@ from PySide6.QtWidgets import (
 
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
-from app.core.runner import INSTRUMENT_CONNECTION_BLOCK_MESSAGE, Runner
+from app.core.runner import (
+    INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
+    INSTRUMENT_SET_BLOCK_MESSAGE,
+    Runner,
+)
 from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
@@ -62,6 +66,7 @@ class MainWindow(QMainWindow):
         self._ui = Ui_MainWindow()
         self._ui.setupUi(self)
         self._runner = Runner(self)
+        self._instrument_set_active = False
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._lock_default_window_size()
         self._setup_main_layout()
@@ -107,6 +112,18 @@ class MainWindow(QMainWindow):
         )
         self._runner.instrument_connection_service.error_occurred.connect(
             self._test_manager_panel.set_connection_failed,
+        )
+        self._runner.instrument_connection_service.set_started.connect(
+            self.on_instrument_set_started,
+        )
+        self._runner.instrument_connection_service.set_finished.connect(
+            self.on_instrument_set_finished,
+        )
+        self._runner.instrument_connection_service.set_failed.connect(
+            self.on_instrument_set_failed,
+        )
+        self._runner.instrument_connection_service.equipment_disconnected.connect(
+            self.on_equipment_disconnected,
         )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
         self._test_manager_panel.set_connection_state(self._runner.equipment_state)
@@ -283,10 +300,45 @@ class MainWindow(QMainWindow):
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
 
-        self._instrument_check_panel.set_connection_block_reason(
-            INSTRUMENT_CONNECTION_BLOCK_MESSAGE if active else None
+        _ = active
+        self._update_instrument_operation_lock()
+
+    def on_instrument_set_started(self) -> None:
+        """Instrument Set 진행 중 UI 장비 작업을 차단한다."""
+
+        self._instrument_set_active = True
+        self._update_instrument_operation_lock()
+
+    def on_instrument_set_finished(self) -> None:
+        """Instrument Set 완료 후 장비 작업 차단 상태를 갱신한다."""
+
+        self._instrument_set_active = False
+        self._update_instrument_operation_lock()
+
+    def on_instrument_set_failed(self, message: str) -> None:
+        """Instrument Set 실패 후 장비 작업 차단 상태를 갱신한다."""
+
+        _ = message
+        self._instrument_set_active = False
+        self._update_instrument_operation_lock()
+
+    def on_equipment_disconnected(self, states: dict[str, bool]) -> None:
+        """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
+
+        self._test_manager_panel.set_connection_state(states)
+        self._instrument_check_panel.mark_all_equipment_disconnected()
+
+    def _update_instrument_operation_lock(self) -> None:
+        block_reason = None
+        if self._runner.is_measurement_active:
+            block_reason = INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+        elif self._instrument_set_active:
+            block_reason = INSTRUMENT_SET_BLOCK_MESSAGE
+
+        self._instrument_check_panel.set_connection_block_reason(block_reason)
+        self._test_manager_panel.set_run_settings_locked(
+            self._runner.is_measurement_active or self._instrument_set_active
         )
-        self._test_manager_panel.set_run_settings_locked(active)
 
     def on_current_case_changed(self, case: TestCase) -> None:
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""

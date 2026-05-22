@@ -8,6 +8,7 @@ from typing import Any
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
+from app.core import instrument_set
 from app.net import commands as default_commands
 from app.net.commands import EquipmentConnectionConfig
 from app.net.tcp_client import TcpClient
@@ -20,6 +21,15 @@ ClientFactory = Callable[[], Any]
 ConnectionGuard = Callable[[], str | None]
 
 CONNECTION_IN_PROGRESS_MESSAGE = "장비 연결 요청이 이미 진행 중입니다."
+INSTRUMENT_SET_IN_PROGRESS_MESSAGE = "장비 Set 작업이 이미 진행 중입니다."
+CO3000_SET_REFERENCE_STEP_MESSAGE = "CO3000 Set Reference 진행 중"
+FSV40_SELF_ALIGNMENT_STEP_MESSAGE = "FSV40 Self Alignment 진행 중"
+CO3000_SET_REFERENCE_TIMEOUT_MESSAGE = (
+    "장비 Set timeout: CO3000 Set Reference 완료 event를 수신하지 못했습니다."
+)
+FSV40_SELF_ALIGNMENT_TIMEOUT_MESSAGE = (
+    "장비 Set timeout: FSV40 Self Alignment 완료 event를 수신하지 못했습니다."
+)
 
 REQUIRED_EQUIPMENT_NAMES: tuple[str, ...] = (
     "FSV40",
@@ -127,9 +137,16 @@ def should_preserve_equipment_state_on_connection_error(
 ) -> bool:
     """실제 연결 실패가 아닌 차단 오류에서는 기존 장비 상태를 유지한다."""
 
-    return message == CONNECTION_IN_PROGRESS_MESSAGE or (
-        block_reason is not None and message == block_reason
-    )
+    return message in {
+        CONNECTION_IN_PROGRESS_MESSAGE,
+        INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
+    } or (block_reason is not None and message == block_reason)
+
+
+def disconnected_equipment_state() -> dict[str, bool]:
+    """필수 장비 전체를 disconnected 상태로 표현한다."""
+
+    return {name: False for name in REQUIRED_EQUIPMENT_NAMES}
 
 
 def discover_visa_resources(
@@ -257,6 +274,158 @@ class _ConnectionWorker(QObject):
             close()
 
 
+class _EquipmentSetWorker(QObject):
+    """장비 Set 작업을 UI thread 밖에서 순차 실행한다."""
+
+    started = Signal()
+    step_changed = Signal(str)
+    finished = Signal()
+    failed = Signal(str)
+    done = Signal()
+
+    def __init__(
+        self,
+        *,
+        client_factory: ClientFactory,
+        owns_client: bool,
+        commands: Any,
+        tcp_host: str,
+        tcp_port: int,
+        timeout_s: float,
+    ) -> None:
+        super().__init__()
+        self._client_factory = client_factory
+        self._owns_client = owns_client
+        self._commands = commands
+        self._tcp_host = tcp_host
+        self._tcp_port = tcp_port
+        self._timeout_s = timeout_s
+        self._lock = threading.Lock()
+        self._client: Any | None = None
+        self._cancel_requested = False
+
+    def cancel(self) -> None:
+        """실행 중인 장비 Set 작업에 취소를 요청하고 client를 닫는다."""
+
+        with self._lock:
+            self._cancel_requested = True
+            client = self._client
+        if self._owns_client:
+            self._close_client(client)
+
+    @Slot()
+    def run(self) -> None:
+        client = None
+        try:
+            client = self._client_factory()
+            with self._lock:
+                self._client = client
+                cancel_requested = self._cancel_requested
+            if cancel_requested:
+                return
+
+            self.started.emit()
+            connect_to = getattr(client, "connect_to", None)
+            if connect_to is not None:
+                connect_to(self._tcp_host, self._tcp_port)
+            if self._is_cancel_requested():
+                return
+
+            if not self._set_reference_co3000(client):
+                return
+            if not self._self_align_fsv40(client):
+                return
+
+            self.finished.emit()
+        except Exception as exc:
+            if self._is_cancel_requested():
+                return
+            logger.exception("장비 Set 실패")
+            self.failed.emit(f"장비 Set 실패: {exc}")
+        finally:
+            if self._owns_client:
+                self._close_client(client)
+            with self._lock:
+                if self._client is client:
+                    self._client = None
+            self.done.emit()
+
+    def _set_reference_co3000(self, client: Any) -> bool:
+        if self._is_cancel_requested():
+            return False
+        self.step_changed.emit(CO3000_SET_REFERENCE_STEP_MESSAGE)
+        instrument_set.discard_equipment_set_events(
+            client,
+            target="CO3000",
+            complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+        )
+        self._commands.set_reference_co3000(client)
+        if self._is_cancel_requested():
+            return False
+        try:
+            instrument_set.wait_for_equipment_set_event(
+                client,
+                target="CO3000",
+                complete_command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+                source_command="Set Reference",
+                timeout_s=self._timeout_s,
+                cancel_requested=self._is_cancel_requested,
+                accept_buffered_events=True,
+            )
+            if self._is_cancel_requested():
+                return False
+        except instrument_set.InstrumentSetTimeoutError:
+            self.failed.emit(CO3000_SET_REFERENCE_TIMEOUT_MESSAGE)
+            return False
+        except instrument_set.InstrumentSetError as exc:
+            self.failed.emit(f"장비 Set 실패: {exc}")
+            return False
+        return True
+
+    def _self_align_fsv40(self, client: Any) -> bool:
+        if self._is_cancel_requested():
+            return False
+        self.step_changed.emit(FSV40_SELF_ALIGNMENT_STEP_MESSAGE)
+        instrument_set.discard_equipment_set_events(
+            client,
+            target="FSV40",
+            complete_command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+        )
+        self._commands.self_align_fsv40(client)
+        if self._is_cancel_requested():
+            return False
+        try:
+            instrument_set.wait_for_equipment_set_event(
+                client,
+                target="FSV40",
+                complete_command=instrument_set.COMMAND_SELF_ALIGNMENT_COMPLETE,
+                source_command="Self Alignment",
+                timeout_s=self._timeout_s,
+                cancel_requested=self._is_cancel_requested,
+                accept_buffered_events=True,
+            )
+            if self._is_cancel_requested():
+                return False
+        except instrument_set.InstrumentSetTimeoutError:
+            self.failed.emit(FSV40_SELF_ALIGNMENT_TIMEOUT_MESSAGE)
+            return False
+        except instrument_set.InstrumentSetError as exc:
+            self.failed.emit(f"장비 Set 실패: {exc}")
+            return False
+        return True
+
+    def _is_cancel_requested(self) -> bool:
+        with self._lock:
+            return self._cancel_requested
+
+    def _close_client(self, client: Any | None) -> None:
+        if client is None:
+            return
+        close = getattr(client, "close", None)
+        if close is not None:
+            close()
+
+
 class InstrumentConnectionService(QObject):
     """Instrument Check 패널에서 사용하는 비동기 서비스."""
 
@@ -265,6 +434,11 @@ class InstrumentConnectionService(QObject):
     connection_started = Signal()
     connection_finished = Signal(dict)
     error_occurred = Signal(str)
+    set_started = Signal()
+    set_step_changed = Signal(str)
+    set_finished = Signal()
+    set_failed = Signal(str)
+    equipment_disconnected = Signal(dict)
 
     def __init__(
         self,
@@ -277,6 +451,7 @@ class InstrumentConnectionService(QObject):
         tcp_port: int = 5025,
         visa_resource_provider: VisaResourceProvider | None = None,
         connection_guard: ConnectionGuard | None = None,
+        instrument_set_timeout_s: float = 900.0,
     ) -> None:
         super().__init__(parent)
         if client is not None and client_factory is not None:
@@ -292,10 +467,13 @@ class InstrumentConnectionService(QObject):
         self._tcp_port = tcp_port
         self._visa_resource_provider = visa_resource_provider
         self._connection_guard = connection_guard
+        self._instrument_set_timeout_s = instrument_set_timeout_s
         self._discovery_thread: QThread | None = None
         self._connection_thread: QThread | None = None
+        self._set_thread: QThread | None = None
         self._discovery_worker: _VisaDiscoveryWorker | None = None
         self._connection_worker: _ConnectionWorker | None = None
+        self._set_worker: _EquipmentSetWorker | None = None
         self._shutting_down = False
 
     @property
@@ -303,6 +481,12 @@ class InstrumentConnectionService(QObject):
         """장비 연결 worker가 실행 중인지 반환한다."""
 
         return self._connection_thread is not None
+
+    @property
+    def is_setting(self) -> bool:
+        """장비 Set worker가 실행 중인지 반환한다."""
+
+        return self._set_thread is not None
 
     def refresh_visa_resources(self) -> None:
         """VISA Resource 목록 탐색을 시작한다."""
@@ -338,6 +522,10 @@ class InstrumentConnectionService(QObject):
             self.error_occurred.emit(CONNECTION_IN_PROGRESS_MESSAGE)
             return
 
+        if self._set_thread is not None:
+            self.error_occurred.emit(INSTRUMENT_SET_IN_PROGRESS_MESSAGE)
+            return
+
         if self._connection_guard is not None:
             block_reason = self._connection_guard()
             if block_reason:
@@ -370,6 +558,59 @@ class InstrumentConnectionService(QObject):
         self._connection_worker = worker
         thread.start()
 
+    def set_equipment(self, equipment_state: dict[str, bool]) -> None:
+        """연결 완료된 장비에 Set Reference / Self Alignment를 순차 요청한다."""
+
+        if self._shutting_down:
+            return
+
+        if self._connection_thread is not None:
+            self._emit_set_failed(CONNECTION_IN_PROGRESS_MESSAGE)
+            return
+
+        if self._set_thread is not None:
+            self._emit_set_failed(INSTRUMENT_SET_IN_PROGRESS_MESSAGE)
+            return
+
+        if self._connection_guard is not None:
+            block_reason = self._connection_guard()
+            if block_reason:
+                self._emit_set_failed(block_reason)
+                return
+
+        if not is_required_equipment_ready(equipment_state):
+            self._emit_set_failed(
+                "장비 Set 실패: " + describe_equipment_not_ready(equipment_state)
+            )
+            return
+
+        thread = QThread(self)
+        worker = _EquipmentSetWorker(
+            client_factory=self._client_factory,
+            owns_client=self._owns_client,
+            commands=self._commands,
+            tcp_host=self._tcp_host,
+            tcp_port=self._tcp_port,
+            timeout_s=self._instrument_set_timeout_s,
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.started.connect(self._on_set_started)
+        worker.step_changed.connect(self._on_set_step_changed)
+        worker.finished.connect(self._on_set_worker_finished)
+        worker.failed.connect(self._on_set_failed)
+        worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
+        worker.done.connect(
+            self._on_set_worker_done,
+            Qt.ConnectionType.DirectConnection,
+        )
+        worker.done.connect(worker.deleteLater)
+        thread.finished.connect(self._on_set_thread_finished)
+        thread.finished.connect(thread.deleteLater)
+        self._set_thread = thread
+        self._set_worker = worker
+        thread.start()
+
     def shutdown(self) -> None:
         """패널 종료 시 실행 중인 worker thread를 정리한다."""
 
@@ -379,10 +620,16 @@ class InstrumentConnectionService(QObject):
 
         if self._connection_worker is not None:
             self._connection_worker.cancel()
+        if self._set_worker is not None:
+            self._set_worker.cancel()
 
         self._detach_worker_signals()
 
-        for thread in (self._discovery_thread, self._connection_thread):
+        for thread in (
+            self._discovery_thread,
+            self._connection_thread,
+            self._set_thread,
+        ):
             if thread is None:
                 continue
             thread.quit()
@@ -398,8 +645,10 @@ class InstrumentConnectionService(QObject):
 
         self._discovery_thread = None
         self._connection_thread = None
+        self._set_thread = None
         self._discovery_worker = None
         self._connection_worker = None
+        self._set_worker = None
 
     @Slot(list)
     def _on_visa_resources_discovered(self, resources: list[str]) -> None:
@@ -425,6 +674,31 @@ class InstrumentConnectionService(QObject):
     def _on_connection_failed(self, message: str) -> None:
         if not self._shutting_down:
             self.error_occurred.emit(message)
+
+    @Slot()
+    def _on_set_started(self) -> None:
+        if not self._shutting_down:
+            self.set_started.emit()
+
+    @Slot(str)
+    def _on_set_step_changed(self, message: str) -> None:
+        if not self._shutting_down:
+            self.set_step_changed.emit(message)
+
+    @Slot()
+    def _on_set_worker_finished(self) -> None:
+        if not self._shutting_down:
+            self.set_finished.emit()
+
+    @Slot(str)
+    def _on_set_failed(self, message: str) -> None:
+        if not self._shutting_down:
+            self._emit_set_failed(message)
+            self.equipment_disconnected.emit(disconnected_equipment_state())
+
+    def _emit_set_failed(self, message: str) -> None:
+        if not self._shutting_down:
+            self.set_failed.emit(message)
 
     def _detach_worker_signals(self) -> None:
         if self._discovery_worker is not None:
@@ -459,6 +733,28 @@ class InstrumentConnectionService(QObject):
                 self._on_connection_worker_done,
             )
 
+        if self._set_worker is not None:
+            _disconnect_safely(
+                self._set_worker.started,
+                self._on_set_started,
+            )
+            _disconnect_safely(
+                self._set_worker.step_changed,
+                self._on_set_step_changed,
+            )
+            _disconnect_safely(
+                self._set_worker.finished,
+                self._on_set_worker_finished,
+            )
+            _disconnect_safely(
+                self._set_worker.failed,
+                self._on_set_failed,
+            )
+            _disconnect_safely(
+                self._set_worker.done,
+                self._on_set_worker_done,
+            )
+
         if self._discovery_thread is not None:
             _disconnect_safely(
                 self._discovery_thread.finished,
@@ -479,6 +775,16 @@ class InstrumentConnectionService(QObject):
                 self._connection_thread.deleteLater,
             )
 
+        if self._set_thread is not None:
+            _disconnect_safely(
+                self._set_thread.finished,
+                self._on_set_thread_finished,
+            )
+            _disconnect_safely(
+                self._set_thread.finished,
+                self._set_thread.deleteLater,
+            )
+
     def _on_discovery_finished(self) -> None:
         self._discovery_thread = None
 
@@ -490,3 +796,9 @@ class InstrumentConnectionService(QObject):
 
     def _on_connection_worker_done(self) -> None:
         self._connection_worker = None
+
+    def _on_set_thread_finished(self) -> None:
+        self._set_thread = None
+
+    def _on_set_worker_done(self) -> None:
+        self._set_worker = None

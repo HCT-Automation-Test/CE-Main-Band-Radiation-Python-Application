@@ -241,6 +241,45 @@ def test_call_handover_sends_separate_mid_and_center_channel() -> None:
     assert "Max Retry Count" not in client.calls[0][2]
 
 
+def test_set_reference_co3000_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.set_reference_co3000(client) is True
+    assert client.calls == [("CO3000", "Set Reference", {})]
+
+
+def test_self_align_fsv40_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.self_align_fsv40(client) is True
+    assert client.calls == [("FSV40", "Self Alignment", {})]
+
+
+@pytest.mark.parametrize(
+    ("facade", "target", "command"),
+    [
+        (commands.set_reference_co3000, "CO3000", "Set Reference"),
+        (commands.self_align_fsv40, "FSV40", "Self Alignment"),
+    ],
+)
+def test_instrument_set_commands_raise_on_error_response(
+    facade: Any,
+    target: str,
+    command: str,
+) -> None:
+    client = _Client(
+        Response(
+            id="response-id",
+            status="error",
+            error={"message": "set failed"},
+        )
+    )
+
+    with pytest.raises(commands.CommandError, match=f"{target} / {command} failed"):
+        facade(client)
+    assert client.calls == [(target, command, {})]
+
+
 def test_setup_sa_sends_range_setting_params() -> None:
     client = _Client(_default_ok())
 
