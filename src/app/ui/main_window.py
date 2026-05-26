@@ -314,6 +314,20 @@ class MainWindow(QMainWindow):
 
         self._instrument_set_active = False
         self._update_instrument_operation_lock()
+        self._test_manager_panel.update_turntable_info(
+            {
+                "target_angle": 0,
+                "current_angle": 0,
+                "setting_speed": 4,
+            }
+        )
+        self._test_manager_panel.update_polarization_info(
+            {
+                "polarization_3m": "V",
+                "polarization_bilog": "V",
+                "polarization_1m": "0°",
+            }
+        )
 
     def on_instrument_set_failed(self, message: str) -> None:
         """Instrument Set 실패 후 장비 작업 차단 상태를 갱신한다."""
