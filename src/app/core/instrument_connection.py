@@ -9,6 +9,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
 from app.core import instrument_set
+from app.models.enums import AntennaPol, InputPath
 from app.net import commands as default_commands
 from app.net.commands import EquipmentConnectionConfig
 from app.net.tcp_client import TcpClient
@@ -23,6 +24,9 @@ ConnectionGuard = Callable[[], str | None]
 CONNECTION_IN_PROGRESS_MESSAGE = "장비 연결 요청이 이미 진행 중입니다."
 INSTRUMENT_SET_IN_PROGRESS_MESSAGE = "장비 Set 작업이 이미 진행 중입니다."
 CO3000_SET_REFERENCE_STEP_MESSAGE = "CO3000 Set Reference 진행 중"
+CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE = (
+    "3D Controller Ant Pol Vertical 진행 중"
+)
 FSV40_SELF_ALIGNMENT_STEP_MESSAGE = "FSV40 Self Alignment 진행 중"
 CO3000_SET_REFERENCE_TIMEOUT_MESSAGE = (
     "장비 Set timeout: CO3000 Set Reference 완료 event를 수신하지 못했습니다."
@@ -333,6 +337,8 @@ class _EquipmentSetWorker(QObject):
 
             if not self._set_reference_co3000(client):
                 return
+            if not self._set_controller_3d_ant_pol_vertical(client):
+                return
             if not self._self_align_fsv40(client):
                 return
 
@@ -379,6 +385,39 @@ class _EquipmentSetWorker(QObject):
             return False
         except instrument_set.InstrumentSetError as exc:
             self.failed.emit(f"장비 Set 실패: {exc}")
+            return False
+        return True
+
+    def _set_controller_3d_ant_pol_vertical(self, client: Any) -> bool:
+        return self._set_ant_pol_vertical(
+            client,
+            step_message=CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE,
+            input_path=InputPath.INPUT3,
+            target_label="3D Controller",
+        )
+
+    def _set_ant_pol_vertical(
+        self,
+        client: Any,
+        *,
+        step_message: str,
+        input_path: InputPath,
+        target_label: str,
+    ) -> bool:
+        if self._is_cancel_requested():
+            return False
+        self.step_changed.emit(step_message)
+        configured = self._commands.set_antenna_pol(
+            client,
+            pol=AntennaPol.V,
+            input_path=input_path,
+        )
+        if self._is_cancel_requested():
+            return False
+        if not configured:
+            self.failed.emit(
+                f"장비 Set 실패: {target_label} Ant Pol Vertical returned false"
+            )
             return False
         return True
 

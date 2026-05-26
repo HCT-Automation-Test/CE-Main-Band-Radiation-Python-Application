@@ -1232,6 +1232,50 @@ def test_main_window_keeps_measurement_lock_after_set_finishes(
     assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
 
 
+def test_main_window_updates_test_manager_equipment_info_after_set_finishes(
+    monkeypatch,
+    qtbot,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    service = window._runner.instrument_connection_service
+    panel = window.findChild(ManagerPanel)
+    assert instrument_panel is not None
+    assert panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_info", lambda message: None)
+
+    panel.set_analyzer_info({"start_freq": 30, "stop_freq": 1000})
+    panel.set_switch_box_info({"mast": "Bilog", "filter": "6G HPF"})
+    panel.set_turntable_info(
+        {
+            "target_angle": 360,
+            "current_angle": 180,
+            "setting_speed": 6,
+        }
+    )
+    panel.set_polarization_info(
+        {
+            "polarization_3m": "H",
+            "polarization_bilog": "H",
+            "polarization_1m": "90°",
+        }
+    )
+
+    service.set_finished.emit()
+
+    assert panel.findChild(QLineEdit, "targetAngleEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "currentAngleEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == "4"
+    assert panel.findChild(QLineEdit, "polarization3mEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarizationBilogEdit").text() == "V"
+    assert panel.findChild(QLineEdit, "polarization1mEdit").text() == "0°"
+    assert panel.findChild(QLineEdit, "startFreqEdit").text() == "30"
+    assert panel.findChild(QLineEdit, "stopFreqEdit").text() == "1000"
+    assert panel.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert panel.findChild(QLineEdit, "filterEdit").text() == "6G HPF"
+
+
 def test_main_window_marks_equipment_disconnected_after_set_failure(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
