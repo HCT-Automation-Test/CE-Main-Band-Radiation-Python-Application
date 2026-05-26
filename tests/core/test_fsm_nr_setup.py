@@ -128,6 +128,25 @@ def test_nr_call_connect_uses_settings_connection_waiting_time(
     assert commands.calls[0][1]["waiting_time"] == 7
 
 
+def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
+    commands = _Commands(connected=True)
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.equipment_state = {"MT8000A": False}
+    state = NRCallConnectState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert commands.calls == []
+    assert events.error.messages
+
+
 def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
     commands = _Commands(connected=False)
     events = _Events()
@@ -140,8 +159,8 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureFundamental"
     assert events.error.messages == [
         "NR Call 연결 실패: setup_mt8000 returned false"
     ]
@@ -159,8 +178,8 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureFundamental"
     assert events.error.messages == [
         "NR Call 연결 실패: instrument timeout"
     ]

@@ -158,6 +158,28 @@ def test_setup_spectrum_analyzer_startup_level_uses_settings(
     ]
 
 
+def test_setup_spectrum_analyzer_startup_level_skips_when_fsv40_is_not_connected(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = SetupSpectrumAnalyzerStartupLevelState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert commands.startup_level_calls == []
+    assert events.error.messages
+
+
 def test_setup_spectrum_analyzer_startup_level_returns_fail_on_false_result(
     tmp_path: Path,
 ) -> None:
@@ -173,8 +195,8 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_false_result(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "NRCallConnect"
     assert events.error.messages == [
         "Spectrum Analyzer Startup Level 설정 실패: "
         "setup_sa_startup_levels returned false"
@@ -196,8 +218,8 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_exception(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "NRCallConnect"
     assert events.error.messages == [
         "Spectrum Analyzer Startup Level 설정 실패: instrument timeout"
     ]
@@ -263,6 +285,26 @@ def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
     ]
 
 
+def test_set_switch_box_skips_when_switch_box_is_not_connected() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.equipment_state = {"Switch Box": False}
+    state = SetSwitchBoxState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
+    assert commands.switch_box_calls == []
+    assert events.switch_box_info_changed.messages == []
+    assert events.error.messages
+
+
 def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
     commands = _Commands(switch_box_configured=False)
     events = _Events()
@@ -274,7 +316,7 @@ def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
 
     result = ResetSwitchBoxState().run(ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.switch_box_info_changed.messages == []
 
 
@@ -290,8 +332,8 @@ def test_reset_switch_box_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "CheckNextCase"
     assert events.switch_box_info_changed.messages == []
     assert events.error.messages == [
         "Switch Box 기본 경로 복원 실패: instrument timeout"
@@ -338,8 +380,8 @@ def test_set_switch_box_returns_fail_and_stops_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
     assert events.error.messages == [
         "Switch Box RF 경로 설정 실패: set_switch_box returned false"
     ]
@@ -356,7 +398,7 @@ def test_set_switch_box_does_not_emit_info_on_false_result() -> None:
 
     result = SetSwitchBoxState().run(ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.switch_box_info_changed.messages == []
 
 
@@ -372,8 +414,8 @@ def test_set_switch_box_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
     assert events.switch_box_info_changed.messages == []
     assert events.error.messages == [
         "Switch Box RF 경로 설정 실패: instrument timeout"
@@ -415,6 +457,26 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     ]
 
 
+def test_setup_spectrum_analyzer_skips_when_fsv40_is_not_connected() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = SetupSpectrumAnalyzerState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RotateTurntable"
+    assert commands.setup_sa_calls == []
+    assert events.spectrum_analyzer_info_changed.messages == []
+    assert events.error.messages
+
+
 def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
     tmp_path: Path,
 ) -> None:
@@ -451,8 +513,8 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RotateTurntable"
     assert events.error.messages == [
         "Spectrum Analyzer 설정 실패: setup_sa returned false"
     ]
@@ -469,7 +531,7 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
@@ -485,8 +547,8 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RotateTurntable"
     assert events.spectrum_analyzer_info_changed.messages == []
     assert events.error.messages == [
         "Spectrum Analyzer 설정 실패: instrument timeout"
@@ -521,6 +583,26 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
     ]
 
 
+def test_reset_switch_box_skips_when_switch_box_is_not_connected() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.equipment_state = {"Switch Box": False}
+    state = ResetSwitchBoxState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "CheckNextCase"
+    assert commands.switch_box_calls == []
+    assert events.switch_box_info_changed.messages == []
+    assert events.error.messages
+
+
 def test_reset_switch_box_returns_fail_and_stops_on_false_result() -> None:
     commands = _Commands(switch_box_configured=False)
     events = _Events()
@@ -533,8 +615,8 @@ def test_reset_switch_box_returns_fail_and_stops_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "CheckNextCase"
     assert events.error.messages == [
         "Switch Box 기본 경로 복원 실패: set_switch_box returned false"
     ]

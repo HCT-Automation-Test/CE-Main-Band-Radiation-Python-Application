@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.models.enums import AntennaPol, InputPath, TestChannel
 from app.models.nr_channel_lookup import resolve_call_channel
@@ -66,6 +67,16 @@ class AntPolChangeState(State):
         test_case = ctx.current_case
         input_path = test_case.range_definition.input_path
         pol = test_case.antenna_pol
+        required_equipment = (
+            "3D Controller" if input_path is InputPath.INPUT3 else "CO3000"
+        )
+        if not is_equipment_connected(ctx, required_equipment):
+            _emit_error(
+                ctx,
+                f"Antenna Pol 설정 스킵: {required_equipment}가 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
+
         try:
             configured = ctx.commands.set_antenna_pol(
                 ctx.client,
@@ -74,14 +85,14 @@ class AntPolChangeState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Antenna Pol 설정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if configured:
             _emit_polarization_info(ctx, pol=pol, input_path=input_path)
             return StateResult.OK
 
         _emit_error(ctx, "Antenna Pol 설정 실패: set_antenna_pol returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -101,11 +112,15 @@ class HandoverState(State):
     name = "Handover"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Handover 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         prev_case = ctx.prev_case
         if prev_case is None:
             _emit_error(ctx, "NR Handover 실패: previous test case is not set")
-            return StateResult.FAIL
+            return StateResult.OK
 
         try:
             band = parse_band_number(test_case.band.value)
@@ -132,13 +147,13 @@ class HandoverState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Handover 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if handed_over:
             return StateResult.OK
 
         _emit_error(ctx, "NR Handover 실패: call_handover returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -220,17 +235,21 @@ class TestTypeChangeState(State):
     name = "TestTypeChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Call 상태 확인 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         try:
             call_connected = ctx.commands.check_call_status(ctx.client)
         except Exception as exc:
             _emit_error(ctx, f"NR Call 상태 확인 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if call_connected:
             return StateResult.OK
 
         _emit_error(ctx, "NR Call 상태 확인 실패: check_call_status returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult

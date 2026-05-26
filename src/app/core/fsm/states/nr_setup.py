@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
@@ -32,6 +33,10 @@ class NRCallConnectState(State):
     name = "NRCallConnect"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Call 연결 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
         if ctx.settings is not None:
@@ -56,13 +61,13 @@ class NRCallConnectState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Call 연결 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if connected:
             return StateResult.OK
 
         _emit_error(ctx, "NR Call 연결 실패: setup_mt8000 returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult

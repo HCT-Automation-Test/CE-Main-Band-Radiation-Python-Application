@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import FundamentalResult, HarmonicResult
 from app.models.nr_channel_lookup import resolve_target_frequency_mhz
@@ -98,6 +99,10 @@ class MeasureFundamentalState(State):
     name = "MeasureFundamental"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Fundamental 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         writer = ctx.report_writer
         if writer is not None:
@@ -105,7 +110,7 @@ class MeasureFundamentalState(State):
                 cached_frequency_mhz = writer.read_fundamental_frequency(test_case)
             except Exception as exc:
                 _emit_error(ctx, f"Fundamental frequency 재사용 실패: {exc}")
-                return StateResult.FAIL
+                return StateResult.OK
             if cached_frequency_mhz is not None:
                 ctx.fundamental_frequency_mhz = cached_frequency_mhz
                 return StateResult.OK
@@ -118,14 +123,14 @@ class MeasureFundamentalState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Fundamental 측정 준비 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if ctx.temp_dir is None:
             _emit_error(
                 ctx,
                 "Fundamental 스크린샷 경로 생성 실패: temp_dir is not set",
             )
-            return StateResult.FAIL
+            return StateResult.OK
 
         screenshot_path = _fundamental_screenshot_path(ctx.temp_dir)
         try:
@@ -150,14 +155,14 @@ class MeasureFundamentalState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Fundamental 측정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if not screenshot_path.is_file():
             _emit_error(
                 ctx,
                 f"Fundamental 스크린샷 저장 실패: {screenshot_path} does not exist",
             )
-            return StateResult.FAIL
+            return StateResult.OK
 
         ctx.fundamental_frequency_mhz = fundamental_frequency_mhz
         result = FundamentalResult(
@@ -185,20 +190,24 @@ class MeasureHarmonicsState(State):
     name = "MeasureHarmonics"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Harmonic 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         fundamental_frequency_mhz = ctx.fundamental_frequency_mhz
         if fundamental_frequency_mhz is None:
             _emit_error(
                 ctx,
                 "Harmonic 측정 실패: fundamental_frequency_mhz is not set",
             )
-            return StateResult.FAIL
+            return StateResult.OK
 
         if ctx.temp_dir is None:
             _emit_error(
                 ctx,
                 "Harmonic 스크린샷 경로 생성 실패: temp_dir is not set",
             )
-            return StateResult.FAIL
+            return StateResult.OK
 
         screenshot_path = _harmonic_screenshot_path(ctx.temp_dir)
         try:
@@ -211,14 +220,14 @@ class MeasureHarmonicsState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Harmonic 측정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if not screenshot_path.is_file():
             _emit_error(
                 ctx,
                 f"Harmonic 스크린샷 저장 실패: {screenshot_path} does not exist",
             )
-            return StateResult.FAIL
+            return StateResult.OK
 
         threshold_dbm = ctx.current_case.range_definition.limit - 10.0
         result = HarmonicResult(

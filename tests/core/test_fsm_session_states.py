@@ -201,6 +201,23 @@ def test_session_init_accepts_partial_success_equipment_state() -> None:
     assert events.error.values == []
 
 
+def test_session_init_retries_when_equipment_state_has_only_unknown_keys() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=_Commands(response=True),
+        events=events,  # type: ignore[arg-type]
+        client=_Client(),
+    )
+    ctx.equipment_state = {"Extra Device": True}
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values[0].endswith("equipment_state is not ready")
+
+
 def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
     events = _Events()
     settings = _make_settings(tmp_path)

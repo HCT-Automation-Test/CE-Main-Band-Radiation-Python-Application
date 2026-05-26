@@ -280,6 +280,25 @@ def test_measure_fundamental_reuses_excel_frequency_without_measurement(
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
+def test_measure_fundamental_skips_when_fsv40_is_not_connected() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
+    assert commands.measure_fundamental_calls == []
+    assert events.error.messages
+
+
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     tmp_path: Path,
 ) -> None:
@@ -314,6 +333,29 @@ def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     assert measured.harmonic_4th_peak_level_dbm is None
     assert measured.harmonic_5th_peak_level_dbm == -37.5
     assert screenshot_path.read_bytes() == b"fresh harmonic"
+
+
+def test_measure_harmonics_skips_when_fsv40_is_not_connected(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
+    assert commands.measure_harmonics_calls == []
+    assert events.error.messages
 
 
 def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
@@ -357,8 +399,8 @@ def test_measure_fundamental_returns_fail_without_temp_dir() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
     assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == []
     assert events.error.messages == [
@@ -385,8 +427,8 @@ def test_measure_fundamental_returns_fail_when_lookup_raises() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
     assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == []
     assert events.error.messages == [
@@ -412,8 +454,8 @@ def test_measure_fundamental_returns_fail_when_cached_frequency_is_invalid() -> 
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
     assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == []
     assert report_writer.calls == []
@@ -436,8 +478,8 @@ def test_measure_fundamental_returns_fail_when_command_raises() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
     assert ctx.fundamental_frequency_mhz is None
     assert commands.measure_fundamental_calls == [
         (None, {"target_freq": 3549.99})
@@ -458,7 +500,7 @@ def test_measure_fundamental_does_not_emit_sa_info_when_command_raises() -> None
 
     result = MeasureFundamentalState().run(ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
@@ -479,8 +521,8 @@ def test_measure_fundamental_returns_fail_when_screenshot_is_missing(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
     assert ctx.fundamental_frequency_mhz is None
     assert report_writer.calls == []
     assert commands.measure_fundamental_calls == [
@@ -505,7 +547,7 @@ def test_measure_fundamental_emits_sa_info_when_screenshot_is_missing(
 
     result = MeasureFundamentalState().run(ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.spectrum_analyzer_info_changed.messages == [
         {
             "start_freq": 3449.99,
@@ -534,8 +576,8 @@ def test_measure_harmonics_returns_fail_without_fundamental(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == []
     assert events.error.messages == [
         "Harmonic 측정 실패: fundamental_frequency_mhz is not set"
@@ -556,8 +598,8 @@ def test_measure_harmonics_returns_fail_without_temp_dir() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == []
     assert events.error.messages == [
         "Harmonic 스크린샷 경로 생성 실패: temp_dir is not set"
@@ -583,8 +625,8 @@ def test_measure_harmonics_returns_fail_when_command_raises(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == [
         (None, {"fundamental": 3550.25})
     ]
@@ -629,8 +671,8 @@ def test_measure_harmonics_returns_fail_for_invalid_response(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == [
         (None, {"fundamental": 3550.25})
     ]
@@ -655,8 +697,8 @@ def test_measure_harmonics_returns_fail_when_screenshot_is_missing(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert report_writer.calls == []
     assert events.error.messages == [
         f"Harmonic 스크린샷 저장 실패: {tmp_path / 'harmonic.png'} does not exist"
@@ -679,8 +721,8 @@ def test_measurement_state_returns_fail_when_report_writer_returns_false(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert len(report_writer.calls) == 1
     assert events.error.messages == [
         "In-Band 리포트 작성 실패: write_inband returned false"
@@ -703,8 +745,8 @@ def test_measurement_state_returns_fail_when_report_writer_raises(
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) is None
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert report_writer.calls == []
     assert events.error.messages == ["리포트 작성 실패: disk full"]
 

@@ -122,7 +122,12 @@ def is_required_equipment_ready(states: dict[str, Any]) -> bool:
 def is_selected_equipment_ready(states: dict[str, Any]) -> bool:
     """선택되어 응답한 장비가 하나 이상 있고 모두 연결 성공인지 반환한다."""
 
-    return bool(states) and all(bool(value) for value in states.values())
+    selected = {
+        name: bool(states[name])
+        for name in REQUIRED_EQUIPMENT_NAMES
+        if name in states
+    }
+    return bool(selected) and all(selected.values())
 
 
 def describe_equipment_not_ready(states: dict[str, Any]) -> str:
@@ -130,6 +135,8 @@ def describe_equipment_not_ready(states: dict[str, Any]) -> str:
 
     if not states:
         return "equipment_state is empty"
+    if not any(name in states for name in REQUIRED_EQUIPMENT_NAMES):
+        return "equipment_state is not ready"
 
     parts = []
     missing = missing_required_equipment(states)

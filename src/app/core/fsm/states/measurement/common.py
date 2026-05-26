@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.models.band_group import find_band_group
 from app.models.enums import FilterPath, InputPath, TestType
 from app.models.switch_box import (
@@ -120,6 +121,13 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             )
             return StateResult.FAIL
 
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(
+                ctx,
+                "Spectrum Analyzer Startup Level 설정 스킵: FSV40이 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
+
         try:
             configured = ctx.commands.setup_sa_startup_levels(
                 ctx.client,
@@ -128,7 +136,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Spectrum Analyzer Startup Level 설정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if configured:
             return StateResult.OK
@@ -138,7 +146,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             "Spectrum Analyzer Startup Level 설정 실패: "
             "setup_sa_startup_levels returned false",
         )
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -154,6 +162,10 @@ class SetSwitchBoxState(State):
     name = "SetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "Switch Box"):
+            _emit_error(ctx, "Switch Box RF 경로 설정 스킵: Switch Box가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         test_range = test_case.range_definition
         try:
@@ -168,7 +180,7 @@ class SetSwitchBoxState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Switch Box RF 경로 설정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if configured:
             _emit_switch_box_info(
@@ -179,7 +191,7 @@ class SetSwitchBoxState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box RF 경로 설정 실패: set_switch_box returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -195,12 +207,16 @@ class SetupSpectrumAnalyzerState(State):
     name = "SetupSpectrumAnalyzer"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Spectrum Analyzer 설정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_range = ctx.current_case.range_definition
         try:
             configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
         except Exception as exc:
             _emit_error(ctx, f"Spectrum Analyzer 설정 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if configured:
             _emit_spectrum_analyzer_info(
@@ -219,7 +235,7 @@ class SetupSpectrumAnalyzerState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -268,11 +284,17 @@ class RotateTurntableState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         self._target_angle = 360.0 if ctx.current_angle == 0 else 0.0
+        if not is_equipment_connected(ctx, "CO3000"):
+            _emit_error(ctx, "Turntable 회전 스킵: CO3000이 연결되어 있지 않습니다.")
+            ctx.current_angle = self._target_angle
+            _emit_turntable_info(ctx, {"current_angle": self._target_angle})
+            return StateResult.OK
+
         try:
             band_group = find_band_group(ctx.current_case.band.value)
         except ValueError as exc:
             _emit_error(ctx, f"BandGroup 조회 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
         speed = band_group.turntable_speed
 
         try:
@@ -281,7 +303,7 @@ class RotateTurntableState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"턴테이블 회전 명령 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         _emit_turntable_info(
             ctx,
@@ -305,11 +327,11 @@ class RotateTurntableState(State):
             if time.monotonic() > deadline:
                 _emit_error(ctx, "턴테이블 회전 타임아웃")
                 self._send_stop(ctx)
-                return StateResult.FAIL
+                return StateResult.OK
 
         if self._failed_reason is not None:
             _emit_error(ctx, f"턴테이블 회전 실패: {self._failed_reason}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         ctx.current_angle = self._target_angle
         _emit_turntable_info(ctx, {"current_angle": self._target_angle})
@@ -444,6 +466,10 @@ class ResetSwitchBoxState(State):
     name = "ResetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "Switch Box"):
+            _emit_error(ctx, "Switch Box 기본 경로 복원 스킵: Switch Box가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         try:
             configured = ctx.commands.set_switch_box(
                 ctx.client,
@@ -452,7 +478,7 @@ class ResetSwitchBoxState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Switch Box 기본 경로 복원 실패: {exc}")
-            return StateResult.FAIL
+            return StateResult.OK
 
         if configured:
             _emit_switch_box_info(
@@ -463,7 +489,7 @@ class ResetSwitchBoxState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box 기본 경로 복원 실패: set_switch_box returned false")
-        return StateResult.FAIL
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult

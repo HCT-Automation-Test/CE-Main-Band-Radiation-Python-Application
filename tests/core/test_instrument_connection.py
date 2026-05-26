@@ -247,6 +247,7 @@ def test_selected_equipment_readiness_accepts_partial_success_only() -> None:
     assert is_selected_equipment_ready({"FSV40": True, "CO3000": True})
     assert not is_selected_equipment_ready({})
     assert not is_selected_equipment_ready({"FSV40": True, "CO3000": False})
+    assert not is_selected_equipment_ready({"Extra Device": True})
 
 
 def test_discover_visa_resources_uses_provider_and_sorts_values() -> None:

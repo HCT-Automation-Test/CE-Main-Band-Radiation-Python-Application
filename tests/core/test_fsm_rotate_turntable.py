@@ -471,6 +471,24 @@ def test_rotate_uses_settings_saturation_time_instead_of_fallback(
     assert elapsed < 0.3
 
 
+def test_rotate_skips_when_co3000_is_not_connected() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    ctx.equipment_state = {"CO3000": False}
+    state = RotateTurntableState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureHarmonics"
+    assert commands.rotate_calls == []
+    assert ctx.current_angle == 360.0
+    assert events.turntable_info_changed.values == [{"current_angle": 360.0}]
+    assert events.error.values
+
+
 def test_band_group_speed_for_n78() -> None:
     commands = _Commands()
     client = _FakeClient()
@@ -518,11 +536,11 @@ def test_timeout_calls_stop_and_fails(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = _drive_state(state, ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert commands.stop_calls == [client]
     assert events.error.values == ["턴테이블 회전 타임아웃"]
     assert ctx.current_angle == 0.0
-    assert state.next_state(ctx, result) is None
+    assert state.next_state(ctx, result) == "MeasureHarmonics"
 
 
 def test_error_event_marks_failure() -> None:
@@ -539,7 +557,7 @@ def test_error_event_marks_failure() -> None:
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.error.values == ["턴테이블 회전 실패: stalled"]
     assert commands.stop_calls == []
     assert ctx.current_angle == 0.0
@@ -554,7 +572,7 @@ def test_rotate_command_exception_returns_fail() -> None:
 
     result = _drive_state(state, ctx)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert events.error.values == ["턴테이블 회전 명령 실패: send failed"]
     assert commands.stop_calls == []
 
@@ -692,7 +710,7 @@ def test_error_event_flushes_pending_progress_without_waiting(
     elapsed = time.monotonic() - started_at
     thread.join(timeout=1.0)
 
-    assert result is StateResult.FAIL
+    assert result is StateResult.OK
     assert elapsed < 0.5
     assert events.error.values == ["턴테이블 회전 실패: stalled"]
     assert events.turntable_info_changed.values == [

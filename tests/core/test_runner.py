@@ -187,7 +187,7 @@ def test_equipment_ready_accepts_selected_success_devices(tmp_path: Path) -> Non
 
     runner._equipment_state = states_with_extra_failure
 
-    assert not runner.is_equipment_ready
+    assert runner.is_equipment_ready
     assert runner.equipment_state == states_with_extra_failure
 
 
@@ -229,6 +229,18 @@ def test_mark_equipment_ready_rejects_selected_failure(tmp_path: Path) -> None:
 
     assert messages
     assert messages[0].endswith("disconnected equipment: FSV40")
+    assert not runner.is_running
+
+
+def test_mark_equipment_ready_rejects_unknown_only_state(tmp_path: Path) -> None:
+    messages: list[str] = []
+    runner = Runner(client=object(), commands=object(), temp_dir=tmp_path / "temp")
+    runner.events.error.connect(messages.append)
+
+    runner.mark_equipment_ready({"Extra Device": True})
+
+    assert messages
+    assert messages[0].endswith("equipment_state is not ready")
     assert not runner.is_running
 
 

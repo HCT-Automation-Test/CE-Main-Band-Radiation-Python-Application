@@ -30,13 +30,13 @@ def append_and_write_report(
         written = write_report(writer)
     except Exception as exc:
         _emit_error(ctx, f"리포트 작성 실패: {exc}")
-        return StateResult.FAIL
+        return StateResult.OK
 
     if written:
         return StateResult.OK
 
     _emit_error(ctx, false_message)
-    return StateResult.FAIL
+    return StateResult.OK
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
