@@ -80,15 +80,20 @@ def _make_settings(tmp_path: Path, *, connection_waiting_time_sec: int) -> TestR
     )
 
 
+def _connect_mt8000a(ctx: SessionContext) -> SessionContext:
+    ctx.equipment_state = {"MT8000A": True}
+    return ctx
+
+
 def test_nr_call_connect_calls_setup_mt8000_with_current_case_params() -> None:
     commands = _Commands(connected=True)
     client = object()
-    ctx = SessionContext(
+    ctx = _connect_mt8000a(SessionContext(
         queue=[_make_case()],
         commands=commands,
         events=_Events(),  # type: ignore[arg-type]
         client=client,
-    )
+    ))
 
     result = NRCallConnectState().run(ctx)
 
@@ -114,13 +119,13 @@ def test_nr_call_connect_uses_settings_connection_waiting_time(
 ) -> None:
     commands = _Commands(connected=True)
     client = object()
-    ctx = SessionContext(
+    ctx = _connect_mt8000a(SessionContext(
         queue=[_make_case()],
         commands=commands,
         events=_Events(),  # type: ignore[arg-type]
         client=client,
         settings=_make_settings(tmp_path, connection_waiting_time_sec=7),
-    )
+    ))
 
     result = NRCallConnectState().run(ctx)
 
@@ -131,11 +136,11 @@ def test_nr_call_connect_uses_settings_connection_waiting_time(
 def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
     commands = _Commands(connected=True)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_mt8000a(SessionContext(
         queue=[_make_case()],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ))
     ctx.equipment_state = {"MT8000A": False}
     state = NRCallConnectState()
 
@@ -150,11 +155,11 @@ def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
 def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
     commands = _Commands(connected=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_mt8000a(SessionContext(
         queue=[_make_case()],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ))
     state = NRCallConnectState()
 
     result = state.run(ctx)
@@ -169,11 +174,11 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
 def test_nr_call_connect_returns_fail_and_emits_error_on_exception() -> None:
     commands = _Commands(connected=True, exception=RuntimeError("instrument timeout"))
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_mt8000a(SessionContext(
         queue=[_make_case()],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ))
     state = NRCallConnectState()
 
     result = state.run(ctx)

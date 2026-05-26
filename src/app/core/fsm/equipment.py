@@ -15,8 +15,6 @@ KNOWN_EQUIPMENT_NAMES = frozenset(REQUIRED_EQUIPMENT_NAMES)
 def is_equipment_connected(ctx: "SessionContext", equipment_name: str) -> bool:
     """선택 연결된 known 장비가 현재 사용 가능한지 확인한다."""
 
-    if not ctx.equipment_state:
-        return True
     if equipment_name not in KNOWN_EQUIPMENT_NAMES:
         return False
     return bool(ctx.equipment_state.get(equipment_name))

@@ -146,6 +146,7 @@ def _make_ctx(
         current_angle=current_angle,
         settings=settings,
     )
+    ctx.equipment_state = {"CO3000": True}
     return ctx, events
 
 
@@ -484,8 +485,26 @@ def test_rotate_skips_when_co3000_is_not_connected() -> None:
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "MeasureHarmonics"
     assert commands.rotate_calls == []
+    assert ctx.current_angle == 0.0
+    assert events.turntable_info_changed.values == []
+    assert events.error.values
+
+
+def test_rotate_skip_keeps_360_degree_angle_when_co3000_is_not_connected() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=360.0)
+    ctx.equipment_state = {"CO3000": False}
+    state = RotateTurntableState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureHarmonics"
+    assert commands.rotate_calls == []
     assert ctx.current_angle == 360.0
-    assert events.turntable_info_changed.values == [{"current_angle": 360.0}]
+    assert events.turntable_info_changed.values == []
     assert events.error.values
 
 

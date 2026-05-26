@@ -180,7 +180,7 @@ def _make_ctx(
     model_name: str = "SM-000",
     screenshot_root_dir: Path | None = None,
 ) -> SessionContext:
-    return SessionContext(
+    ctx = SessionContext(
         queue=[case or _make_case(test_type)],
         commands=commands or _Commands(),
         events=events,  # type: ignore[arg-type]
@@ -190,6 +190,9 @@ def _make_ctx(
         model_name=model_name,
         screenshot_root_dir=screenshot_root_dir or temp_dir,
     )
+    if test_type is MeasurementTestType.HARMONIC:
+        ctx.equipment_state = {"FSV40": True}
+    return ctx
 
 
 def _prepare_harmonic_measurement(

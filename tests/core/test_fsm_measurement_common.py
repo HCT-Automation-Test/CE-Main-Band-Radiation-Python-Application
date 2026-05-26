@@ -121,6 +121,11 @@ def _make_settings(
     )
 
 
+def _connect_equipment(ctx: SessionContext, *names: str) -> SessionContext:
+    ctx.equipment_state = {name: True for name in names}
+    return ctx
+
+
 @pytest.fixture(autouse=True)
 def _skip_default_saturation_wait(monkeypatch: pytest.MonkeyPatch) -> None:
     """settings가 없는 기존 state 단위 테스트는 fallback 대기를 생략한다."""
@@ -132,7 +137,7 @@ def test_setup_spectrum_analyzer_startup_level_uses_settings(
 ) -> None:
     commands = _Commands()
     client = object()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=_Events(),  # type: ignore[arg-type]
@@ -142,7 +147,7 @@ def test_setup_spectrum_analyzer_startup_level_uses_settings(
             atten_level_db=2.5,
             next_peak_search_level_db=-18.5,
         ),
-    )
+    ), "FSV40")
 
     result = SetupSpectrumAnalyzerStartupLevelState().run(ctx)
 
@@ -163,12 +168,12 @@ def test_setup_spectrum_analyzer_startup_level_skips_when_fsv40_is_not_connected
 ) -> None:
     commands = _Commands()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         settings=_make_settings(tmp_path),
-    )
+    ), "FSV40")
     ctx.equipment_state = {"FSV40": False}
     state = SetupSpectrumAnalyzerStartupLevelState()
 
@@ -185,12 +190,12 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_false_result(
 ) -> None:
     commands = _Commands(startup_level_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         settings=_make_settings(tmp_path),
-    )
+    ), "FSV40")
     state = SetupSpectrumAnalyzerStartupLevelState()
 
     result = state.run(ctx)
@@ -208,12 +213,12 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_exception(
 ) -> None:
     commands = _Commands(startup_level_exception=RuntimeError("instrument timeout"))
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         settings=_make_settings(tmp_path),
-    )
+    ), "FSV40")
     state = SetupSpectrumAnalyzerStartupLevelState()
 
     result = state.run(ctx)
@@ -261,12 +266,12 @@ def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
     commands = _Commands()
     client = object()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
-    )
+    ), "Switch Box")
 
     result = SetSwitchBoxState().run(ctx)
 
@@ -305,14 +310,32 @@ def test_set_switch_box_skips_when_switch_box_is_not_connected() -> None:
     assert events.error.messages
 
 
-def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
-    commands = _Commands(switch_box_configured=False)
+def test_set_switch_box_skips_when_equipment_state_is_empty_after_disconnect() -> None:
+    commands = _Commands()
     events = _Events()
     ctx = SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
     )
+    state = SetSwitchBoxState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
+    assert commands.switch_box_calls == []
+    assert events.error.messages
+
+
+def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
+    commands = _Commands(switch_box_configured=False)
+    events = _Events()
+    ctx = _connect_equipment(SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    ), "Switch Box")
 
     result = ResetSwitchBoxState().run(ctx)
 
@@ -323,11 +346,11 @@ def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
 def test_reset_switch_box_does_not_emit_info_on_exception() -> None:
     commands = _Commands(switch_box_exception=RuntimeError("instrument timeout"))
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     state = ResetSwitchBoxState()
 
     result = state.run(ctx)
@@ -344,12 +367,12 @@ def test_set_switch_box_resolves_brf_filter_path_by_band() -> None:
     commands = _Commands()
     client = object()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.INBAND)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
-    )
+    ), "Switch Box")
 
     result = SetSwitchBoxState().run(ctx)
 
@@ -371,11 +394,11 @@ def test_set_switch_box_resolves_brf_filter_path_by_band() -> None:
 def test_set_switch_box_returns_fail_and_stops_on_false_result() -> None:
     commands = _Commands(switch_box_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     state = SetSwitchBoxState()
 
     result = state.run(ctx)
@@ -390,11 +413,11 @@ def test_set_switch_box_returns_fail_and_stops_on_false_result() -> None:
 def test_set_switch_box_does_not_emit_info_on_false_result() -> None:
     commands = _Commands(switch_box_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
 
     result = SetSwitchBoxState().run(ctx)
 
@@ -405,11 +428,11 @@ def test_set_switch_box_does_not_emit_info_on_false_result() -> None:
 def test_set_switch_box_does_not_emit_info_on_exception() -> None:
     commands = _Commands(switch_box_exception=RuntimeError("instrument timeout"))
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     state = SetSwitchBoxState()
 
     result = state.run(ctx)
@@ -427,12 +450,12 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[case],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
-    )
+    ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
@@ -460,11 +483,11 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
 def test_setup_spectrum_analyzer_skips_when_fsv40_is_not_connected() -> None:
     commands = _Commands()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     ctx.equipment_state = {"FSV40": False}
     state = SetupSpectrumAnalyzerState()
 
@@ -484,14 +507,14 @@ def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[case],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
         settings=_make_settings(tmp_path, saturation_time_sec=1.0),
         stopped=True,
-    )
+    ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 
     result = state.run(ctx)
@@ -504,11 +527,11 @@ def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
 def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 
     result = state.run(ctx)
@@ -523,11 +546,11 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
 def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
@@ -538,11 +561,11 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
 def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
     commands = _Commands(sa_exception=RuntimeError("instrument timeout"))
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 
     result = state.run(ctx)
@@ -559,12 +582,12 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
     commands = _Commands()
     client = object()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
-    )
+    ), "Switch Box")
 
     result = ResetSwitchBoxState().run(ctx)
 
@@ -586,11 +609,11 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
 def test_reset_switch_box_skips_when_switch_box_is_not_connected() -> None:
     commands = _Commands()
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     ctx.equipment_state = {"Switch Box": False}
     state = ResetSwitchBoxState()
 
@@ -606,11 +629,11 @@ def test_reset_switch_box_skips_when_switch_box_is_not_connected() -> None:
 def test_reset_switch_box_returns_fail_and_stops_on_false_result() -> None:
     commands = _Commands(switch_box_configured=False)
     events = _Events()
-    ctx = SessionContext(
+    ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
-    )
+    ), "Switch Box")
     state = ResetSwitchBoxState()
 
     result = state.run(ctx)

@@ -121,6 +121,11 @@ def _make_ctx(
         client=client,
         current_index=current_index,
     )
+    ctx.equipment_state = {
+        "CO3000": True,
+        "3D Controller": True,
+        "MT8000A": True,
+    }
     return ctx, command_facade, events, client
 
 

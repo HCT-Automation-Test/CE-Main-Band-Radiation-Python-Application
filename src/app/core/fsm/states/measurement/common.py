@@ -286,8 +286,6 @@ class RotateTurntableState(State):
         self._target_angle = 360.0 if ctx.current_angle == 0 else 0.0
         if not is_equipment_connected(ctx, "CO3000"):
             _emit_error(ctx, "Turntable 회전 스킵: CO3000이 연결되어 있지 않습니다.")
-            ctx.current_angle = self._target_angle
-            _emit_turntable_info(ctx, {"current_angle": self._target_angle})
             return StateResult.OK
 
         try:
