@@ -7,6 +7,9 @@ import pytest
 
 from app.core import instrument_set
 from app.core.instrument_connection import (
+    CO3000_SET_REFERENCE_STEP_MESSAGE,
+    CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE,
+    FSV40_SELF_ALIGNMENT_STEP_MESSAGE,
     InstrumentConnectionService,
     _DETACHED_THREADS,
     build_equipment_connection_config,
@@ -15,6 +18,7 @@ from app.core.instrument_connection import (
     discover_visa_resources,
     is_required_equipment_ready,
 )
+from app.models.enums import AntennaPol, InputPath
 
 
 class _Client:
@@ -142,13 +146,32 @@ class _EquipmentSetCommands:
     def __init__(self) -> None:
         self.calls: list[str] = []
         self.co3000_called = threading.Event()
+        self.controller_3d_ant_pol_called = threading.Event()
         self.fsv40_called = threading.Event()
+        self.ant_pol_results: dict[InputPath, bool] = {}
 
     def set_reference_co3000(self, client: Any) -> bool:
         _ = client
         self.calls.append("CO3000 Set Reference")
         self.co3000_called.set()
         return True
+
+    def set_antenna_pol(
+        self,
+        client: Any,
+        *,
+        pol: AntennaPol,
+        input_path: InputPath,
+    ) -> bool:
+        _ = client
+        if input_path is InputPath.INPUT1:
+            self.calls.append(f"CO3000 Ant Pol {pol.value}")
+        elif input_path is InputPath.INPUT3:
+            self.calls.append(f"3D Controller Ant Pol {pol.value}")
+            self.controller_3d_ant_pol_called.set()
+        else:
+            self.calls.append(f"Ant Pol {input_path.value} {pol.value}")
+        return self.ant_pol_results.get(input_path, True)
 
     def self_align_fsv40(self, client: Any) -> bool:
         _ = client
@@ -476,7 +499,7 @@ def test_instrument_connection_service_sets_equipment_in_sequence(qtbot) -> None
 
         assert service.is_setting
         assert commands.calls == ["CO3000 Set Reference"]
-        assert steps == ["CO3000 Set Reference 진행 중"]
+        assert steps == [CO3000_SET_REFERENCE_STEP_MESSAGE]
 
         qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
         client.event_received.emit(
@@ -485,15 +508,18 @@ def test_instrument_connection_service_sets_equipment_in_sequence(qtbot) -> None
                 command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
             )
         )
+        qtbot.waitUntil(commands.controller_3d_ant_pol_called.is_set, timeout=1000)
         qtbot.waitUntil(commands.fsv40_called.is_set, timeout=1000)
 
         assert commands.calls == [
             "CO3000 Set Reference",
+            "3D Controller Ant Pol V",
             "FSV40 Self Alignment",
         ]
         assert steps == [
-            "CO3000 Set Reference 진행 중",
-            "FSV40 Self Alignment 진행 중",
+            CO3000_SET_REFERENCE_STEP_MESSAGE,
+            CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE,
+            FSV40_SELF_ALIGNMENT_STEP_MESSAGE,
         ]
 
         qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
@@ -554,6 +580,7 @@ def test_instrument_connection_service_uses_buffered_set_complete_events(
 
     assert commands.calls == [
         "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
         "FSV40 Self Alignment",
     ]
     assert client.pop_calls >= 2
@@ -601,6 +628,7 @@ def test_instrument_connection_service_discards_stale_set_complete_events(
 
     assert commands.calls == [
         "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
         "FSV40 Self Alignment",
     ]
 
@@ -681,6 +709,7 @@ def test_instrument_connection_service_rejects_connect_while_setting(qtbot) -> N
     assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
     assert commands.calls == [
         "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
         "FSV40 Self Alignment",
     ]
 
@@ -719,6 +748,7 @@ def test_instrument_connection_service_rejects_duplicate_set(qtbot) -> None:
     assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
     assert commands.calls == [
         "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
         "FSV40 Self Alignment",
     ]
 
@@ -801,8 +831,49 @@ def test_instrument_connection_service_fsv40_timeout_disconnects_equipment(
     assert disconnected == [disconnected_equipment_state()]
     assert commands.calls == [
         "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
         "FSV40 Self Alignment",
     ]
+
+
+def test_instrument_connection_service_stops_when_controller_3d_vertical_fails(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    commands.ant_pol_results[InputPath.INPUT3] = False
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+    disconnected: list[dict[str, bool]] = []
+    service.equipment_disconnected.connect(disconnected.append)
+
+    service.set_equipment(_ready_equipment_state())
+    qtbot.waitUntil(commands.co3000_called.is_set, timeout=1000)
+    qtbot.waitUntil(lambda: client.event_received.slot_count == 1, timeout=1000)
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        client.event_received.emit(
+            _InstrumentSetEvent(
+                target="CO3000",
+                command=instrument_set.COMMAND_SET_REFERENCE_COMPLETE,
+            )
+        )
+        qtbot.waitUntil(commands.controller_3d_ant_pol_called.is_set, timeout=1000)
+
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert blocker.args == [
+        "장비 Set 실패: 3D Controller Ant Pol Vertical returned false"
+    ]
+    assert disconnected == [disconnected_equipment_state()]
+    assert commands.calls == [
+        "CO3000 Set Reference",
+        "3D Controller Ant Pol V",
+    ]
+    assert not commands.fsv40_called.is_set()
 
 
 def test_instrument_connection_service_equipment_error_disconnects_equipment(
