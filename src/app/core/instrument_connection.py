@@ -23,6 +23,7 @@ ConnectionGuard = Callable[[], str | None]
 
 CONNECTION_IN_PROGRESS_MESSAGE = "장비 연결 요청이 이미 진행 중입니다."
 INSTRUMENT_SET_IN_PROGRESS_MESSAGE = "장비 Set 작업이 이미 진행 중입니다."
+NO_EQUIPMENT_SET_TARGET_MESSAGE = "장비 Set 실패: Set 대상 장비가 없습니다."
 CO3000_SET_REFERENCE_STEP_MESSAGE = "CO3000 Set Reference 진행 중"
 CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE = (
     "3D Controller Ant Pol Vertical 진행 중"
@@ -68,7 +69,7 @@ def build_equipment_connection_config(
     co3000_visa_resource: str,
     controller_3d_visa_resource: str,
     switch_box_ip_address: str,
-    switch_box_port: int | str,
+    switch_box_port: int | str | None,
 ) -> EquipmentConnectionConfig:
     """UI 입력값을 장비 연결 command 설정으로 변환한다."""
 
@@ -78,7 +79,7 @@ def build_equipment_connection_config(
         co3000_visa_resource=co3000_visa_resource.strip(),
         controller_3d_visa_resource=controller_3d_visa_resource.strip(),
         switch_box_ip_address=switch_box_ip_address.strip(),
-        switch_box_port=int(switch_box_port),
+        switch_box_port=None if switch_box_port in (None, "") else int(switch_box_port),
     )
 
 
@@ -116,6 +117,12 @@ def is_required_equipment_ready(states: dict[str, Any]) -> bool:
         and not missing_required_equipment(states)
         and not disconnected_required_equipment(states)
     )
+
+
+def is_selected_equipment_ready(states: dict[str, Any]) -> bool:
+    """선택되어 응답한 장비가 하나 이상 있고 모두 연결 성공인지 반환한다."""
+
+    return bool(states) and all(bool(value) for value in states.values())
 
 
 def describe_equipment_not_ready(states: dict[str, Any]) -> str:
@@ -296,6 +303,7 @@ class _EquipmentSetWorker(QObject):
         tcp_host: str,
         tcp_port: int,
         timeout_s: float,
+        equipment_state: dict[str, bool],
     ) -> None:
         super().__init__()
         self._client_factory = client_factory
@@ -304,6 +312,7 @@ class _EquipmentSetWorker(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._timeout_s = timeout_s
+        self._equipment_state = normalize_equipment_state(equipment_state)
         self._lock = threading.Lock()
         self._client: Any | None = None
         self._cancel_requested = False
@@ -335,11 +344,22 @@ class _EquipmentSetWorker(QObject):
             if self._is_cancel_requested():
                 return
 
-            if not self._set_reference_co3000(client):
-                return
-            if not self._set_controller_3d_ant_pol_vertical(client):
-                return
-            if not self._self_align_fsv40(client):
+            ran_step = False
+            if self._equipment_state.get("CO3000"):
+                ran_step = True
+                if not self._set_reference_co3000(client):
+                    return
+            if self._equipment_state.get("3D Controller"):
+                ran_step = True
+                if not self._set_controller_3d_ant_pol_vertical(client):
+                    return
+            if self._equipment_state.get("FSV40"):
+                ran_step = True
+                if not self._self_align_fsv40(client):
+                    return
+
+            if not ran_step:
+                self.failed.emit(NO_EQUIPMENT_SET_TARGET_MESSAGE)
                 return
 
             self.finished.emit()
@@ -617,7 +637,7 @@ class InstrumentConnectionService(QObject):
                 self._emit_set_failed(block_reason)
                 return
 
-        if not is_required_equipment_ready(equipment_state):
+        if not is_selected_equipment_ready(equipment_state):
             self._emit_set_failed(
                 "장비 Set 실패: " + describe_equipment_not_ready(equipment_state)
             )
@@ -631,6 +651,7 @@ class InstrumentConnectionService(QObject):
             tcp_host=self._tcp_host,
             tcp_port=self._tcp_port,
             timeout_s=self._instrument_set_timeout_s,
+            equipment_state=equipment_state,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -733,7 +754,8 @@ class InstrumentConnectionService(QObject):
     def _on_set_failed(self, message: str) -> None:
         if not self._shutting_down:
             self._emit_set_failed(message)
-            self.equipment_disconnected.emit(disconnected_equipment_state())
+            if message != NO_EQUIPMENT_SET_TARGET_MESSAGE:
+                self.equipment_disconnected.emit(disconnected_equipment_state())
 
     def _emit_set_failed(self, message: str) -> None:
         if not self._shutting_down:

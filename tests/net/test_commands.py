@@ -94,6 +94,44 @@ def test_connect_equipment_without_params_keeps_empty_param_compatibility() -> N
     ]
 
 
+def test_connect_equipment_with_config_sends_only_selected_visa_targets() -> None:
+    client = _Client(_default_ok(), _default_ok())
+    config = commands.EquipmentConnectionConfig(
+        fsv40_visa_resource="TCPIP0::192.168.0.2::inst0::INSTR",
+        mt8000a_visa_resource="",
+        co3000_visa_resource="ASRL1::INSTR",
+        controller_3d_visa_resource="",
+        switch_box_ip_address="",
+        switch_box_port=None,
+    )
+
+    assert commands.connect_equipment(client, config=config) == {
+        "FSV40": True,
+        "CO3000": True,
+    }
+    assert client.calls == [
+        ("FSV40", "Connect", {"VISA Resource": "TCPIP0::192.168.0.2::inst0::INSTR"}),
+        ("CO3000", "Connect", {"VISA Resource": "ASRL1::INSTR"}),
+    ]
+
+
+def test_connect_equipment_with_config_sends_switch_box_only_when_complete() -> None:
+    client = _Client(_default_ok())
+    config = commands.EquipmentConnectionConfig(
+        fsv40_visa_resource="",
+        mt8000a_visa_resource="",
+        co3000_visa_resource="",
+        controller_3d_visa_resource="",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+
+    assert commands.connect_equipment(client, config=config) == {"Switch Box": True}
+    assert client.calls == [
+        ("Switch Box", "Connect", {"ip address": "192.168.0.10", "port": 5000}),
+    ]
+
+
 def test_connect_equipment_raises_when_target_connect_returns_error() -> None:
     client = _Client(
         _default_ok(),

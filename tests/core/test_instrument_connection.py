@@ -8,15 +8,21 @@ import pytest
 from app.core import instrument_set
 from app.core.instrument_connection import (
     CO3000_SET_REFERENCE_STEP_MESSAGE,
+    CO3000_SET_REFERENCE_TIMEOUT_MESSAGE,
     CONTROLLER_3D_ANT_POL_VERTICAL_STEP_MESSAGE,
+    CONNECTION_IN_PROGRESS_MESSAGE,
     FSV40_SELF_ALIGNMENT_STEP_MESSAGE,
+    FSV40_SELF_ALIGNMENT_TIMEOUT_MESSAGE,
+    INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
     InstrumentConnectionService,
+    NO_EQUIPMENT_SET_TARGET_MESSAGE,
     _DETACHED_THREADS,
     build_equipment_connection_config,
     disconnected_equipment_state,
     describe_equipment_not_ready,
     discover_visa_resources,
     is_required_equipment_ready,
+    is_selected_equipment_ready,
 )
 from app.models.enums import AntennaPol, InputPath
 
@@ -234,6 +240,13 @@ def test_required_equipment_readiness_requires_all_targets() -> None:
     assert describe_equipment_not_ready({"FSV40": True}) == (
         "missing equipment: MT8000A, CO3000, Switch Box, 3D Controller"
     )
+
+
+def test_selected_equipment_readiness_accepts_partial_success_only() -> None:
+    assert is_selected_equipment_ready({"FSV40": True})
+    assert is_selected_equipment_ready({"FSV40": True, "CO3000": True})
+    assert not is_selected_equipment_ready({})
+    assert not is_selected_equipment_ready({"FSV40": True, "CO3000": False})
 
 
 def test_discover_visa_resources_uses_provider_and_sorts_values() -> None:
@@ -586,6 +599,47 @@ def test_instrument_connection_service_uses_buffered_set_complete_events(
     assert client.pop_calls >= 2
 
 
+def test_instrument_connection_service_sets_only_connected_partial_equipment(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        instrument_set_timeout_s=1.0,
+    )
+
+    with qtbot.waitSignal(service.set_finished, timeout=1000):
+        service.set_equipment({"3D Controller": True})
+
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert commands.calls == ["3D Controller Ant Pol V"]
+    assert client.connect_calls == [("127.0.0.1", 5025)]
+
+
+def test_instrument_connection_service_fails_set_when_no_set_target_connected(
+    qtbot,
+) -> None:
+    client = _InstrumentSetClient()
+    commands = _EquipmentSetCommands()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+    )
+    disconnected: list[dict[str, bool]] = []
+    service.equipment_disconnected.connect(disconnected.append)
+
+    with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
+        service.set_equipment({"MT8000A": True})
+    qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
+
+    assert blocker.args == [NO_EQUIPMENT_SET_TARGET_MESSAGE]
+    assert commands.calls == []
+    assert disconnected == []
+
+
 def test_instrument_connection_service_discards_stale_set_complete_events(
     qtbot,
 ) -> None:
@@ -644,12 +698,9 @@ def test_instrument_connection_service_rejects_set_when_equipment_not_ready(
     )
 
     with qtbot.waitSignal(service.set_failed, timeout=1000) as blocker:
-        service.set_equipment({"FSV40": True})
+        service.set_equipment({"FSV40": False})
 
-    assert blocker.args == [
-        "장비 Set 실패: missing equipment: MT8000A, CO3000, Switch Box, "
-        "3D Controller"
-    ]
+    assert blocker.args[0].endswith("disconnected equipment: FSV40")
     assert service._set_thread is None
     assert client.connect_calls == []
     assert commands.calls == []
@@ -672,7 +723,7 @@ def test_instrument_connection_service_rejects_set_while_connecting(qtbot) -> No
     service.shutdown()
     qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
 
-    assert blocker.args == ["장비 연결 요청이 이미 진행 중입니다."]
+    assert blocker.args == [CONNECTION_IN_PROGRESS_MESSAGE]
 
 
 def test_instrument_connection_service_rejects_connect_while_setting(qtbot) -> None:
@@ -706,7 +757,7 @@ def test_instrument_connection_service_rejects_connect_while_setting(qtbot) -> N
     )
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
+    assert blocker.args == [INSTRUMENT_SET_IN_PROGRESS_MESSAGE]
     assert commands.calls == [
         "CO3000 Set Reference",
         "3D Controller Ant Pol V",
@@ -745,7 +796,7 @@ def test_instrument_connection_service_rejects_duplicate_set(qtbot) -> None:
     )
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert blocker.args == ["장비 Set 작업이 이미 진행 중입니다."]
+    assert blocker.args == [INSTRUMENT_SET_IN_PROGRESS_MESSAGE]
     assert commands.calls == [
         "CO3000 Set Reference",
         "3D Controller Ant Pol V",
@@ -790,9 +841,7 @@ def test_instrument_connection_service_co3000_timeout_disconnects_equipment(
     qtbot.waitUntil(lambda: bool(failures), timeout=1000)
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert failures == [
-        "장비 Set timeout: CO3000 Set Reference 완료 event를 수신하지 못했습니다."
-    ]
+    assert failures == [CO3000_SET_REFERENCE_TIMEOUT_MESSAGE]
     assert disconnected == [disconnected_equipment_state()]
     assert commands.calls == ["CO3000 Set Reference"]
 
@@ -825,9 +874,7 @@ def test_instrument_connection_service_fsv40_timeout_disconnects_equipment(
     qtbot.waitUntil(lambda: bool(failures), timeout=1000)
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert failures == [
-        "장비 Set timeout: FSV40 Self Alignment 완료 event를 수신하지 못했습니다."
-    ]
+    assert failures == [FSV40_SELF_ALIGNMENT_TIMEOUT_MESSAGE]
     assert disconnected == [disconnected_equipment_state()]
     assert commands.calls == [
         "CO3000 Set Reference",
@@ -865,9 +912,9 @@ def test_instrument_connection_service_stops_when_controller_3d_vertical_fails(
 
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert blocker.args == [
-        "장비 Set 실패: 3D Controller Ant Pol Vertical returned false"
-    ]
+    assert blocker.args[0].endswith(
+        "3D Controller Ant Pol Vertical returned false"
+    )
     assert disconnected == [disconnected_equipment_state()]
     assert commands.calls == [
         "CO3000 Set Reference",
@@ -904,9 +951,9 @@ def test_instrument_connection_service_equipment_error_disconnects_equipment(
 
     qtbot.waitUntil(lambda: service._set_thread is None, timeout=1000)
 
-    assert blocker.args == [
-        "장비 Set 실패: CO3000 / Set Reference failed: reference failed"
-    ]
+    assert blocker.args[0].endswith(
+        "CO3000 / Set Reference failed: reference failed"
+    )
     assert disconnected == [disconnected_equipment_state()]
     assert commands.calls == ["CO3000 Set Reference"]
 

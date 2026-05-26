@@ -25,7 +25,7 @@ from app.core.instrument_connection import (
     InstrumentConnectionService,
     build_equipment_connection_config,
     describe_equipment_not_ready,
-    is_required_equipment_ready,
+    is_selected_equipment_ready,
     normalize_equipment_state,
     should_preserve_equipment_state_on_connection_error,
 )
@@ -312,7 +312,7 @@ class InstrumentCheckPanel(QWidget):
     def is_fully_connected(self) -> bool:
         """모든 장비가 연결 완료 상태인지 반환한다."""
 
-        return is_required_equipment_ready(self._equipment_state)
+        return is_selected_equipment_ready(self._equipment_state)
 
     @property
     def is_connecting(self) -> bool:
@@ -439,7 +439,7 @@ class InstrumentCheckPanel(QWidget):
             self._show_warning(self._connection_block_reason)
             return
 
-        if not self.is_fully_connected:
+        if not self.is_fully_connected or not self._has_connected_set_target():
             self._show_warning("Instrument Check 연결을 먼저 완료하세요.")
             return
 
@@ -476,8 +476,14 @@ class InstrumentCheckPanel(QWidget):
         self._equipment_state = {}
         self._connection_in_progress = True
         self._update_action_buttons_enabled()
+        selected_keys = self._selected_status_keys_from_config(
+            self._last_connection_config
+        )
         for _, key in _STATUS_KEYS:
-            self._set_status(key, "connecting")
+            self._set_status(
+                key,
+                "connecting" if key in selected_keys else "not_connected",
+            )
 
     def on_connection_finished(self, states: dict[str, bool]) -> None:
         """장비별 연결 결과를 표시한다."""
@@ -486,7 +492,10 @@ class InstrumentCheckPanel(QWidget):
         self._connection_in_progress = False
         self._equipment_state = normalize_equipment_state(states)
         for target, key in _RESULT_KEY_TO_STATUS_KEY.items():
-            self._set_status(key, "connected" if states.get(target) else "failed")
+            if target in states:
+                self._set_status(key, "connected" if states.get(target) else "failed")
+            else:
+                self._set_status(key, "not_connected")
         self._update_action_buttons_enabled()
         if self.is_fully_connected:
             self.connection_succeeded.emit(
@@ -515,7 +524,11 @@ class InstrumentCheckPanel(QWidget):
             for label in self._status_labels.values()
         ):
             for _, key in _STATUS_KEYS:
-                self._set_status(key, "failed")
+                if (
+                    self._status_labels[key].property("connectionStatus")
+                    == "connecting"
+                ):
+                    self._set_status(key, "failed")
         self._update_action_buttons_enabled()
         self.connection_failed.emit(message)
         self._show_warning(message)
@@ -577,19 +590,25 @@ class InstrumentCheckPanel(QWidget):
         self._update_action_buttons_enabled()
 
     def _build_config_or_warn(self) -> EquipmentConnectionConfig | None:
-        missing = self._missing_fields()
-        if missing:
-            self._show_warning(
-                "연결 정보를 입력하세요.\n- " + "\n- ".join(missing),
-            )
+        switch_box_ip_text = self._switch_box_ip_edit.text().strip()
+        switch_box_port_text = self._switch_box_port_edit.text().strip()
+        if bool(switch_box_ip_text) != bool(switch_box_port_text):
+            self._show_warning("Switch Box IP와 Port를 모두 입력하거나 모두 비워두세요.")
             return None
 
-        switch_box_ip = self._validated_switch_box_ip_or_warn()
-        if switch_box_ip is None:
-            return None
+        switch_box_ip = ""
+        switch_box_port: int | None = None
+        if switch_box_ip_text and switch_box_port_text:
+            switch_box_ip = self._validated_switch_box_ip_or_warn()
+            if switch_box_ip is None:
+                return None
 
-        switch_box_port = self._validated_switch_box_port_or_warn()
-        if switch_box_port is None:
+            switch_box_port = self._validated_switch_box_port_or_warn()
+            if switch_box_port is None:
+                return None
+
+        if not self._has_selected_equipment(switch_box_ip, switch_box_port):
+            self._show_warning("Connect할 장비를 하나 이상 선택하세요.")
             return None
 
         try:
@@ -607,22 +626,40 @@ class InstrumentCheckPanel(QWidget):
             )
             return None
 
-    def _missing_fields(self) -> list[str]:
-        missing = []
-        labels = {
-            "mt8000a": "MT8000A VISA Resource",
-            "fsv40": "FSV40 VISA Resource",
-            "co3000": "CO3000 VISA Resource",
-            "controller_3d": "3D Controller VISA Resource",
-        }
-        for key, label in labels.items():
-            if not self._combo_text(key):
-                missing.append(label)
-        if not self._switch_box_ip_edit.text().strip():
-            missing.append("Switch Box IP")
-        if not self._switch_box_port_edit.text().strip():
-            missing.append("Switch Box Port")
-        return missing
+    def _has_selected_equipment(
+        self,
+        switch_box_ip: str,
+        switch_box_port: int | None,
+    ) -> bool:
+        return any(
+            self._combo_text(key)
+            for key in ("mt8000a", "fsv40", "co3000", "controller_3d")
+        ) or (bool(switch_box_ip) and switch_box_port is not None)
+
+    def _selected_status_keys_from_config(
+        self,
+        config: EquipmentConnectionConfig | None,
+    ) -> set[str]:
+        if config is None:
+            return {key for _, key in _STATUS_KEYS}
+        selected: set[str] = set()
+        if config.mt8000a_visa_resource.strip():
+            selected.add("mt8000a")
+        if config.fsv40_visa_resource.strip():
+            selected.add("fsv40")
+        if config.co3000_visa_resource.strip():
+            selected.add("co3000")
+        if config.controller_3d_visa_resource.strip():
+            selected.add("controller_3d")
+        if config.switch_box_ip_address.strip() and config.switch_box_port is not None:
+            selected.add("switch_box")
+        return selected
+
+    def _has_connected_set_target(self) -> bool:
+        return any(
+            self._equipment_state.get(target)
+            for target in ("FSV40", "CO3000", "3D Controller")
+        )
 
     def _validated_switch_box_ip_or_warn(self) -> str | None:
         value = self._switch_box_ip_edit.text().strip()
@@ -677,6 +714,7 @@ class InstrumentCheckPanel(QWidget):
             and not self._set_in_progress
             and self._connection_block_reason is None
             and self.is_fully_connected
+            and self._has_connected_set_target()
         )
         self._set_button.setEnabled(enabled)
         self._set_button.setToolTip(self._connection_block_reason or "")

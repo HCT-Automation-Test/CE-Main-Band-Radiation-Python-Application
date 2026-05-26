@@ -13,7 +13,7 @@ from app.core.fsm.engine import FSMEngine, build_session_engine
 from app.core.instrument_connection import (
     InstrumentConnectionService,
     describe_equipment_not_ready,
-    is_required_equipment_ready,
+    is_selected_equipment_ready,
     normalize_equipment_state,
     should_preserve_equipment_state_on_connection_error,
 )
@@ -167,7 +167,7 @@ class Runner(QObject):
     def is_equipment_ready(self) -> bool:
         """모든 장비가 연결 완료 상태인지 반환한다."""
 
-        return is_required_equipment_ready(self._equipment_state)
+        return is_selected_equipment_ready(self._equipment_state)
 
     @property
     def is_measurement_active(self) -> bool:

@@ -56,7 +56,7 @@ class EquipmentConnectionConfig:
     co3000_visa_resource: str
     controller_3d_visa_resource: str
     switch_box_ip_address: str
-    switch_box_port: int
+    switch_box_port: int | None
 
 
 def _normalize_modulation(modulation: Modulation | str) -> str:
@@ -132,6 +132,26 @@ def _build_connect_params(
     return {}
 
 
+def _selected_connect_targets(
+    config: EquipmentConnectionConfig | None,
+) -> tuple[str, ...]:
+    if config is None:
+        return _CONNECT_TARGETS
+
+    targets: list[str] = []
+    if config.fsv40_visa_resource.strip():
+        targets.append(_TARGET_FSV40)
+    if config.mt8000a_visa_resource.strip():
+        targets.append(_TARGET_MT8000A)
+    if config.co3000_visa_resource.strip():
+        targets.append(_TARGET_CO3000)
+    if config.switch_box_ip_address.strip() and config.switch_box_port is not None:
+        targets.append(_TARGET_SWITCH_BOX)
+    if config.controller_3d_visa_resource.strip():
+        targets.append(_TARGET_3D_CONTROLLER)
+    return tuple(targets)
+
+
 def connect_equipment(
     client: Any,
     *,
@@ -139,7 +159,7 @@ def connect_equipment(
 ) -> dict[str, bool]:
     """LabVIEW 프로그램을 통해 장비 연결/상태 확인을 수행한다."""
     states: dict[str, bool] = {}
-    for target in _CONNECT_TARGETS:
+    for target in _selected_connect_targets(config):
         params = _build_connect_params(config, target)
         response = _send_request(client, target, _COMMAND_CONNECT, params)
         states[target] = _action_ok(response, target, _COMMAND_CONNECT)

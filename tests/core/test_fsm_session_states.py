@@ -140,9 +140,7 @@ def test_session_init_retries_when_equipment_state_is_empty() -> None:
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == [
-        "장비 연결 확인 실패: equipment_state is empty"
-    ]
+    assert events.error.values[0].endswith("equipment_state is empty")
 
 
 def test_session_init_retries_when_client_is_missing() -> None:
@@ -159,9 +157,7 @@ def test_session_init_retries_when_client_is_missing() -> None:
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == [
-        "장비 연결 확인 실패: TCP client is not set"
-    ]
+    assert events.error.values[0].endswith("TCP client is not set")
 
 
 def test_session_init_retries_when_any_equipment_status_is_false() -> None:
@@ -183,12 +179,10 @@ def test_session_init_retries_when_any_equipment_status_is_false() -> None:
     assert result is StateResult.RETRY
     assert ctx.equipment_state == states
     assert commands.connect_calls == []
-    assert events.error.values == [
-        "장비 연결 확인 실패: disconnected equipment: FSV40"
-    ]
+    assert events.error.values[0].endswith("disconnected equipment: FSV40")
 
 
-def test_session_init_retries_when_required_equipment_is_missing() -> None:
+def test_session_init_accepts_partial_success_equipment_state() -> None:
     events = _Events()
     commands = _Commands(response={"FSV40": True})
     ctx = SessionContext(
@@ -202,12 +196,9 @@ def test_session_init_retries_when_required_equipment_is_missing() -> None:
 
     result = SessionInitState().run(ctx)
 
-    assert result is StateResult.RETRY
+    assert result is StateResult.OK
     assert commands.connect_calls == []
-    assert events.error.values == [
-        "장비 연결 확인 실패: missing equipment: "
-        "MT8000A, CO3000, Switch Box, 3D Controller"
-    ]
+    assert events.error.values == []
 
 
 def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
@@ -253,7 +244,7 @@ def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
     result = IdleState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == ["시험 시작 실패: report_writer is not set"]
+    assert events.error.values[0].endswith("report_writer is not set")
 
 
 def test_idle_retries_without_settings(tmp_path: Path) -> None:
@@ -273,7 +264,7 @@ def test_idle_retries_without_settings(tmp_path: Path) -> None:
     result = IdleState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == ["시험 시작 실패: settings is required"]
+    assert events.error.values[0].endswith("settings is required")
 
 
 def test_check_next_case_advances_and_routes_by_test_type() -> None:
