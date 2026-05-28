@@ -398,13 +398,14 @@ def check_call_status(client: Any) -> bool:
     response = _send_request(client, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     result = _result_dict(response, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     ok = _boolean(result, "ok", _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
-    connected = _boolean(
+    if not ok:
+        raise CommandError(f"{_TARGET_MT8000A} / {_COMMAND_CHECK_CALL_STATUS} returned ok=false")
+    return _boolean(
         result,
         "connected",
         _TARGET_MT8000A,
         _COMMAND_CHECK_CALL_STATUS,
     )
-    return ok and connected
 
 
 def set_antenna_pol(client: Any, *, pol: AntennaPol, input_path: InputPath) -> bool:

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
+_USER_ACTION_WAIT_INTERVAL_SEC = 0.1
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -87,11 +88,22 @@ class NRCallDisconnectedState(State):
     name = "NRCallDisconnected"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: ctx.events.user_action_required.emit("비행기 모드 On/Off 후 확인")
-        # TODO(spec): 사용자 확인 대기 메커니즘
-        raise NotImplementedError("spec TODO")
+        ctx.user_action_completed.clear()
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit("비행기 모드 On/Off 후 확인")
+
+        while not ctx.stopped:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"

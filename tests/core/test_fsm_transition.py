@@ -12,6 +12,7 @@ from app.core.fsm.states.transition import (
     AntPolChangeState,
     DUTAxisChangeState,
     HandoverState,
+    RecallChangeState,
     TestTypeChangeState,
 )
 from app.models.enums import (
@@ -144,16 +145,15 @@ def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
 
 
 @pytest.mark.parametrize(
-    ("test_type", "expected"),
+    "test_type",
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
-        (NRTestType.INBAND, "SetSwitchBox"),
-        (NRTestType.BILOG, "SetSwitchBox"),
+        NRTestType.HARMONIC,
+        NRTestType.INBAND,
+        NRTestType.BILOG,
     ],
 )
-def test_ant_pol_change_uses_temporary_measurement_start_route(
+def test_ant_pol_change_uses_harmonic_measurement_route(
     test_type: NRTestType,
-    expected: str,
 ) -> None:
     prev_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.V)
     current_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.H)
@@ -164,7 +164,7 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
     )
     state = AntPolChangeState()
 
-    assert state.next_state(ctx, StateResult.OK) == expected
+    assert state.next_state(ctx, StateResult.OK) == "MeasureFundamental"
     assert state.next_state(ctx, StateResult.FAIL) is None
 
 
@@ -384,6 +384,28 @@ def test_handover_calls_command_with_current_case_params() -> None:
     assert events.error.messages == []
 
 
+@pytest.mark.parametrize(
+    "test_type",
+    [
+        NRTestType.HARMONIC,
+        NRTestType.INBAND,
+        NRTestType.BILOG,
+    ],
+)
+def test_handover_routes_to_harmonic_measurement_start(
+    test_type: NRTestType,
+) -> None:
+    prev_case = _make_case(band=NRBand.N77)
+    current_case = _make_case(band=NRBand.N78, test_type=test_type)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+
+    assert HandoverState().next_state(ctx, StateResult.OK) == "MeasureFundamental"
+
+
 def test_handover_skips_when_mt8000a_is_not_connected() -> None:
     prev_case = _make_case(band=NRBand.N77)
     current_case = _make_case(band=NRBand.N78)
@@ -478,17 +500,67 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
     ]
 
 
+def test_recall_change_emits_user_action_and_waits_for_completion() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = RecallChangeState()
+
+    def complete_action() -> None:
+        time.sleep(0.02)
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=complete_action, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert events.user_action_required.messages == [
+        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
+    ]
+    assert state.next_state(ctx, result) == "NRCallConnect"
+
+
+def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = RecallChangeState()
+
+    def request_stop() -> None:
+        time.sleep(0.02)
+        ctx.stopped = True
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=request_stop, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.user_action_required.messages == [
+        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
+    ]
+    assert state.next_state(ctx, result) is None
+
+
 @pytest.mark.parametrize(
-    ("test_type", "expected"),
+    "test_type",
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
-        (NRTestType.INBAND, "SetSwitchBox"),
-        (NRTestType.BILOG, "SetSwitchBox"),
+        NRTestType.HARMONIC,
+        NRTestType.INBAND,
+        NRTestType.BILOG,
     ],
 )
-def test_test_type_change_checks_call_status_and_routes_to_measurement_start(
+def test_test_type_change_checks_call_status_and_routes_to_harmonic_measurement(
     test_type: NRTestType,
-    expected: str,
 ) -> None:
     ctx, commands, events, client = _make_ctx(_make_case(test_type=test_type))
     state = TestTypeChangeState()
@@ -497,7 +569,7 @@ def test_test_type_change_checks_call_status_and_routes_to_measurement_start(
 
     assert result is StateResult.OK
     assert commands.call_status_calls == [client]
-    assert state.next_state(ctx, result) == expected
+    assert state.next_state(ctx, result) == "MeasureFundamental"
     assert events.error.messages == []
 
 
@@ -524,15 +596,15 @@ def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert commands.call_status_calls == [client]
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
-        "NR Call 상태 확인 실패: check_call_status returned false"
+        "NR Call 끊김 감지: check_call_status returned disconnected"
     ]
 
 
-def test_test_type_change_goes_to_nr_call_disconnected_on_exception() -> None:
+def test_test_type_change_continues_on_exception() -> None:
     command_facade = _Commands(
         call_status_exception=RuntimeError("instrument timeout")
     )

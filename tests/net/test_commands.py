@@ -483,6 +483,23 @@ def test_check_call_status_returns_ok_and_connected() -> None:
     assert client.calls == [("MT8000A", "Check Call Status", {})]
 
 
+def test_check_call_status_returns_false_when_call_is_disconnected() -> None:
+    client = _Client(_ok(ok=True, connected=False))
+
+    assert commands.check_call_status(client) is False
+    assert client.calls == [("MT8000A", "Check Call Status", {})]
+
+
+def test_check_call_status_raises_when_status_check_failed() -> None:
+    client = _Client(_ok(ok=False, connected=False))
+
+    with pytest.raises(
+        commands.CommandError,
+        match="MT8000A / Check Call Status returned ok=false",
+    ):
+        commands.check_call_status(client)
+
+
 def test_set_antenna_pol_routes_by_input_path() -> None:
     co3000_client = _Client(_default_ok())
     controller_client = _Client(_default_ok())

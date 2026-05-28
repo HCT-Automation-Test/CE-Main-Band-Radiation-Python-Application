@@ -72,12 +72,13 @@ def _make_case(
     test_type: TestType = TestType.HARMONIC,
     *,
     band: NRBand = NRBand.N78,
+    bandwidth: float = 100.0,
     antenna_pol: AntennaPol = AntennaPol.H,
     dut_axis: DUTAxis = DUTAxis.X,
 ) -> TestCase:
     return TestCase(
         band=band,
-        bandwidth=100.0,
+        bandwidth=bandwidth,
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
@@ -302,6 +303,41 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
     assert events.current_case_changed.values == [next_case]
     assert events.tc_started.values == [1]
     assert state.next_state(ctx, result) == "TestTypeChange"
+
+
+def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() -> None:
+    events = _Events()
+    next_case = _make_case(band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[_make_case(band=NRBand.N77), next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "Handover"
+
+
+def test_check_next_case_routes_band_change_to_recall_change_when_recall_differs() -> None:
+    events = _Events()
+    next_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx = SessionContext(
+        queue=[
+            _make_case(band=NRBand.N7, bandwidth=20.0),
+            next_case,
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
 
 
 def test_check_next_case_goes_to_test_end_at_queue_end() -> None:

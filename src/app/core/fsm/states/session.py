@@ -10,6 +10,7 @@ from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
 )
+from app.models.band_group import find_band_group
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -155,8 +156,11 @@ class CheckNextCaseState(State):
         if prev_case is None:
             return measurement_start_state_for(current_case.test_type)
 
-        # TODO(spec): Band 변경 + Recall 필요 판정 규칙 확정
         if prev_case.band != current_case.band:
+            prev_recall = find_band_group(prev_case.band).mt8000_recall
+            current_recall = find_band_group(current_case.band).mt8000_recall
+            if prev_recall != current_recall:
+                return "RecallChange"
             return "Handover"
         if prev_case.dut_axis != current_case.dut_axis:
             return "DUTAxisChange"

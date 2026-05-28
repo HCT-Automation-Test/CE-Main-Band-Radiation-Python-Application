@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
-from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.models.band_group import find_band_group
 from app.models.enums import AntennaPol, InputPath, TestChannel
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
@@ -101,7 +101,7 @@ class AntPolChangeState(State):
             return None
         if ctx.prev_case is None:
             return "SetupSpectrumAnalyzerStartupLevel"
-        return measurement_start_state_for(ctx.current_case.test_type)
+        return "MeasureFundamental"
 
 
 class HandoverState(State):
@@ -161,7 +161,6 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            # TODO(spec): INBAND/BILOG 확장 시 test_type별 시작 state로 분기한다.
             return "MeasureFundamental"
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
@@ -178,13 +177,39 @@ class RecallChangeState(State):
     name = "RecallChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: ctx.events.user_action_required.emit("Recall file 변경 필요")
-        # TODO(spec): 사용자 확인 대기
-        raise NotImplementedError("spec TODO")
+        prev_case = ctx.prev_case
+        current_case = ctx.current_case
+        if prev_case is None:
+            _emit_error(ctx, "Recall 변경 실패: previous test case is not set")
+            return StateResult.FAIL
+
+        try:
+            prev_recall = find_band_group(prev_case.band).mt8000_recall
+            current_recall = find_band_group(current_case.band).mt8000_recall
+        except ValueError as exc:
+            _emit_error(ctx, f"Recall 변경 실패: {exc}")
+            return StateResult.FAIL
+
+        ctx.user_action_completed.clear()
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit(
+                f"MT8000A Recall 변경: {prev_recall} -> {current_recall}"
+            )
+
+        while not ctx.stopped:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"
 
 
@@ -250,14 +275,14 @@ class TestTypeChangeState(State):
         if call_connected:
             return StateResult.OK
 
-        _emit_error(ctx, "NR Call 상태 확인 실패: check_call_status returned false")
-        return StateResult.OK
+        _emit_error(ctx, "NR Call 끊김 감지: check_call_status returned disconnected")
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return measurement_start_state_for(ctx.current_case.test_type)
+            return "MeasureFundamental"
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None
