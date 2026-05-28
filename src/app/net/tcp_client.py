@@ -293,7 +293,7 @@ class TcpClient(QObject):
         target: str,
         command: str,
         params: dict[str, Any] | None = None,
-        timeout: float = 10.0,
+        timeout: float = 30.0,
     ) -> Response:
         """Request 전송 후 matching id의 Response를 동기 반환한다."""
         self._ensure_thread()

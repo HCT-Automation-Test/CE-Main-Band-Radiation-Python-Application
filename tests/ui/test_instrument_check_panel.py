@@ -164,7 +164,9 @@ def test_instrument_check_panel_preserves_manual_visa_text_on_refresh(qtbot) -> 
     ]
 
 
-def test_instrument_check_panel_periodically_refreshes_visa_resources(qtbot) -> None:
+def test_instrument_check_panel_refreshes_visa_resources_once_on_first_show(
+    qtbot,
+) -> None:
     service = _Service()
     panel = InstrumentCheckPanel(service=service)
     qtbot.addWidget(panel)
@@ -172,16 +174,13 @@ def test_instrument_check_panel_periodically_refreshes_visa_resources(qtbot) -> 
     qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
 
     timer = panel.findChild(QTimer, "visaAutoRefreshTimer")
-    assert timer is not None
-    assert timer.isActive()
-    assert timer.interval() == 5000
-
-    timer.timeout.emit()
-
-    assert service.refresh_calls == 2
+    assert timer is None
 
     panel.hide()
-    assert not timer.isActive()
+    panel.show()
+    qtbot.wait(300)
+
+    assert service.refresh_calls == 1
 
 
 def test_instrument_check_panel_shutdown_stops_timer_once(qtbot) -> None:
@@ -192,16 +191,13 @@ def test_instrument_check_panel_shutdown_stops_timer_once(qtbot) -> None:
     qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
 
     timer = panel.findChild(QTimer, "visaAutoRefreshTimer")
-    assert timer is not None
-    assert timer.isActive()
+    assert timer is None
 
     panel.shutdown()
-    timer.timeout.emit()
     panel.show()
     qtbot.wait(0)
     panel.shutdown()
 
-    assert not timer.isActive()
     assert service.shutdown_calls == 0
     assert service.refresh_calls == 1
 

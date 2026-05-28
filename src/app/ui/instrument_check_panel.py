@@ -67,7 +67,6 @@ _STATUS_WIDTH = 90
 _SWITCH_BOX_IP_INPUT_WIDTH = 150
 _SWITCH_BOX_PORT_INPUT_WIDTH = 54
 _VISA_INITIAL_REFRESH_DELAY_MSEC = 250
-_VISA_REFRESH_INTERVAL_MSEC = 5000
 
 logger = logging.getLogger(__name__)
 
@@ -101,29 +100,23 @@ class InstrumentCheckPanel(QWidget):
         self._visa_initial_refresh_timer = QTimer(self)
         self._visa_initial_refresh_timer.setSingleShot(True)
         self._visa_initial_refresh_timer.setInterval(_VISA_INITIAL_REFRESH_DELAY_MSEC)
-        self._visa_refresh_timer = QTimer(self)
-        self._visa_refresh_timer.setObjectName("visaAutoRefreshTimer")
-        self._visa_refresh_timer.setInterval(_VISA_REFRESH_INTERVAL_MSEC)
         self._setup_layout()
         self._connect_signals()
         self._apply_styles()
 
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
-        """화면이 처음 표시될 때 VISA Resource를 자동 탐색한다."""
+        """화면이 처음 표시될 때 VISA Resource를 1회만 자동 탐색한다."""
 
         super().showEvent(event)
         if self._shutdown_started:
             return
         if self._visa_discovery_started:
-            self._visa_refresh_timer.start()
             return
         self._visa_initial_refresh_timer.start()
-        self._visa_refresh_timer.start()
 
     def hideEvent(self, event: QHideEvent) -> None:  # noqa: N802
-        """화면이 숨겨진 동안에는 VISA 자동 탐색을 멈춘다."""
+        """화면이 숨겨지면 대기 중인 초기 VISA 탐색만 취소한다."""
 
-        self._visa_refresh_timer.stop()
         self._visa_initial_refresh_timer.stop()
         super().hideEvent(event)
 
@@ -263,7 +256,6 @@ class InstrumentCheckPanel(QWidget):
         self._connect_button.clicked.connect(self.on_connect_clicked)
         self._set_button.clicked.connect(self.on_set_clicked)
         self._visa_initial_refresh_timer.timeout.connect(self._refresh_visa_resources)
-        self._visa_refresh_timer.timeout.connect(self._refresh_visa_resources)
         self._service.visa_resources_discovered.connect(
             self.on_visa_resources_discovered,
         )
@@ -288,7 +280,6 @@ class InstrumentCheckPanel(QWidget):
             return
         self._shutdown_started = True
         self._visa_initial_refresh_timer.stop()
-        self._visa_refresh_timer.stop()
         self._close_set_progress_dialog()
         self._update_action_buttons_enabled()
         if self._owns_service:
