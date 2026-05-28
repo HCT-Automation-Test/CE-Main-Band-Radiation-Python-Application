@@ -99,6 +99,8 @@ class AntPolChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
+        if ctx.prev_case is None:
+            return "SetupSpectrumAnalyzerStartupLevel"
         return measurement_start_state_for(ctx.current_case.test_type)
 
 

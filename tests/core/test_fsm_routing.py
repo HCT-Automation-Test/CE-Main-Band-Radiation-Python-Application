@@ -23,6 +23,8 @@ from app.core.fsm.states.measurement.harmonic import (
 )
 from app.core.fsm.states.measurement.inband import MeasureInBandState
 from app.core.fsm.states.nr_setup import NRCallConnectState
+from app.core.fsm.states.session import IdleState
+from app.core.fsm.states.transition import AntPolChangeState
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
@@ -98,6 +100,16 @@ def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect() -> None
     assert (
         SetupSpectrumAnalyzerStartupLevelState().next_state(ctx, StateResult.OK)
         == "NRCallConnect"
+    )
+
+
+def test_idle_starts_with_ant_pol_change_before_measurement_route() -> None:
+    ctx = _make_ctx(TestType.HARMONIC)
+
+    assert IdleState().next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert (
+        AntPolChangeState().next_state(ctx, StateResult.OK)
+        == "SetupSpectrumAnalyzerStartupLevel"
     )
 
 

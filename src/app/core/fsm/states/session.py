@@ -113,7 +113,7 @@ class IdleState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "SetupSpectrumAnalyzerStartupLevel"
+        return "AntPolChange"
 
 
 class CheckNextCaseState(State):

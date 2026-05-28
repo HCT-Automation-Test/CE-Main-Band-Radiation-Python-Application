@@ -155,7 +155,13 @@ def test_ant_pol_change_uses_temporary_measurement_start_route(
     test_type: NRTestType,
     expected: str,
 ) -> None:
-    ctx, _, _, _ = _make_ctx(_make_case(test_type=test_type))
+    prev_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.V)
+    current_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
     state = AntPolChangeState()
 
     assert state.next_state(ctx, StateResult.OK) == expected
@@ -242,7 +248,7 @@ def test_ant_pol_change_skips_input3_when_3d_controller_is_not_connected() -> No
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
     assert commands.calls == []
     assert events.polarization_info_changed.messages == []
     assert events.error.messages
@@ -261,7 +267,7 @@ def test_ant_pol_change_skips_other_inputs_when_co3000_is_not_connected() -> Non
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
     assert commands.calls == []
     assert events.polarization_info_changed.messages == []
     assert events.error.messages
@@ -280,7 +286,7 @@ def test_ant_pol_change_does_not_emit_display_info_on_false_result() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == [
         "Antenna Pol 설정 실패: set_antenna_pol returned false"
@@ -300,7 +306,7 @@ def test_ant_pol_change_does_not_emit_display_info_on_exception() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == ["Antenna Pol 설정 실패: instrument timeout"]
 
