@@ -28,9 +28,11 @@ def _emit_error(ctx: "SessionContext", message: str) -> None:
 
 def _wait_for_event(ctx: "SessionContext", event_name: str) -> bool:
     event = getattr(ctx, event_name)
-    while not ctx.stopped:
+    while not ctx.stopped and not ctx.current_case_stop_requested:
         if event.wait(_WAIT_INTERVAL_SEC):
             event.clear()
+            if ctx.stopped or ctx.current_case_stop_requested:
+                return False
             return True
     return False
 
@@ -101,9 +103,10 @@ class IdleState(State):
             _emit_error(ctx, "시험 시작 실패: screenshot_root_dir is required")
             return StateResult.RETRY
 
-        ctx.current_index = 0
+        ctx.current_index = ctx.start_index
         ctx.fundamental_frequency_mhz = None
         ctx.stopped = False
+        ctx.current_case_stop_requested = False
         if ctx.events is not None:
             ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
@@ -114,7 +117,7 @@ class IdleState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "AntPolChange"
+        return "InitialTurntableZero"
 
 
 class CheckNextCaseState(State):
@@ -177,6 +180,8 @@ class TestEndState(State):
     name = "TestEnd"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if ctx.events is not None:
+            ctx.events.session_finished.emit()
         ctx.queue = []
         ctx.current_index = 0
         ctx.fundamental_frequency_mhz = None

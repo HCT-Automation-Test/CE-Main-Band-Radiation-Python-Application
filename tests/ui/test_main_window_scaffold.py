@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from types import SimpleNamespace
 
 from PySide6.QtCore import QPoint, QSize, Qt
@@ -227,6 +228,25 @@ def test_main_window_user_action_popup_ignores_reject(qtbot) -> None:
     assert window.findChild(QDialog, "userActionRequiredDialog") is dialog
 
 
+def test_main_window_session_finished_shows_completion_popup(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    infos: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        window,
+        "_show_info",
+        lambda title, message: infos.append((title, message)),
+    )
+
+    window._runner.events.session_finished.emit()
+
+    assert infos == [("시험 완료", "모든 시험이 완료되었습니다.")]
+
+
 def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     """Instrument Check가 Runner 소유 연결 서비스를 사용한다."""
 
@@ -263,6 +283,35 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     start_button.click()
 
     assert messages == ["시험 시작 실패: Instrument Check 연결을 완료하세요"]
+
+
+def test_main_window_pause_button_requests_runner_pause(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    ctx = SimpleNamespace(
+        current_index=0,
+        current_case_stop_requested=False,
+        paused=True,
+        test_start_requested=threading.Event(),
+        user_action_completed=threading.Event(),
+    )
+    window._runner._ctx = ctx
+    window._runner._set_measurement_active(True)
+
+    pause_button = window.findChild(QPushButton, "pauseButton")
+    assert pause_button is not None
+    assert pause_button.isEnabled()
+
+    pause_button.click()
+
+    assert ctx.current_case_stop_requested
+    assert not ctx.paused
+    assert not ctx.test_start_requested.is_set()
+    assert ctx.user_action_completed.is_set()
+
+    window._runner._set_measurement_active(False)
+
+    assert not pause_button.isEnabled()
 
 
 def test_main_window_blocks_instrument_connect_while_measurement_active(

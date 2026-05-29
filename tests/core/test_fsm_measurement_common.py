@@ -524,6 +524,30 @@ def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
     assert commands.setup_sa_calls == [(client, case.range_definition)]
 
 
+def test_setup_spectrum_analyzer_returns_fail_when_current_case_stop_requested(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    client = object()
+    case = _make_case(MeasurementTestType.HARMONIC)
+    events = _Events()
+    ctx = _connect_equipment(SessionContext(
+        queue=[case],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=client,
+        settings=_make_settings(tmp_path, saturation_time_sec=1.0),
+        current_case_stop_requested=True,
+    ), "FSV40")
+    state = SetupSpectrumAnalyzerState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.setup_sa_calls == [(client, case.range_definition)]
+
+
 def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()

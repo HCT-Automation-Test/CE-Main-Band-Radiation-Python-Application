@@ -245,7 +245,7 @@ def test_mark_equipment_ready_rejects_unknown_only_state(tmp_path: Path) -> None
 
 
 def test_mark_equipment_ready_allows_real_fsm_to_reach_idle(
-    qtbot: Any, tmp_path: Path
+    qtbot: Any, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     runner = Runner(
         client=object(),
@@ -267,6 +267,7 @@ def test_mark_equipment_ready_allows_real_fsm_to_reach_idle(
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
+    assert "Runner worker thread did not stop cleanly" not in caplog.text
 
 
 def test_runner_connection_service_uses_runner_client(
@@ -355,6 +356,81 @@ def test_start_populates_context_and_sets_start_request(
 
     runner.events.state_changed.emit("Idle")
     assert not runner.is_measurement_active
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_pause_requests_current_case_stop(qtbot: Any, tmp_path: Path) -> None:
+    engines: list[_FakeEngine] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+
+    ctx = runner.context
+    assert ctx is not None
+    ctx.test_start_requested.clear()
+    ctx.current_index = 0
+    runner.pause()
+
+    assert ctx.current_case_stop_requested
+    assert not ctx.paused
+    assert not ctx.test_start_requested.is_set()
+    assert ctx.user_action_completed.is_set()
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_restart_after_pause_uses_interrupted_case_index(
+    qtbot: Any, tmp_path: Path
+) -> None:
+    engines: list[_FakeEngine] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    cases = [_make_case(), _make_case(antenna_pol=AntennaPol.V)]
+    runner.start(cases, settings=_make_settings(tmp_path))
+    ctx = runner.context
+    assert ctx is not None
+    ctx.current_index = 1
+    runner.pause()
+    runner.events.state_changed.emit("Idle")
+    engines[0].current_state_name = "Idle"
+
+    runner.start(cases, settings=_make_settings(tmp_path))
+
+    assert ctx.start_index == 1
+    assert ctx.current_index == 1
+    assert not ctx.current_case_stop_requested
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)

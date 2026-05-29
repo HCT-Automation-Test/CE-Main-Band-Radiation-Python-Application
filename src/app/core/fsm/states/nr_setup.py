@@ -92,9 +92,9 @@ class NRCallDisconnectedState(State):
         if ctx.events is not None:
             ctx.events.user_action_required.emit("비행기 모드 On/Off 후 확인")
 
-        while not ctx.stopped:
+        while not ctx.stopped and not ctx.current_case_stop_requested:
             if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
-                if ctx.stopped:
+                if ctx.stopped or ctx.current_case_stop_requested:
                     return StateResult.FAIL
                 ctx.user_action_completed.clear()
                 return StateResult.OK

@@ -10,7 +10,10 @@ import pytest
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.measurement import common as common_module
-from app.core.fsm.states.measurement.common import RotateTurntableState
+from app.core.fsm.states.measurement.common import (
+    InitialTurntableZeroState,
+    RotateTurntableState,
+)
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
@@ -191,6 +194,156 @@ def _emit_after(client: _FakeClient, delay: float, event: _FakeEvent) -> threadi
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
     return thread
+
+
+def test_initial_turntable_zero_uses_zero_angle_and_speed_4() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=360.0,
+    )
+    state = InitialTurntableZeroState()
+
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert ctx.current_angle == 0.0
+    assert commands.rotate_calls == [
+        (client, {"angle": 0.0, "turntable_speed": 4}),
+    ]
+    assert commands.stop_calls == []
+    assert events.progress.values == [0, 100]
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 0.0, "setting_speed": 4},
+        {"current_angle": 0.0},
+    ]
+    assert state.next_state(ctx, result) == "AntPolChange"
+
+
+def test_initial_turntable_zero_consumes_buffered_progress_and_complete() -> None:
+    progress = _FakeEvent(
+        common_module._COMMAND_TURNTABLE_PROGRESS,
+        {"Current Angle": 30.0},
+    )
+    complete = _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    commands = _Commands(buffer_on_rotate=[progress, complete])
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=180.0,
+    )
+    state = InitialTurntableZeroState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_angle == 0.0
+    assert events.turntable_info_changed.values == [
+        {"target_angle": 0.0, "setting_speed": 4},
+        {"current_angle": 30.0},
+        {"current_angle": 0.0},
+    ]
+
+
+def test_initial_turntable_zero_skips_when_co3000_is_not_connected() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=180.0,
+    )
+    ctx.equipment_state = {"CO3000": False}
+    state = InitialTurntableZeroState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+    assert commands.rotate_calls == []
+    assert ctx.current_angle == 180.0
+    assert events.turntable_info_changed.values == []
+    assert events.error.values
+
+
+def test_initial_turntable_zero_stop_requests_stop_turntable_and_fail() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, _ = _make_ctx(case, commands=commands, client=client, current_angle=180.0)
+    state = InitialTurntableZeroState()
+
+    def request_stop() -> None:
+        time.sleep(0.05)
+        ctx.stopped = True
+
+    threading.Thread(target=request_stop, daemon=True).start()
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.stop_calls == [client]
+    assert ctx.current_angle == 180.0
+    assert state.next_state(ctx, result) is None
+
+
+def test_initial_turntable_zero_current_case_stop_requests_stop_and_fail() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, _ = _make_ctx(case, commands=commands, client=client, current_angle=180.0)
+    state = InitialTurntableZeroState()
+
+    def request_stop() -> None:
+        time.sleep(0.05)
+        ctx.current_case_stop_requested = True
+
+    threading.Thread(target=request_stop, daemon=True).start()
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.stop_calls == [client]
+    assert ctx.current_angle == 180.0
+    assert state.next_state(ctx, result) is None
+
+
+def test_initial_turntable_zero_error_event_continues_to_ant_pol() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=180.0,
+    )
+    state = InitialTurntableZeroState()
+
+    thread = _emit_after(
+        client,
+        0.05,
+        _FakeEvent(common_module._COMMAND_EQUIPMENT_ERROR, {"message": "stalled"}),
+    )
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.current_angle == 180.0
+    assert commands.stop_calls == []
+    assert events.error.values == ["Turntable 초기 0도 정렬 실패: stalled"]
 
 
 def test_rotate_zero_to_360_with_band_group_speed() -> None:
@@ -534,6 +687,27 @@ def test_ui_stop_triggers_stop_turntable_and_fail() -> None:
     def request_stop() -> None:
         time.sleep(0.05)
         ctx.stopped = True
+
+    threading.Thread(target=request_stop, daemon=True).start()
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.stop_calls == [client]
+    assert ctx.current_angle == 0.0
+    assert state.next_state(ctx, result) is None
+    assert events.error.values == []
+
+
+def test_current_case_stop_triggers_stop_turntable_and_fail() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N5, MeasurementTestType.HARMONIC, bandwidth=20.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    state = RotateTurntableState()
+
+    def request_stop() -> None:
+        time.sleep(0.05)
+        ctx.current_case_stop_requested = True
 
     threading.Thread(target=request_stop, daemon=True).start()
     result = _drive_state(state, ctx)

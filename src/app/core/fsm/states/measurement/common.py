@@ -100,7 +100,7 @@ def _wait_for_saturation_time(ctx: "SessionContext") -> bool:
     """SA 안정화를 위해 Saturation Time만큼 대기한다."""
     deadline = time.monotonic() + max(0.0, _saturation_time_sec(ctx))
     while True:
-        if ctx.stopped:
+        if ctx.stopped or ctx.current_case_stop_requested:
             return False
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -319,7 +319,7 @@ class RotateTurntableState(State):
             self._emit_pending_progress_angle(force=False)
             if self._completed.is_set():
                 break
-            if ctx.stopped:
+            if ctx.stopped or ctx.current_case_stop_requested:
                 self._send_stop(ctx)
                 return StateResult.FAIL
             if time.monotonic() > deadline:
@@ -456,6 +456,71 @@ class RotateTurntableState(State):
         if not math.isfinite(current_angle):
             return None
         return current_angle
+
+
+class InitialTurntableZeroState(RotateTurntableState):
+    """시험 시작 전 CO3000 턴테이블을 0도로 정렬한다."""
+
+    name = "InitialTurntableZero"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        self._target_angle = 0.0
+        if not is_equipment_connected(ctx, "CO3000"):
+            _emit_error(
+                ctx,
+                "Turntable 초기 0도 정렬 스킵: CO3000가 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
+
+        try:
+            ctx.commands.rotate_turntable(
+                ctx.client,
+                angle=self._target_angle,
+                turntable_speed=4,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Turntable 초기 0도 정렬 명령 실패: {exc}")
+            return StateResult.OK
+
+        _emit_turntable_info(
+            ctx,
+            {
+                "target_angle": self._target_angle,
+                "setting_speed": 4,
+            },
+        )
+        ctx.events.progress.emit(0)
+
+        deadline = time.monotonic() + _ROTATION_TIMEOUT_SEC
+        self._drain_buffered_events(ctx)
+        while not self._completed.wait(_POLL_INTERVAL_SEC):
+            self._drain_buffered_events(ctx)
+            self._emit_pending_progress_angle(force=False)
+            if self._completed.is_set():
+                break
+            if ctx.stopped or ctx.current_case_stop_requested:
+                self._send_stop(ctx)
+                return StateResult.FAIL
+            if time.monotonic() > deadline:
+                _emit_error(ctx, "Turntable 초기 0도 정렬 타임아웃")
+                self._send_stop(ctx)
+                return StateResult.OK
+
+        if self._failed_reason is not None:
+            _emit_error(ctx, f"Turntable 초기 0도 정렬 실패: {self._failed_reason}")
+            return StateResult.OK
+
+        ctx.current_angle = self._target_angle
+        _emit_turntable_info(ctx, {"current_angle": self._target_angle})
+        ctx.events.progress.emit(100)
+        return StateResult.OK
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return "AntPolChange"
 
 
 class ResetSwitchBoxState(State):

@@ -28,7 +28,7 @@ class _SignalRecorder:
     def __init__(self) -> None:
         self.values: list[Any] = []
 
-    def emit(self, value: Any) -> None:
+    def emit(self, value: Any = None) -> None:
         self.values.append(value)
 
 
@@ -38,6 +38,7 @@ class _Events:
         self.tc_started = _SignalRecorder()
         self.tc_finished = _SignalRecorder()
         self.current_case_changed = _SignalRecorder()
+        self.session_finished = _SignalRecorder()
 
 
 class _Client:
@@ -241,7 +242,34 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
     assert result is StateResult.OK
     assert events.current_case_changed.values == [case]
     assert events.tc_started.values == [0]
-    assert IdleState().next_state(ctx, result) == "AntPolChange"
+    assert IdleState().next_state(ctx, result) == "InitialTurntableZero"
+
+
+def test_idle_starts_from_context_start_index(tmp_path: Path) -> None:
+    events = _Events()
+    settings = _make_settings(tmp_path)
+    first_case = _make_case()
+    second_case = _make_case(antenna_pol=AntennaPol.V)
+    ctx = SessionContext(
+        queue=[first_case, second_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        report_writer=object(),  # type: ignore[arg-type]
+        temp_dir=tmp_path,
+        settings=settings,
+        model_name=settings.eut_name,
+        template_path=settings.template_path,
+        screenshot_root_dir=settings.screenshot_root_dir,
+        start_index=1,
+    )
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_index == 1
+    assert events.current_case_changed.values == [second_case]
+    assert events.tc_started.values == [1]
 
 
 def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
@@ -283,6 +311,22 @@ def test_idle_retries_without_settings(tmp_path: Path) -> None:
 
     assert result is StateResult.RETRY
     assert events.error.values[0].endswith("settings is required")
+
+
+def test_idle_stop_wakeup_returns_fail_without_empty_queue_error() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.stopped = True
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.values == []
 
 
 def test_check_next_case_advances_and_routes_by_test_type() -> None:
@@ -357,10 +401,11 @@ def test_check_next_case_goes_to_test_end_at_queue_end() -> None:
 
 
 def test_test_end_clears_queue_and_returns_to_idle() -> None:
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case()],
         commands=object(),
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         current_index=0,
         fundamental_frequency_mhz=3550.25,
     )
@@ -369,6 +414,7 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert events.session_finished.values == [None]
     assert ctx.queue == []
     assert ctx.fundamental_frequency_mhz is None
     assert state.next_state(ctx, result) == "Idle"

@@ -168,6 +168,20 @@ def test_ant_pol_change_uses_harmonic_measurement_route(
     assert state.next_state(ctx, StateResult.FAIL) is None
 
 
+def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
+    prev_case = _make_case(antenna_pol=AntennaPol.V)
+    current_case = _make_case(antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.start_index = 1
+    state = AntPolChangeState()
+
+    assert state.next_state(ctx, StateResult.OK) == "SetupSpectrumAnalyzerStartupLevel"
+
+
 @pytest.mark.parametrize(
     ("case", "expected_message"),
     [

@@ -212,6 +212,7 @@ class TestManagerPanel(QWidget):
     """테스트 케이스 생성, 실행, 로그 출력의 중심 패널."""
 
     start_requested = Signal()
+    pause_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -485,6 +486,11 @@ class TestManagerPanel(QWidget):
         self._excel_template_browse_button.setEnabled(not locked)
         self._screenshot_root_browse_button.setEnabled(not locked)
 
+    def set_pause_enabled(self, enabled: bool) -> None:
+        """현재 TC 중단 버튼 활성화 상태를 갱신한다."""
+
+        self._pause_button.setEnabled(enabled)
+
     def build_test_run_settings(self) -> TestRunSettings | None:
         """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
 
@@ -662,6 +668,7 @@ class TestManagerPanel(QWidget):
         self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
         self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
+        self._pause_button.clicked.connect(self.pause_requested.emit)
 
     def _create_left_panel(self) -> QWidget:
         """EUT 입력과 좌측 하단 제어 영역을 만든다."""
@@ -841,6 +848,9 @@ class TestManagerPanel(QWidget):
             button.setObjectName(object_name)
             if object_name == "startButton":
                 self._start_button = button
+            elif object_name == "pauseButton":
+                self._pause_button = button
+                self._pause_button.setEnabled(False)
             elif object_name == "deleteButton":
                 self._delete_button = button
             elif object_name == "clearButton":

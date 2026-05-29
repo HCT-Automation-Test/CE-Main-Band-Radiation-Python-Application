@@ -130,6 +130,43 @@ def test_engine_retries_same_state_for_retry_result() -> None:
     ]
 
 
+def test_engine_returns_to_idle_after_current_case_stop_request() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+
+    class _StopRequestedState(_State):
+        def run(self, ctx: SessionContext) -> StateResult:
+            result = super().run(ctx)
+            ctx.current_case_stop_requested = True
+            return result
+
+    engine.register(_StopRequestedState("Measure", log, next_name="Next"))
+    engine.register(_State("Next", log, next_name=None))
+    engine.register(_State("Idle", log, next_name=None))
+    ctx.test_start_requested.set()
+
+    engine.run("Measure")
+
+    assert log == [
+        "Measure.enter",
+        "Measure.run",
+        "Measure.exit",
+        "Idle.enter",
+        "Idle.run",
+        "Idle.exit",
+        "Idle.next",
+    ]
+    assert events.state_changed.values == ["Measure", "Idle"]
+    assert not ctx.current_case_stop_requested
+    assert not ctx.test_start_requested.is_set()
+
+
 def test_engine_logs_retried_state_entry(
     caplog: pytest.LogCaptureFixture,
 ) -> None:

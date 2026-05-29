@@ -29,8 +29,10 @@ class SessionContext:
     tcp_host: str = "127.0.0.1"
     tcp_port: int = 5025
     current_index: int = 0
+    start_index: int = 0
     paused: bool = False
     stopped: bool = False
+    current_case_stop_requested: bool = False
     current_angle: float = 0.0
     fundamental_frequency_mhz: float | None = None
     temp_dir: Path | None = None

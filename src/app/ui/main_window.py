@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -80,6 +81,9 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.start_requested.connect(
             self.on_start_requested,
         )
+        self._test_manager_panel.pause_requested.connect(
+            self._runner.pause,
+        )
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
         )
@@ -103,6 +107,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.user_action_required.connect(
             self.on_user_action_required,
+        )
+        self._runner.events.session_finished.connect(
+            self.on_session_finished,
         )
         self._runner.instrument_connection_service.connection_started.connect(
             self._test_manager_panel.set_connection_connecting,
@@ -353,11 +360,18 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.set_run_settings_locked(
             self._runner.is_measurement_active or self._instrument_set_active
         )
+        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
 
     def on_current_case_changed(self, case: TestCase) -> None:
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
 
         self._test_manager_panel.set_current_case(case)
+
+    def on_session_finished(self) -> None:
+        self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
+
+    def _show_info(self, title: str, message: str) -> None:
+        QMessageBox.information(self, title, message)
 
     def on_user_action_required(self, message: str) -> None:
         """시험원이 수동 조작 완료를 입력할 수 있는 팝업을 표시한다."""
