@@ -168,6 +168,41 @@ def test_ant_pol_change_uses_harmonic_measurement_route(
     assert state.next_state(ctx, StateResult.FAIL) is None
 
 
+def test_handover_continues_to_pending_transition_before_measurement() -> None:
+    prev_case = _make_case(band=NRBand.N77)
+    current_case = _make_case(band=NRBand.N78)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["AntPolChange", "TestTypeChange"]
+
+    assert HandoverState().next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert ctx.pending_transition_states == ["TestTypeChange"]
+
+
+def test_ant_pol_change_continues_to_pending_transition_before_measurement() -> None:
+    prev_case = _make_case(antenna_pol=AntennaPol.V)
+    current_case = _make_case(antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["TestTypeChange"]
+
+    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "TestTypeChange"
+    assert ctx.pending_transition_states == []
+
+
+def test_test_type_change_continues_to_measurement_after_pending_transitions() -> None:
+    ctx, _, _, _ = _make_ctx(_make_case(test_type=NRTestType.INBAND))
+    ctx.pending_transition_states = []
+
+    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "MeasureFundamental"
+
+
 def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
     prev_case = _make_case(antenna_pol=AntennaPol.V)
     current_case = _make_case(antenna_pol=AntennaPol.H)

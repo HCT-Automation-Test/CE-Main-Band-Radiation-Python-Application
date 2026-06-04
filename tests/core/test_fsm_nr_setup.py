@@ -152,6 +152,23 @@ def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
     assert events.error.messages
 
 
+def test_nr_call_connect_continues_to_pending_transition_after_full_setup() -> None:
+    commands = _Commands(connected=True)
+    ctx = _connect_mt8000a(SessionContext(
+        queue=[_make_case()],
+        commands=commands,
+        events=_Events(),  # type: ignore[arg-type]
+    ))
+    ctx.pending_transition_states = ["AntPolChange"]
+    state = NRCallConnectState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.pending_transition_states == []
+
+
 def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
     commands = _Commands(connected=False)
     events = _Events()

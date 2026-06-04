@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.core.fsm.transition_flow import next_transition_or
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -75,7 +76,10 @@ class NRCallConnectState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return measurement_start_state_for(ctx.current_case.test_type)
+        return next_transition_or(
+            ctx,
+            measurement_start_state_for(ctx.current_case.test_type),
+        )
 
 
 class NRCallDisconnectedState(State):

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
+from app.core.fsm.transition_flow import next_transition_or
 from app.models.band_group import find_band_group
 from app.models.enums import AntennaPol, InputPath, TestChannel
 from app.models.nr_channel_lookup import resolve_call_channel
@@ -101,7 +102,7 @@ class AntPolChangeState(State):
             return None
         if ctx.prev_case is None or ctx.current_index == ctx.start_index:
             return "SetupSpectrumAnalyzerStartupLevel"
-        return "MeasureFundamental"
+        return next_transition_or(ctx, "MeasureFundamental")
 
 
 class HandoverState(State):
@@ -161,7 +162,7 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return "MeasureFundamental"
+            return next_transition_or(ctx, "MeasureFundamental")
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None
@@ -282,7 +283,7 @@ class TestTypeChangeState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return "MeasureFundamental"
+            return next_transition_or(ctx, "MeasureFundamental")
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None

@@ -14,6 +14,7 @@ from app.core.fsm.states.session import (
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    InputPath,
     Modulation,
     NRBand,
     RBAllocation,
@@ -346,6 +347,103 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
     assert events.tc_finished.values == [0]
     assert events.current_case_changed.values == [next_case]
     assert events.tc_started.values == [1]
+    assert state.next_state(ctx, result) == "TestTypeChange"
+
+
+def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N78)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+
+
+def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    next_case = _make_case(TestType.BILOG, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT3
+    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+
+
+def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N77)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "Handover"
+    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+
+
+def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
+    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+
+
+def test_check_next_case_does_not_treat_co3000_mast_change_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.HARMONIC, band=NRBand.N1, bandwidth=20.0)
+    next_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT1
+    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert result is StateResult.OK
     assert state.next_state(ctx, result) == "TestTypeChange"
 
 

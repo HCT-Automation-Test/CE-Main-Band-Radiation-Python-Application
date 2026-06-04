@@ -38,7 +38,7 @@ class RecordingClient:
         target: str,
         command: str,
         params: dict[str, Any] | None = None,
-        timeout: float = 30.0,
+        timeout: float = 60.0,
     ) -> Response:
         interaction = Interaction(target=target, command=command, params=params or {})
         self._interactions.append(interaction)

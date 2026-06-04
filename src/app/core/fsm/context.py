@@ -46,6 +46,7 @@ class SessionContext:
     )
     test_start_requested: threading.Event = field(default_factory=threading.Event)
     user_action_completed: threading.Event = field(default_factory=threading.Event)
+    pending_transition_states: list[str] = field(default_factory=list)
 
     @property
     def current_case(self) -> TestCase:
@@ -63,3 +64,9 @@ class SessionContext:
         if self.current_index <= 0:
             return None
         return self.queue[self.current_index - 1]
+
+    def pop_pending_transition_state(self) -> str | None:
+        """연속 전환이 필요한 경우 다음 전환 상태를 꺼낸다."""
+        if not self.pending_transition_states:
+            return None
+        return self.pending_transition_states.pop(0)
