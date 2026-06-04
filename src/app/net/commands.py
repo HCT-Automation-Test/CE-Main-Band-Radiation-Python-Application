@@ -34,6 +34,8 @@ _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
 
+_HZ_PER_MHZ = 1_000_000.0
+
 _CONNECT_TARGETS = (
     _TARGET_FSV40,
     _TARGET_MT8000A,
@@ -243,7 +245,11 @@ def self_align_fsv40(client: Any) -> bool:
 
 
 def measure_fundamental(client: Any, *, target_freq: float) -> float:
-    """기본파 측정 후 fundamental frequency를 반환한다. §4.3."""
+    """기본파 측정 후 fundamental frequency를 MHz로 반환한다. §4.3.
+
+    요청의 Center Frequency는 MHz로 전송하고, LV 응답의 Fundamental Frequency는
+    Hz로 수신한다. Python 내부/리포트/FSM은 MHz 기준을 유지한다.
+    """
     response = _send_request(
         client,
         _TARGET_FSV40,
@@ -255,12 +261,13 @@ def measure_fundamental(client: Any, *, target_freq: float) -> float:
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
     )
-    return _number(
+    frequency_hz = _number(
         result,
         "Fundamental Frequency",
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
     )
+    return frequency_hz / _HZ_PER_MHZ
 
 
 def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> bool:

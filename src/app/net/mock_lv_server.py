@@ -205,7 +205,10 @@ class MockLvServer:
         if request.command == _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY:
             self._write_png("fundamental.png")
             center_freq = _coerce_float(request.params.get("Center Frequency"), 0.0)
-            return _ok(request, {"Fundamental Frequency": center_freq + 0.25})
+            return _ok(
+                request,
+                {"Fundamental Frequency": (center_freq + 0.25) * 1_000_000.0},
+            )
         if request.command == _COMMAND_MARK_HARMONIC:
             self._write_png("harmonic.png")
             if self.scenario == "bad-harmonic-result":

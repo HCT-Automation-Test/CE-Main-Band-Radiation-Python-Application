@@ -385,7 +385,7 @@ def test_setup_sa_startup_levels_raises_on_error_response() -> None:
 
 
 def test_measure_fundamental_returns_frequency() -> None:
-    client = _Client(_ok(**{"Fundamental Frequency": 3550.25}))
+    client = _Client(_ok(**{"Fundamental Frequency": 3550250000.0}))
 
     assert commands.measure_fundamental(client, target_freq=3550.0) == 3550.25
     assert client.calls == [
