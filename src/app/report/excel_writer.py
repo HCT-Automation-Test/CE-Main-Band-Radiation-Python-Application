@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
@@ -35,6 +36,7 @@ class ExcelReportWriter:
         self.template_path = Path(template_path)
         self.workbook = load_workbook(self.template_path)
         self._written_band_info: set[str] = set()
+        self._pending_cells: list[tuple[str, str, Any]] = []
 
     def write_fundamental(
         self,
@@ -52,9 +54,13 @@ class ExcelReportWriter:
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
 
         frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
-        worksheet[frequency_cell] = frequency_mhz
+        self._set_cell(worksheet, frequency_cell, frequency_mhz)
         for order in (2, 3, 4, 5):
-            worksheet[harmonic_frequency_cell(layout, order)] = frequency_mhz * order
+            self._set_cell(
+                worksheet,
+                harmonic_frequency_cell(layout, order),
+                frequency_mhz * order,
+            )
 
         self._save()
         return True
@@ -94,14 +100,16 @@ class ExcelReportWriter:
         }
 
         for order, level_dbm in levels_by_order.items():
-            worksheet[
+            self._set_cell(
+                worksheet,
                 harmonic_level_cell(
                     layout,
                     order,
                     test_case.dut_axis,
                     test_case.antenna_pol,
-                )
-            ] = level_dbm
+                ),
+                level_dbm,
+            )
 
         self._save()
         return True
@@ -120,9 +128,11 @@ class ExcelReportWriter:
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
-        worksheet[
-            inband_level_cell(layout, test_case.dut_axis, test_case.antenna_pol)
-        ] = level_dbm
+        self._set_cell(
+            worksheet,
+            inband_level_cell(layout, test_case.dut_axis, test_case.antenna_pol),
+            level_dbm,
+        )
         self._save()
         return True
 
@@ -140,9 +150,11 @@ class ExcelReportWriter:
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
-        worksheet[
-            bilog_level_cell(layout, test_case.dut_axis, test_case.antenna_pol)
-        ] = level_dbm
+        self._set_cell(
+            worksheet,
+            bilog_level_cell(layout, test_case.dut_axis, test_case.antenna_pol),
+            level_dbm,
+        )
         self._save()
         return True
 
@@ -178,18 +190,93 @@ class ExcelReportWriter:
         if worksheet.title in self._written_band_info:
             return
 
-        worksheet[validate_single_cell(cells.channel)] = test_case.test_channel.value
-        worksheet[validate_single_cell(cells.bandwidth)] = test_case.bandwidth
-        worksheet[validate_single_cell(cells.rb_size)] = test_case.rb_size
-        worksheet[validate_single_cell(cells.rb_offset)] = test_case.rb_offset
-        worksheet[validate_single_cell(cells.modulation)] = test_case.modulation.value
-        worksheet[validate_single_cell(cells.dut_ant_position)] = (
-            test_case.dut_ant_position.value
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.channel),
+            test_case.test_channel.value,
+        )
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.bandwidth),
+            test_case.bandwidth,
+        )
+        self._set_cell(worksheet, validate_single_cell(cells.rb_size), test_case.rb_size)
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.rb_offset),
+            test_case.rb_offset,
+        )
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.modulation),
+            test_case.modulation.value,
+        )
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.dut_ant_position),
+            test_case.dut_ant_position.value,
         )
         self._written_band_info.add(worksheet.title)
 
+    def _set_cell(self, worksheet: Worksheet, cell: str, value: Any) -> None:
+        worksheet[cell] = value
+        self._pending_cells.append((worksheet.title, cell, value))
+
     def _save(self) -> None:
-        self.workbook.save(self.template_path)
+        try:
+            self.workbook.save(self.template_path)
+        except PermissionError:
+            self._save_open_workbook_with_excel()
+        else:
+            self._pending_cells.clear()
+
+    def _save_open_workbook_with_excel(self) -> None:
+        if not self._pending_cells:
+            return
+
+        try:
+            import win32com.client
+        except ImportError as exc:
+            raise PermissionError(
+                f"Excel report file is open and cannot be saved: {self.template_path}"
+            ) from exc
+
+        try:
+            excel = win32com.client.GetActiveObject("Excel.Application")
+        except Exception as exc:
+            raise PermissionError(
+                f"Excel report file is locked and Excel is not available: "
+                f"{self.template_path}"
+            ) from exc
+        workbook = _find_open_excel_workbook(excel, self.template_path)
+        if workbook is None:
+            raise PermissionError(
+                f"Excel report file is locked but no open Excel workbook was found: "
+                f"{self.template_path}"
+            )
+
+        try:
+            for sheet_name, cell, value in self._pending_cells:
+                workbook.Worksheets(sheet_name).Range(cell).Value = value
+            workbook.Save()
+        except Exception as exc:
+            raise PermissionError(
+                f"Excel report file is open but could not be updated through Excel: "
+                f"{self.template_path}"
+            ) from exc
+        self._pending_cells.clear()
+
+
+def _find_open_excel_workbook(excel: Any, template_path: Path) -> Any | None:
+    target = _normalized_path(template_path)
+    for workbook in excel.Workbooks:
+        if _normalized_path(Path(workbook.FullName)) == target:
+            return workbook
+    return None
+
+
+def _normalized_path(path: Path) -> str:
+    return str(path.resolve()).casefold()
 
 
 def _require_value(value: float | None, field_name: str) -> float:

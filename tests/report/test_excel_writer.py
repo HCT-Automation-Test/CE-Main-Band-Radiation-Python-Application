@@ -324,3 +324,34 @@ def test_write_inband_fails_when_required_result_value_is_missing(tmp_path: Path
             _make_case(test_type=MeasurementTestType.INBAND),
             InbandResult(inband_peak_level_dbm=None),
         )
+
+
+def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    fallback_cells: list[tuple[str, str, object]] = []
+
+    def raise_permission_error(_: Path) -> None:
+        raise PermissionError("locked")
+
+    def save_open_workbook() -> None:
+        fallback_cells.extend(writer._pending_cells)
+        writer._pending_cells.clear()
+
+    monkeypatch.setattr(writer.workbook, "save", raise_permission_error)
+    monkeypatch.setattr(writer, "_save_open_workbook_with_excel", save_open_workbook)
+
+    assert writer.write_inband(
+        _make_case(
+            test_type=MeasurementTestType.INBAND,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.Z,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.5),
+    )
+
+    assert ("Sub6 n78", "D62", -45.5) in fallback_cells
+    assert writer._pending_cells == []
