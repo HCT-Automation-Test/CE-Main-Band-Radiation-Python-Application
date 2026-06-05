@@ -235,20 +235,18 @@ class ExcelReportWriter:
             return
 
         try:
+            import pythoncom
             import win32com.client
         except ImportError as exc:
             raise PermissionError(
                 f"Excel report file is open and cannot be saved: {self.template_path}"
             ) from exc
 
-        try:
-            excel = win32com.client.GetActiveObject("Excel.Application")
-        except Exception as exc:
-            raise PermissionError(
-                f"Excel report file is locked and Excel is not available: "
-                f"{self.template_path}"
-            ) from exc
-        workbook = _find_open_excel_workbook(excel, self.template_path)
+        workbook = _find_open_excel_workbook(
+            self.template_path,
+            pythoncom,
+            win32com.client,
+        )
         if workbook is None:
             raise PermissionError(
                 f"Excel report file is locked but no open Excel workbook was found: "
@@ -267,11 +265,82 @@ class ExcelReportWriter:
         self._pending_cells.clear()
 
 
-def _find_open_excel_workbook(excel: Any, template_path: Path) -> Any | None:
+def _find_open_excel_workbook(
+    template_path: Path,
+    pythoncom_module: Any,
+    win32_client: Any,
+) -> Any | None:
+    workbook = _find_workbook_from_running_object_table(
+        template_path,
+        pythoncom_module,
+        win32_client,
+    )
+    if workbook is not None:
+        return workbook
+    return _find_workbook_from_active_excel(template_path, win32_client)
+
+
+def _find_workbook_from_running_object_table(
+    template_path: Path,
+    pythoncom_module: Any,
+    win32_client: Any,
+) -> Any | None:
     target = _normalized_path(template_path)
-    for workbook in excel.Workbooks:
-        if _normalized_path(Path(workbook.FullName)) == target:
+    try:
+        bind_context = pythoncom_module.CreateBindCtx(0)
+        running_objects = pythoncom_module.GetRunningObjectTable()
+        monikers = running_objects.EnumRunning()
+    except Exception:
+        return None
+
+    while True:
+        try:
+            batch = monikers.Next(1)
+        except Exception:
+            return None
+        if not batch:
+            return None
+
+        moniker = batch[0]
+        try:
+            candidate = running_objects.GetObject(moniker)
+        except Exception:
+            continue
+        try:
+            candidate = win32_client.Dispatch(candidate)
+        except Exception:
+            pass
+
+        workbook = _match_workbook_by_path(candidate, target)
+        if workbook is not None:
             return workbook
+
+
+def _find_workbook_from_active_excel(template_path: Path, win32_client: Any) -> Any | None:
+    try:
+        excel = win32_client.GetActiveObject("Excel.Application")
+    except Exception:
+        return None
+
+    target = _normalized_path(template_path)
+    try:
+        workbooks = excel.Workbooks
+    except Exception:
+        return None
+    for workbook in workbooks:
+        matched = _match_workbook_by_path(workbook, target)
+        if matched is not None:
+            return matched
+    return None
+
+
+def _match_workbook_by_path(candidate: Any, target_path: str) -> Any | None:
+    try:
+        full_name = candidate.FullName
+    except Exception:
+        return None
+    if _normalized_path(Path(full_name)) == target_path:
+        return candidate
     return None
 
 
