@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
-from app.core.fsm.states.nr_setup import NRCallConnectState
+from app.core.fsm.states.nr_setup import NRCallConnectState, NRCallDisconnectedState
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
@@ -30,6 +32,7 @@ class _SignalRecorder:
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.user_action_required = _SignalRecorder()
 
 
 class _Commands:
@@ -146,8 +149,8 @@ def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert commands.calls == []
     assert events.error.messages
 
@@ -181,8 +184,8 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
         "NR Call 연결 실패: setup_mt8000 returned false"
     ]
@@ -200,8 +203,30 @@ def test_nr_call_connect_returns_fail_and_emits_error_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
         "NR Call 연결 실패: instrument timeout"
     ]
+
+
+def test_nr_call_disconnected_waits_for_user_action_before_reconnect() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case()],
+        commands=_Commands(connected=True),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = NRCallDisconnectedState()
+
+    def complete_action() -> None:
+        time.sleep(0.02)
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=complete_action, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert events.user_action_required.messages == ["비행기 모드 On/Off 후 확인"]
+    assert state.next_state(ctx, result) == "NRCallConnect"

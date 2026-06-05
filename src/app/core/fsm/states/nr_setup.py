@@ -37,7 +37,7 @@ class NRCallConnectState(State):
     def run(self, ctx: "SessionContext") -> StateResult:
         if not is_equipment_connected(ctx, "MT8000A"):
             _emit_error(ctx, "NR Call 연결 스킵: MT8000A가 연결되어 있지 않습니다.")
-            return StateResult.OK
+            return StateResult.FAIL
 
         test_case = ctx.current_case
         waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
@@ -63,23 +63,25 @@ class NRCallConnectState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Call 연결 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if connected:
             return StateResult.OK
 
         _emit_error(ctx, "NR Call 연결 실패: setup_mt8000 returned false")
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        if result is not StateResult.OK:
-            return None
-        return next_transition_or(
-            ctx,
-            measurement_start_state_for(ctx.current_case.test_type),
-        )
+        if result is StateResult.OK:
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
 
 
 class NRCallDisconnectedState(State):

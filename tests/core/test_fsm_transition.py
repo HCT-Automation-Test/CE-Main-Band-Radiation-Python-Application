@@ -468,8 +468,8 @@ def test_handover_skips_when_mt8000a_is_not_connected() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert commands.handover_calls == []
     assert events.error.messages
 
@@ -480,8 +480,8 @@ def test_handover_fails_when_previous_case_is_missing() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert commands.handover_calls == []
     assert events.error.messages == [
         "NR Handover 실패: previous test case is not set"
@@ -502,8 +502,8 @@ def test_handover_goes_to_nr_call_disconnected_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
         "NR Handover 실패: call_handover returned false"
     ]
@@ -523,8 +523,8 @@ def test_handover_goes_to_nr_call_disconnected_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == ["NR Handover 실패: instrument timeout"]
 
 
@@ -540,8 +540,8 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert commands.handover_calls == []
     assert events.error.messages == [
         "NR Handover 실패: No NR channel lookup for "
@@ -629,8 +629,8 @@ def test_test_type_change_skips_when_mt8000a_is_not_connected() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert commands.call_status_calls == []
     assert events.error.messages
 
@@ -653,7 +653,7 @@ def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None
     ]
 
 
-def test_test_type_change_continues_on_exception() -> None:
+def test_test_type_change_goes_to_nr_call_disconnected_on_exception() -> None:
     command_facade = _Commands(
         call_status_exception=RuntimeError("instrument timeout")
     )
@@ -665,9 +665,9 @@ def test_test_type_change_continues_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert commands.call_status_calls == [client]
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
         "NR Call 상태 확인 실패: instrument timeout"
     ]
