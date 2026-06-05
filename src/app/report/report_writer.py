@@ -64,10 +64,11 @@ class ReportWriter:
     ) -> bool:
         """Harmonic 결과를 Excel에 쓰고 screenshot을 최종 저장한다."""
 
+        self._finalize_sa_screenshot(test_case, result.screenshot_path)
+
         if not self.excel_writer.write_harmonic(test_case, result):
             return False
 
-        self._finalize_sa_screenshot(test_case, result.screenshot_path)
         return True
 
     def write_inband(
