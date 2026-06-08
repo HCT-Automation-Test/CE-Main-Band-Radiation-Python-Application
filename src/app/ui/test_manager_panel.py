@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QBrush, QColor
@@ -127,6 +127,9 @@ _ACTION_BODY_SPACING = 12
 _LOG_PANEL_WIDTH = 280
 _TABLE_TEXT_COLOR = QColor("#111111")
 _TABLE_SELECTION_COLOR = QColor("#dcecff")
+_TEST_CASE_RUNNING_BACKGROUND = QColor("#fff3bf")
+_TEST_CASE_COMPLETED_BACKGROUND = QColor("#ced4da")
+_TestCaseProgress = Literal["pending", "running", "completed"]
 _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
     82,  # Generation
     50,  # Band
@@ -224,6 +227,7 @@ class TestManagerPanel(QWidget):
         super().__init__(parent)
         self._active_tdf_file_name: str | None = None
         self._test_cases: list[TestCase] = []
+        self._test_case_progress: list[_TestCaseProgress] = []
         self._connection_indicators: dict[str, QFrame] = {}
         self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
         self._nr_group_settings: dict[str, NRGroupSettings] | None = None
@@ -506,6 +510,38 @@ class TestManagerPanel(QWidget):
         """현재 TC 중단 버튼 활성화 상태를 갱신한다."""
 
         self._pause_button.setEnabled(enabled)
+
+    def reset_test_case_progress(self) -> None:
+        """TestCase 표의 진행 상태 표시를 초기화한다."""
+
+        self._test_case_progress = ["pending"] * len(self._test_cases)
+        self._refresh_test_case_progress_marks()
+
+    def mark_current_test_case(self, case: TestCase) -> None:
+        """현재 진행 중인 TestCase 행을 표시한다."""
+
+        current_index = self._find_test_case_index(case)
+        for row, status in enumerate(self._test_case_progress):
+            if status == "running":
+                self._test_case_progress[row] = "completed"
+        if current_index is not None:
+            self._test_case_progress[current_index] = "running"
+            first_item = self._test_case_table.item(current_index, 0)
+            if first_item is not None:
+                self._test_case_table.selectRow(current_index)
+                self._test_case_table.scrollToItem(
+                    first_item,
+                    QAbstractItemView.ScrollHint.PositionAtCenter,
+                )
+        self._refresh_test_case_progress_marks()
+
+    def complete_current_test_case(self) -> None:
+        """현재 진행 중인 TestCase 행을 완료 표시로 바꾼다."""
+
+        for row, status in enumerate(self._test_case_progress):
+            if status == "running":
+                self._test_case_progress[row] = "completed"
+        self._refresh_test_case_progress_marks()
 
     def set_tdf_file_list(self, file_names: Iterable[str]) -> None:
         """TDF 파일 목록을 List Box에 반영한다."""
@@ -1203,6 +1239,39 @@ class TestManagerPanel(QWidget):
             is_active = self._tdf_item_file_name(item) == self._active_tdf_file_name
             item.setBackground(active_background if is_active else QBrush())
 
+    def _refresh_test_case_progress_marks(self) -> None:
+        """TestCase 진행 상태에 따라 행 배경색을 갱신한다."""
+
+        for row in range(self._test_case_table.rowCount()):
+            status = (
+                self._test_case_progress[row]
+                if row < len(self._test_case_progress)
+                else "pending"
+            )
+            self._set_test_case_row_background(row, self._background_for_progress(status))
+
+    def _set_test_case_row_background(self, row: int, background: QBrush) -> None:
+        for column in range(self._test_case_table.columnCount()):
+            item = self._test_case_table.item(row, column)
+            if item is not None:
+                item.setBackground(background)
+
+    def _background_for_progress(self, status: _TestCaseProgress) -> QBrush:
+        if status == "running":
+            return QBrush(_TEST_CASE_RUNNING_BACKGROUND)
+        if status == "completed":
+            return QBrush(_TEST_CASE_COMPLETED_BACKGROUND)
+        return QBrush()
+
+    def _find_test_case_index(self, case: TestCase) -> int | None:
+        for index, candidate in enumerate(self._test_cases):
+            if candidate is case:
+                return index
+        for index, candidate in enumerate(self._test_cases):
+            if candidate == case:
+                return index
+        return None
+
     @staticmethod
     def _tdf_item_file_name(item: QListWidgetItem) -> str:
         file_name = item.data(Qt.ItemDataRole.UserRole)
@@ -1292,7 +1361,9 @@ class TestManagerPanel(QWidget):
             return
 
         self._test_cases.pop(row)
+        self._test_case_progress.pop(row)
         self._test_case_table.removeRow(row)
+        self._refresh_test_case_progress_marks()
 
     def on_clear_button_clicked(self) -> None:
         """모든 TestCase를 삭제한다."""
@@ -1301,6 +1372,7 @@ class TestManagerPanel(QWidget):
             return
 
         self._test_cases.clear()
+        self._test_case_progress.clear()
         self._test_case_table.setRowCount(0)
 
     def on_load_item_button_clicked(self) -> None:
@@ -1539,7 +1611,9 @@ class TestManagerPanel(QWidget):
 
         for case in cases:
             self._test_cases.append(case)
+            self._test_case_progress.append("pending")
             self._append_test_case_row(case)
+        self._refresh_test_case_progress_marks()
 
     def _append_test_case_row(self, case: TestCase) -> None:
         """TestCase 하나를 실행 표에 표시한다."""

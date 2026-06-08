@@ -326,6 +326,8 @@ class MainWindow(QMainWindow):
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
+        if self._runner.restart_index is None:
+            self._test_manager_panel.reset_test_case_progress()
         self._runner.start(
             list(self._test_manager_panel.test_cases),
             settings=settings,
@@ -510,8 +512,10 @@ class MainWindow(QMainWindow):
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
 
         self._test_manager_panel.set_current_case(case)
+        self._test_manager_panel.mark_current_test_case(case)
 
     def on_session_finished(self) -> None:
+        self._test_manager_panel.complete_current_test_case()
         self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
 
     def _show_info(self, title: str, message: str) -> None:

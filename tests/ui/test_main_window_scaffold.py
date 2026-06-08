@@ -704,6 +704,74 @@ def test_test_manager_panel_drops_active_tdf_mark_when_missing_from_refresh(qtbo
     )
 
 
+def test_test_manager_panel_marks_test_case_progress_rows(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert all(
+        table.item(row, 0).background().style() == Qt.BrushStyle.NoBrush
+        for row in range(table.rowCount())
+    )
+
+    panel.mark_current_test_case(first_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().style() == Qt.BrushStyle.NoBrush
+
+    running_color = table.item(0, 0).background().color().name()
+    panel.mark_current_test_case(second_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    panel.complete_current_test_case()
+
+    assert table.item(1, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().color().name() != running_color
+
+
+def test_test_manager_panel_resets_test_case_progress_rows(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_test_case()
+    panel.add_test_cases([case])
+    panel.mark_current_test_case(case)
+
+    panel.reset_test_case_progress()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_test_manager_panel_keeps_progress_state_in_sync_when_rows_change(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+    panel.mark_current_test_case(second_case)
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    table.selectRow(0)
+    panel.findChild(QPushButton, "deleteButton").click()
+
+    assert table.rowCount() == 1
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+
+    panel.findChild(QPushButton, "clearButton").click()
+
+    assert table.rowCount() == 0
+    assert panel.test_cases == ()
+
+
 def test_test_manager_panel_polarization_labels_match_physical_masts(qtbot) -> None:
     panel = ManagerPanel()
     qtbot.addWidget(panel)
@@ -1108,6 +1176,97 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
     )
     for object_name, value in preserved_values.items():
         assert panel.findChild(QLineEdit, object_name).text() == value
+
+
+def test_main_window_updates_test_case_progress_from_runner_events(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel = window._test_manager_panel
+    panel.add_test_cases([first_case, second_case])
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    window._runner.events.current_case_changed.emit(first_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().style() == Qt.BrushStyle.NoBrush
+
+    running_color = table.item(0, 0).background().color().name()
+    window._runner.events.current_case_changed.emit(second_case)
+
+    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    window._runner.events.session_finished.emit()
+
+    assert table.item(1, 0).background().color().name() != running_color
+
+
+def test_main_window_start_resets_test_case_progress(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    case = _make_test_case()
+    panel.add_test_cases([case])
+    panel.mark_current_test_case(case)
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+
+    window.on_start_requested()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_main_window_start_preserves_completed_progress_on_pause_restart(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+    panel.mark_current_test_case(first_case)
+    panel.mark_current_test_case(second_case)
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    completed_color = table.item(0, 0).background().color().name()
+    running_color = table.item(1, 0).background().color().name()
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    window._runner._restart_index = 1
+    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+
+    window.on_start_requested()
+
+    assert table.item(0, 0).background().color().name() == completed_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    window._runner.events.current_case_changed.emit(second_case)
+
+    assert table.item(0, 0).background().color().name() == completed_color
+    assert table.item(1, 0).background().color().name() == running_color
 
 
 def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:

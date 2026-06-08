@@ -171,6 +171,12 @@ class Runner(QObject):
         return self._commands
 
     @property
+    def restart_index(self) -> int | None:
+        """Pause 후 재시작할 TestCase index를 반환한다."""
+
+        return self._restart_index
+
+    @property
     def equipment_state(self) -> dict[str, bool]:
         """마지막으로 확인된 장비 연결 상태를 반환한다."""
 
