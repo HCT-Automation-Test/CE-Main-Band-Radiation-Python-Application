@@ -5,6 +5,7 @@ import logging
 import threading
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
@@ -47,7 +48,10 @@ from app.ui.main_window import MainWindow
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.nr_select import NRSelectDialog
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel
-from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
+from app.ui.test_manager_panel import (
+    _TABLE_COLUMN_BASE_WIDTHS,
+    TestManagerPanel as ManagerPanel,
+)
 from app.ui.test_plot_screenshot_panel import (
     TestPlotScreenshotPanel as PlotScreenshotPanel,
 )
@@ -547,17 +551,22 @@ def test_test_manager_panel_test_case_table_distributes_extra_width(qtbot) -> No
     table = panel.findChild(QTableWidget, "testCaseTable")
     assert table is not None
 
-    generation_width = table.columnWidth(0)
-    modulation_width = table.columnWidth(5)
-    rb_allocation_width = table.columnWidth(6)
-    arfc_width = table.columnWidth(10)
-    pol_width = table.columnWidth(16)
+    column_widths = [table.columnWidth(column) for column in range(table.columnCount())]
+    total_width = sum(column_widths)
+    viewport_width = table.viewport().width()
 
     assert table.horizontalScrollBar().maximum() == 0
-    assert pol_width < modulation_width
-    assert pol_width < rb_allocation_width
-    assert pol_width < arfc_width
-    assert modulation_width > generation_width
+    assert total_width == viewport_width
+
+    for column in (0, 5, 6, 8, 16):
+        expected_ratio = (
+            _TABLE_COLUMN_BASE_WIDTHS[column] / sum(_TABLE_COLUMN_BASE_WIDTHS)
+        )
+        actual_ratio = column_widths[column] / total_width
+        assert actual_ratio == pytest.approx(expected_ratio, abs=0.003)
+
+    assert column_widths[16] < column_widths[5]
+    assert column_widths[16] < column_widths[6]
 
 
 def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:

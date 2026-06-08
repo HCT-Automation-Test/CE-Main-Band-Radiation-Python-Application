@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Literal
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtGui import (
     QBrush,
@@ -149,27 +149,7 @@ _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
     42,  # Axis
     42,  # Pol
 )
-_TABLE_COLUMN_STRETCH_WEIGHTS: tuple[int, ...] = (
-    2,  # Generation
-    0,  # Band
-    2,  # EUT ANT
-    0,  # SCS
-    0,  # BW
-    4,  # Modulation
-    4,  # RB Allocation
-    2,  # RB Size
-    2,  # RB Offset
-    0,  # CH
-    4,  # ARFCN
-    4,  # CH_No.
-    2,  # Case
-    4,  # Start Freq
-    4,  # Stop Freq
-    0,  # Axis
-    0,  # Pol
-)
 _TABLE_COLUMN_BASE_TOTAL = sum(_TABLE_COLUMN_BASE_WIDTHS)
-_TABLE_COLUMN_STRETCH_TOTAL = sum(_TABLE_COLUMN_STRETCH_WEIGHTS)
 _RANGE_SETTING_HEADERS: tuple[str, ...] = (
     "Mode",
     "Range",
@@ -690,6 +670,7 @@ class TestManagerPanel(QWidget):
         horizontal_header.setMinimumSectionSize(32)
         horizontal_header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         table.verticalHeader().setVisible(False)
+        table.viewport().installEventFilter(self)
         self._apply_test_case_column_widths(table)
         return table
 
@@ -706,27 +687,20 @@ class TestManagerPanel(QWidget):
         if viewport_width <= 0:
             viewport_width = target_table.width() - (target_table.frameWidth() * 2)
         available_width = max(viewport_width, _TABLE_COLUMN_BASE_TOTAL)
-        extra_width = max(0, available_width - _TABLE_COLUMN_BASE_TOTAL)
-        widths = list(_TABLE_COLUMN_BASE_WIDTHS)
-
-        if extra_width and _TABLE_COLUMN_STRETCH_TOTAL:
-            distributed = 0
-            for column, weight in enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS):
-                extra_for_column = (extra_width * weight) // _TABLE_COLUMN_STRETCH_TOTAL
-                widths[column] += extra_for_column
-                distributed += extra_for_column
-
-            weighted_columns = [
-                column
-                for column, weight in sorted(
-                    enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS),
-                    key=lambda item: (-item[1], item[0]),
-                )
-                if weight > 0
-            ]
-            remaining = extra_width - distributed
-            for index in range(remaining):
-                widths[weighted_columns[index % len(weighted_columns)]] += 1
+        widths = [
+            (available_width * base_width) // _TABLE_COLUMN_BASE_TOTAL
+            for base_width in _TABLE_COLUMN_BASE_WIDTHS
+        ]
+        columns_by_base_width = [
+            column
+            for column, _base_width in sorted(
+                enumerate(_TABLE_COLUMN_BASE_WIDTHS),
+                key=lambda item: (-item[1], item[0]),
+            )
+        ]
+        remaining = available_width - sum(widths)
+        for index in range(remaining):
+            widths[columns_by_base_width[index % len(columns_by_base_width)]] += 1
 
         for column, width in enumerate(widths):
             target_table.setColumnWidth(column, width)
@@ -1171,6 +1145,15 @@ class TestManagerPanel(QWidget):
             }
             """
         )
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if (
+            hasattr(self, "_test_case_table")
+            and watched is self._test_case_table.viewport()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._apply_test_case_column_widths()
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         """패널 폭 변경 시 TestCase 표 컬럼 폭을 다시 배분한다."""
