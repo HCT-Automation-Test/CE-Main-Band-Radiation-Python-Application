@@ -293,11 +293,57 @@ def test_self_align_fsv40_sends_default_params() -> None:
     assert client.calls == [("FSV40", "Self Alignment", {})]
 
 
+def test_get_tdf_list_returns_file_names() -> None:
+    client = _Client(_ok(**{"TDF File List": ["a.tdf", "b.tdf"]}))
+
+    assert commands.get_tdf_list(client) == ["a.tdf", "b.tdf"]
+    assert client.calls == [("FSV40", "Get TDF List", {})]
+
+
+def test_get_tdf_list_rejects_non_list_result() -> None:
+    client = _Client(_ok(**{"TDF File List": "a.tdf,b.tdf"}))
+
+    with pytest.raises(commands.CommandError, match="TDF File List must be a list"):
+        commands.get_tdf_list(client)
+
+
+def test_get_tdf_list_rejects_missing_result_object() -> None:
+    client = _Client(_default_ok())
+
+    with pytest.raises(commands.CommandError, match="Result must be an object"):
+        commands.get_tdf_list(client)
+
+
+def test_get_tdf_list_rejects_non_string_items() -> None:
+    client = _Client(_ok(**{"TDF File List": ["a.tdf", 7]}))
+
+    with pytest.raises(
+        commands.CommandError,
+        match="TDF File List must contain only strings",
+    ):
+        commands.get_tdf_list(client)
+
+
+def test_tdf_all_off_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.tdf_all_off(client) is True
+    assert client.calls == [("FSV40", "TDF All Off", {})]
+
+
+def test_set_tdf_sends_file_name_param() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.set_tdf(client, tdf_file_name="a.tdf") is True
+    assert client.calls == [("FSV40", "Set TDF", {"TDF File Name": "a.tdf"})]
+
+
 @pytest.mark.parametrize(
     ("facade", "target", "command"),
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
+        (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
 def test_instrument_set_commands_raise_on_error_response(

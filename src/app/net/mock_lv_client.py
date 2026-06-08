@@ -225,6 +225,15 @@ class MockLvClientConsole:
                     timeout_s=_float_arg(args, "timeout", default=900.0),
                 )
             return value
+        if name in {"tdf-list", "get-tdf-list"}:
+            return commands.get_tdf_list(self._recording_client)
+        if name == "tdf-all-off":
+            return commands.tdf_all_off(self._recording_client)
+        if name == "set-tdf":
+            return commands.set_tdf(
+                self._recording_client,
+                tdf_file_name=_str_arg(args, "file", "tdf_file_name"),
+            )
         if name == "check-call":
             return commands.check_call_status(self._recording_client)
         if name == "set-ant-pol":
@@ -382,6 +391,9 @@ class MockLvClientConsole:
                     "  stop-rotate",
                     "  set-reference [wait=true] [timeout=900]",
                     "  self-align [wait=true] [timeout=900]",
+                    "  tdf-list",
+                    "  tdf-all-off",
+                    "  set-tdf file=NR_Radiated.tdf",
                     "  check-call",
                     "  set-ant-pol pol=V input_path=3",
                     "  raw target=FSV40 command=\"Unknown Command\" params='{}'",

@@ -33,6 +33,9 @@ _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
+_COMMAND_GET_TDF_LIST = "Get TDF List"
+_COMMAND_TDF_ALL_OFF = "TDF All Off"
+_COMMAND_SET_TDF = "Set TDF"
 
 _HZ_PER_MHZ = 1_000_000.0
 
@@ -242,6 +245,48 @@ def set_reference_co3000(client: Any) -> bool:
 def self_align_fsv40(client: Any) -> bool:
     response = _send_request(client, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT, {})
     return _action_ok(response, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT)
+
+
+def get_tdf_list(client: Any) -> list[str]:
+    """FSV40에 저장된 TDF 파일 목록을 조회한다."""
+
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_GET_TDF_LIST, {})
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_GET_TDF_LIST)
+    tdf_file_list = result.get("TDF File List")
+    if isinstance(tdf_file_list, str | bytes) or not isinstance(
+        tdf_file_list,
+        Sequence,
+    ):
+        raise CommandError(
+            f"{_TARGET_FSV40} / {_COMMAND_GET_TDF_LIST} "
+            "Result.TDF File List must be a list"
+        )
+    normalized = [str(file_name) for file_name in tdf_file_list]
+    if any(not isinstance(file_name, str) for file_name in tdf_file_list):
+        raise CommandError(
+            f"{_TARGET_FSV40} / {_COMMAND_GET_TDF_LIST} "
+            "Result.TDF File List must contain only strings"
+        )
+    return normalized
+
+
+def tdf_all_off(client: Any) -> bool:
+    """FSV40의 모든 TDF를 비활성화한다."""
+
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_TDF_ALL_OFF, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_TDF_ALL_OFF)
+
+
+def set_tdf(client: Any, *, tdf_file_name: str) -> bool:
+    """선택한 TDF 파일 하나를 FSV40에 활성화한다."""
+
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_SET_TDF,
+        {"TDF File Name": str(tdf_file_name)},
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_SET_TDF)
 
 
 def measure_fundamental(client: Any, *, target_freq: float) -> float:

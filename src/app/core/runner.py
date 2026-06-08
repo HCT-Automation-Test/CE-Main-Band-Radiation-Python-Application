@@ -159,6 +159,18 @@ class Runner(QObject):
         return self._instrument_connection_service
 
     @property
+    def client(self) -> Any:
+        """외부 LabVIEW TCP 서버와 통신하는 공용 client를 반환한다."""
+
+        return self._client
+
+    @property
+    def commands(self) -> Any:
+        """Runner와 보조 서비스가 공유할 command facade를 반환한다."""
+
+        return self._commands
+
+    @property
     def equipment_state(self) -> dict[str, bool]:
         """마지막으로 확인된 장비 연결 상태를 반환한다."""
 

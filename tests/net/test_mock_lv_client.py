@@ -4,7 +4,7 @@ import io
 from typing import Any
 
 from app.net.mock_lv_client import MockLvClientConsole, parse_line
-from app.net.mock_lv_server import MockLvServer
+from app.net.mock_lv_server import MOCK_TDF_FILE_LIST, MockLvServer
 from app.net.tcp_client import TcpClient
 
 
@@ -119,3 +119,43 @@ def test_mock_lv_client_raw_error_response_does_not_exit(qtbot, tmp_path) -> Non
     finally:
         client.disconnect_from_host()
         server.stop()
+
+
+def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line("tdf-list")
+        assert console.execute_line("tdf-all-off")
+        assert console.execute_line("set-tdf file=NR_Radiated.tdf")
+
+        text = output.getvalue()
+        assert "REQUEST  FSV40 / Get TDF List" in text
+        assert "REQUEST  FSV40 / TDF All Off" in text
+        assert "REQUEST  FSV40 / Set TDF" in text
+        assert '"TDF File List": ' in text
+        for file_name in MOCK_TDF_FILE_LIST:
+            assert file_name in text
+        assert '"TDF File Name": "NR_Radiated.tdf"' in text
+        assert "RETURN   true" in text
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_client_help_includes_tdf_commands() -> None:
+    output = io.StringIO()
+    console = MockLvClientConsole(_NoopClient(), output=output)
+
+    assert console.execute_line("help")
+
+    text = output.getvalue()
+    assert "tdf-list" in text
+    assert "tdf-all-off" in text
+    assert "set-tdf file=NR_Radiated.tdf" in text

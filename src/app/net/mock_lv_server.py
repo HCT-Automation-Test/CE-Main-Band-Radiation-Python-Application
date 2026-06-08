@@ -51,6 +51,9 @@ _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
+_COMMAND_GET_TDF_LIST = "Get TDF List"
+_COMMAND_TDF_ALL_OFF = "TDF All Off"
+_COMMAND_SET_TDF = "Set TDF"
 
 _COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
 _COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
@@ -58,6 +61,18 @@ _COMMAND_SET_REFERENCE_COMPLETE = "set_reference_complete"
 _COMMAND_SELF_ALIGNMENT_COMPLETE = "self_alignment_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"
 _TURNTABLE_STEP_DEGREE = 30.0
+MOCK_TDF_FILE_LIST: tuple[str, ...] = (
+    "NR_Radiated.tdf",
+    "CE_Harmonic.tdf",
+    "NR_Inband.tdf",
+    "NR_Bilog.tdf",
+    "SA_N78_100M.tdf",
+    "SA_N77_100M.tdf",
+    "SA_N79_100M.tdf",
+    "Harmonic_3m.tdf",
+    "Harmonic_Bilog.tdf",
+    "Factory_Default.tdf",
+)
 
 _SUPPORTED_TARGETS = {
     _TARGET_FSV40,
@@ -224,6 +239,12 @@ class MockLvServer:
                 error_scenario="self-alignment-error",
                 error_message="mock self alignment error",
             )
+            return _ok(request)
+        if request.command == _COMMAND_GET_TDF_LIST:
+            return _ok(request, {"TDF File List": list(MOCK_TDF_FILE_LIST)})
+        if request.command == _COMMAND_TDF_ALL_OFF:
+            return _ok(request)
+        if request.command == _COMMAND_SET_TDF:
             return _ok(request)
         return _error(request, "unsupported command")
 
