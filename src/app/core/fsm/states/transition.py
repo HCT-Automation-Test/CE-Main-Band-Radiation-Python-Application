@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
+from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.fsm.transition_flow import next_transition_or
 from app.models.band_group import find_band_group
 from app.models.enums import AntennaPol, InputPath, TestChannel
@@ -102,7 +103,10 @@ class AntPolChangeState(State):
             return None
         if ctx.prev_case is None or ctx.current_index == ctx.start_index:
             return "SetupSpectrumAnalyzerStartupLevel"
-        return next_transition_or(ctx, "MeasureFundamental")
+        return next_transition_or(
+            ctx,
+            measurement_start_state_for(ctx.current_case.test_type),
+        )
 
 
 class HandoverState(State):
@@ -162,7 +166,10 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return next_transition_or(ctx, "MeasureFundamental")
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None
@@ -283,7 +290,10 @@ class TestTypeChangeState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return next_transition_or(ctx, "MeasureFundamental")
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None

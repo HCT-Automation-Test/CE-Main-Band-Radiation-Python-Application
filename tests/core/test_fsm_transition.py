@@ -145,15 +145,16 @@ def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
 
 
 @pytest.mark.parametrize(
-    "test_type",
+    ("test_type", "expected"),
     [
-        NRTestType.HARMONIC,
-        NRTestType.INBAND,
-        NRTestType.BILOG,
+        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.INBAND, "SetSwitchBox"),
+        (NRTestType.BILOG, "SetSwitchBox"),
     ],
 )
-def test_ant_pol_change_uses_harmonic_measurement_route(
+def test_ant_pol_change_uses_test_type_measurement_route(
     test_type: NRTestType,
+    expected: str,
 ) -> None:
     prev_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.V)
     current_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.H)
@@ -164,7 +165,7 @@ def test_ant_pol_change_uses_harmonic_measurement_route(
     )
     state = AntPolChangeState()
 
-    assert state.next_state(ctx, StateResult.OK) == "MeasureFundamental"
+    assert state.next_state(ctx, StateResult.OK) == expected
     assert state.next_state(ctx, StateResult.FAIL) is None
 
 
@@ -200,7 +201,7 @@ def test_test_type_change_continues_to_measurement_after_pending_transitions() -
     ctx, _, _, _ = _make_ctx(_make_case(test_type=NRTestType.INBAND))
     ctx.pending_transition_states = []
 
-    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "MeasureFundamental"
+    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
 
 
 def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
@@ -434,15 +435,16 @@ def test_handover_calls_command_with_current_case_params() -> None:
 
 
 @pytest.mark.parametrize(
-    "test_type",
+    ("test_type", "expected"),
     [
-        NRTestType.HARMONIC,
-        NRTestType.INBAND,
-        NRTestType.BILOG,
+        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.INBAND, "SetSwitchBox"),
+        (NRTestType.BILOG, "SetSwitchBox"),
     ],
 )
-def test_handover_routes_to_harmonic_measurement_start(
+def test_handover_routes_to_test_type_measurement_start(
     test_type: NRTestType,
+    expected: str,
 ) -> None:
     prev_case = _make_case(band=NRBand.N77)
     current_case = _make_case(band=NRBand.N78, test_type=test_type)
@@ -452,7 +454,7 @@ def test_handover_routes_to_harmonic_measurement_start(
         current_index=1,
     )
 
-    assert HandoverState().next_state(ctx, StateResult.OK) == "MeasureFundamental"
+    assert HandoverState().next_state(ctx, StateResult.OK) == expected
 
 
 def test_handover_skips_when_mt8000a_is_not_connected() -> None:
@@ -601,15 +603,16 @@ def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
 
 
 @pytest.mark.parametrize(
-    "test_type",
+    ("test_type", "expected"),
     [
-        NRTestType.HARMONIC,
-        NRTestType.INBAND,
-        NRTestType.BILOG,
+        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.INBAND, "SetSwitchBox"),
+        (NRTestType.BILOG, "SetSwitchBox"),
     ],
 )
-def test_test_type_change_checks_call_status_and_routes_to_harmonic_measurement(
+def test_test_type_change_checks_call_status_and_routes_to_test_type_measurement(
     test_type: NRTestType,
+    expected: str,
 ) -> None:
     ctx, commands, events, client = _make_ctx(_make_case(test_type=test_type))
     state = TestTypeChangeState()
@@ -618,7 +621,7 @@ def test_test_type_change_checks_call_status_and_routes_to_harmonic_measurement(
 
     assert result is StateResult.OK
     assert commands.call_status_calls == [client]
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == expected
     assert events.error.messages == []
 
 
