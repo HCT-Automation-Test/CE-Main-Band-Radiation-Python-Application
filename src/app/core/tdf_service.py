@@ -13,6 +13,24 @@ logger = logging.getLogger(__name__)
 
 TdfOperation = Literal["get_list", "all_off", "set_tdf"]
 TDF_OPERATION_IN_PROGRESS_MESSAGE = "TDF 작업이 이미 진행 중입니다."
+_DETACHED_THREADS: list[QThread] = []
+
+
+def _disconnect_safely(signal: Any, slot: Any) -> None:
+    try:
+        signal.disconnect(slot)
+    except (RuntimeError, TypeError):
+        pass
+
+
+def _forget_detached_thread(thread: QThread) -> None:
+    if thread in _DETACHED_THREADS:
+        _DETACHED_THREADS.remove(thread)
+
+
+def _delete_detached_thread(thread: QThread) -> None:
+    _forget_detached_thread(thread)
+    thread.deleteLater()
 
 
 class _TdfWorker(QObject):
@@ -145,10 +163,15 @@ class TdfService(QObject):
         if self._worker is not None:
             self._worker.cancel()
         if self._thread is not None:
-            self._thread.quit()
-            if not self._thread.wait(1000):
+            thread = self._thread
+            _disconnect_safely(thread.finished, self._on_thread_finished)
+            _disconnect_safely(thread.finished, thread.deleteLater)
+            thread.quit()
+            if not thread.wait(1000):
                 logger.error("TDF worker thread did not stop cleanly")
-            self._thread.deleteLater()
+                self._detach_running_thread(thread)
+            else:
+                thread.deleteLater()
         self._thread = None
         self._worker = None
 
@@ -211,3 +234,10 @@ class TdfService(QObject):
 
     def _on_worker_done(self) -> None:
         self._worker = None
+
+    def _detach_running_thread(self, thread: QThread) -> None:
+        thread.setParent(None)
+        _DETACHED_THREADS.append(thread)
+        thread.finished.connect(
+            lambda thread=thread: _delete_detached_thread(thread),
+        )

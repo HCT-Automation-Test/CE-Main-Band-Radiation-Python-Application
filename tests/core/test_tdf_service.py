@@ -3,19 +3,24 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from app.core.tdf_service import TDF_OPERATION_IN_PROGRESS_MESSAGE, TdfService
+from app.core.tdf_service import (
+    TDF_OPERATION_IN_PROGRESS_MESSAGE,
+    TdfService,
+    _DETACHED_THREADS,
+)
 
 
 class _Commands:
-    def __init__(self) -> None:
+    def __init__(self, *, release_timeout_s: float = 1.0) -> None:
         self.calls: list[tuple[str, Any]] = []
         self.started = threading.Event()
         self.release = threading.Event()
+        self.release_timeout_s = release_timeout_s
 
     def get_tdf_list(self, client: Any) -> list[str]:
         self.calls.append(("get_tdf_list", client))
         self.started.set()
-        self.release.wait(1.0)
+        self.release.wait(self.release_timeout_s)
         return ["a.tdf", "b.tdf"]
 
     def tdf_all_off(self, client: Any) -> bool:
@@ -72,3 +77,20 @@ def test_tdf_service_set_tdf_passes_file_name(qtbot) -> None:
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert commands.calls == [("set_tdf", client, "a.tdf")]
+
+
+def test_tdf_service_shutdown_detaches_thread_when_worker_is_still_blocked(qtbot) -> None:
+    commands = _Commands(release_timeout_s=5.0)
+    service = TdfService(client=object(), commands=commands)
+    detached_count = len(_DETACHED_THREADS)
+
+    service.get_tdf_list()
+    qtbot.waitUntil(commands.started.is_set, timeout=1000)
+
+    service.shutdown()
+
+    assert len(_DETACHED_THREADS) == detached_count + 1
+    assert not service.is_running
+
+    commands.release.set()
+    qtbot.waitUntil(lambda: len(_DETACHED_THREADS) == detached_count, timeout=1000)
