@@ -185,6 +185,11 @@ class MockLvClientConsole:
                 self._recording_client,
                 fundamental=_float_arg(args, "fundamental"),
             )
+        if name == "measure-inband":
+            return commands.measure_inband(
+                self._recording_client,
+                limit=_float_arg(args, "limit"),
+            )
         if name == "set-switch":
             return commands.set_switch_box(
                 self._recording_client,
@@ -386,6 +391,7 @@ class MockLvClientConsole:
                     "  setup-sa range=RANGE_6",
                     "  measure-fundamental target_freq=3550",
                     "  measure-harmonics fundamental=3550.25",
+                    "  measure-inband limit=-30",
                     "  set-switch input_path=3 filter_path=6",
                     "  rotate angle=360 speed=4 [wait=true] [timeout=30]",
                     "  stop-rotate",

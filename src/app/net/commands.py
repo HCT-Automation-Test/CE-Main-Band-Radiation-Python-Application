@@ -23,6 +23,7 @@ _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -433,10 +434,16 @@ def measure_harmonics(
     return normalized
 
 
-def measure_inband(client: Any, **kwargs: Any) -> Any:
-    """In-Band 측정."""
-    # TODO(spec): 파라미터/반환 스키마 확정 필요
-    raise NotImplementedError("spec TODO: send_request command name pending")
+def measure_inband(client: Any, *, limit: float) -> float:
+    """In-Band 측정 amplitude(dBm)를 반환한다."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_MARK_INBAND,
+        {"Limit": float(limit)},
+    )
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_INBAND)
+    return _number(result, "Amplitude", _TARGET_FSV40, _COMMAND_MARK_INBAND)
 
 
 def measure_bilog(client: Any, **kwargs: Any) -> Any:

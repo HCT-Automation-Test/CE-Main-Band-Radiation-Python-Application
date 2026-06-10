@@ -467,6 +467,35 @@ def test_measure_harmonics_returns_four_levels() -> None:
     ]
 
 
+def test_measure_inband_returns_amplitude() -> None:
+    client = _Client(_ok(Amplitude=-42.1))
+
+    assert commands.measure_inband(client, limit=-30.0) == -42.1
+    assert client.calls == [
+        ("FSV40", "Mark Inband", {"Limit": -30.0})
+    ]
+
+
+def test_measure_inband_rejects_missing_amplitude() -> None:
+    client = _Client(_ok())
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_inband(client, limit=-30.0)
+
+
+def test_measure_inband_rejects_non_numeric_amplitude() -> None:
+    client = _Client(_ok(Amplitude="-42.1"))
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_inband(client, limit=-30.0)
+
+
 def test_set_switch_box_sends_input_then_filter() -> None:
     client = _Client(_default_ok(), _default_ok())
 

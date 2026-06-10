@@ -5,6 +5,7 @@ from typing import Any
 
 from app.net.mock_lv_client import MockLvClientConsole, parse_line
 from app.net.mock_lv_server import MOCK_TDF_FILE_LIST, MockLvServer
+from app.net.protocol import Response
 from app.net.tcp_client import TcpClient
 
 
@@ -42,6 +43,18 @@ class _NoopClient:
         timeout: float = 10.0,
     ) -> None:
         _ = (target, command, params, timeout)
+
+
+class _StaticClient:
+    def send_request(
+        self,
+        target: str,
+        command: str,
+        params: dict[str, Any] | None = None,
+        timeout: float = 10.0,
+    ) -> Response:
+        _ = (target, command, params, timeout)
+        return Response(id="response-id", status="ok", result={"Amplitude": -42.1})
 
 
 def test_unknown_command_keeps_console_alive() -> None:
@@ -121,6 +134,20 @@ def test_mock_lv_client_raw_error_response_does_not_exit(qtbot, tmp_path) -> Non
         server.stop()
 
 
+def test_mock_lv_client_measure_inband() -> None:
+    output = io.StringIO()
+    console = MockLvClientConsole(_StaticClient(), output=output, auto_events=False)
+
+    assert console.execute_line("measure-inband limit=-30")
+
+    text = output.getvalue()
+    assert "REQUEST  FSV40 / Mark Inband" in text
+    assert '"Limit": -30.0' in text
+    assert "STATUS   ok" in text
+    assert '"Amplitude": -42.1' in text
+    assert "RETURN   -42.1" in text
+
+
 def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
@@ -159,3 +186,4 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "tdf-list" in text
     assert "tdf-all-off" in text
     assert "set-tdf file=NR_Radiated.tdf" in text
+    assert "measure-inband limit=-30" in text
