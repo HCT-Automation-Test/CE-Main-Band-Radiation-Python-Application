@@ -12,6 +12,7 @@ from app.core.fsm.states.transition import (
     AntPolChangeState,
     DUTAxisChangeState,
     HandoverState,
+    RecallChangeState,
     TestTypeChangeState,
 )
 from app.models.enums import (
@@ -121,6 +122,11 @@ def _make_ctx(
         client=client,
         current_index=current_index,
     )
+    ctx.equipment_state = {
+        "CO3000": True,
+        "3D Controller": True,
+        "MT8000A": True,
+    }
     return ctx, command_facade, events, client
 
 
@@ -146,15 +152,70 @@ def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
         (NRTestType.BILOG, "SetSwitchBox"),
     ],
 )
-def test_ant_pol_change_uses_temporary_measurement_start_route(
+def test_ant_pol_change_uses_test_type_measurement_route(
     test_type: NRTestType,
     expected: str,
 ) -> None:
-    ctx, _, _, _ = _make_ctx(_make_case(test_type=test_type))
+    prev_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.V)
+    current_case = _make_case(test_type=test_type, antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
     state = AntPolChangeState()
 
     assert state.next_state(ctx, StateResult.OK) == expected
     assert state.next_state(ctx, StateResult.FAIL) is None
+
+
+def test_handover_continues_to_pending_transition_before_measurement() -> None:
+    prev_case = _make_case(band=NRBand.N77)
+    current_case = _make_case(band=NRBand.N78)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["AntPolChange", "TestTypeChange"]
+
+    assert HandoverState().next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert ctx.pending_transition_states == ["TestTypeChange"]
+
+
+def test_ant_pol_change_continues_to_pending_transition_before_measurement() -> None:
+    prev_case = _make_case(antenna_pol=AntennaPol.V)
+    current_case = _make_case(antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["TestTypeChange"]
+
+    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "TestTypeChange"
+    assert ctx.pending_transition_states == []
+
+
+def test_test_type_change_continues_to_measurement_after_pending_transitions() -> None:
+    ctx, _, _, _ = _make_ctx(_make_case(test_type=NRTestType.INBAND))
+    ctx.pending_transition_states = []
+
+    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
+
+
+def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
+    prev_case = _make_case(antenna_pol=AntennaPol.V)
+    current_case = _make_case(antenna_pol=AntennaPol.H)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.start_index = 1
+    state = AntPolChangeState()
+
+    assert state.next_state(ctx, StateResult.OK) == "SetupSpectrumAnalyzerStartupLevel"
 
 
 @pytest.mark.parametrize(
@@ -222,6 +283,44 @@ def test_ant_pol_change_sets_pol_and_emits_display_info_for_current_hook(
     ]
     assert events.polarization_info_changed.messages == [expected_message]
     assert events.error.messages == []
+
+
+def test_ant_pol_change_skips_input3_when_3d_controller_is_not_connected() -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=NRTestType.HARMONIC,
+    )
+    ctx, commands, events, _ = _make_ctx(case)
+    ctx.equipment_state = {"3D Controller": False}
+    state = AntPolChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
+    assert commands.calls == []
+    assert events.polarization_info_changed.messages == []
+    assert events.error.messages
+
+
+def test_ant_pol_change_skips_other_inputs_when_co3000_is_not_connected() -> None:
+    case = _make_case(
+        band=NRBand.N1,
+        bandwidth=20.0,
+        test_type=NRTestType.HARMONIC,
+    )
+    ctx, commands, events, _ = _make_ctx(case)
+    ctx.equipment_state = {"CO3000": False}
+    state = AntPolChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
+    assert commands.calls == []
+    assert events.polarization_info_changed.messages == []
+    assert events.error.messages
 
 
 def test_ant_pol_change_does_not_emit_display_info_on_false_result() -> None:
@@ -335,6 +434,48 @@ def test_handover_calls_command_with_current_case_params() -> None:
     assert events.error.messages == []
 
 
+@pytest.mark.parametrize(
+    ("test_type", "expected"),
+    [
+        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.INBAND, "SetSwitchBox"),
+        (NRTestType.BILOG, "SetSwitchBox"),
+    ],
+)
+def test_handover_routes_to_test_type_measurement_start(
+    test_type: NRTestType,
+    expected: str,
+) -> None:
+    prev_case = _make_case(band=NRBand.N77)
+    current_case = _make_case(band=NRBand.N78, test_type=test_type)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+
+    assert HandoverState().next_state(ctx, StateResult.OK) == expected
+
+
+def test_handover_skips_when_mt8000a_is_not_connected() -> None:
+    prev_case = _make_case(band=NRBand.N77)
+    current_case = _make_case(band=NRBand.N78)
+    ctx, commands, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.equipment_state = {"MT8000A": False}
+    state = HandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert commands.handover_calls == []
+    assert events.error.messages
+
+
 def test_handover_fails_when_previous_case_is_missing() -> None:
     ctx, commands, events, _ = _make_ctx(_make_case())
     state = HandoverState()
@@ -410,6 +551,57 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
     ]
 
 
+def test_recall_change_emits_user_action_and_waits_for_completion() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = RecallChangeState()
+
+    def complete_action() -> None:
+        time.sleep(0.02)
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=complete_action, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert events.user_action_required.messages == [
+        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
+    ]
+    assert state.next_state(ctx, result) == "NRCallConnect"
+
+
+def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = RecallChangeState()
+
+    def request_stop() -> None:
+        time.sleep(0.02)
+        ctx.stopped = True
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=request_stop, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.user_action_required.messages == [
+        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
+    ]
+    assert state.next_state(ctx, result) is None
+
+
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
@@ -418,7 +610,7 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
         (NRTestType.BILOG, "SetSwitchBox"),
     ],
 )
-def test_test_type_change_checks_call_status_and_routes_to_measurement_start(
+def test_test_type_change_checks_call_status_and_routes_to_test_type_measurement(
     test_type: NRTestType,
     expected: str,
 ) -> None:
@@ -431,6 +623,19 @@ def test_test_type_change_checks_call_status_and_routes_to_measurement_start(
     assert commands.call_status_calls == [client]
     assert state.next_state(ctx, result) == expected
     assert events.error.messages == []
+
+
+def test_test_type_change_skips_when_mt8000a_is_not_connected() -> None:
+    ctx, commands, events, _ = _make_ctx(_make_case())
+    ctx.equipment_state = {"MT8000A": False}
+    state = TestTypeChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert commands.call_status_calls == []
+    assert events.error.messages
 
 
 def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None:
@@ -447,7 +652,7 @@ def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None
     assert commands.call_status_calls == [client]
     assert state.next_state(ctx, result) == "NRCallDisconnected"
     assert events.error.messages == [
-        "NR Call 상태 확인 실패: check_call_status returned false"
+        "NR Call 끊김 감지: check_call_status returned disconnected"
     ]
 
 

@@ -3,9 +3,10 @@ from __future__ import annotations
 from collections.abc import Iterable
 import math
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtGui import QBrush, QColor
 from PySide6.QtGui import (
     QBrush,
     QColor,
@@ -25,6 +26,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -124,6 +127,9 @@ _ACTION_BODY_SPACING = 12
 _LOG_PANEL_WIDTH = 280
 _TABLE_TEXT_COLOR = QColor("#111111")
 _TABLE_SELECTION_COLOR = QColor("#dcecff")
+_TEST_CASE_RUNNING_BACKGROUND = QColor("#fff3bf")
+_TEST_CASE_COMPLETED_BACKGROUND = QColor("#ced4da")
+_TestCaseProgress = Literal["pending", "running", "completed"]
 _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
     82,  # Generation
     50,  # Band
@@ -143,27 +149,7 @@ _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
     42,  # Axis
     42,  # Pol
 )
-_TABLE_COLUMN_STRETCH_WEIGHTS: tuple[int, ...] = (
-    2,  # Generation
-    0,  # Band
-    2,  # EUT ANT
-    0,  # SCS
-    0,  # BW
-    4,  # Modulation
-    4,  # RB Allocation
-    2,  # RB Size
-    2,  # RB Offset
-    0,  # CH
-    4,  # ARFCN
-    4,  # CH_No.
-    2,  # Case
-    4,  # Start Freq
-    4,  # Stop Freq
-    0,  # Axis
-    0,  # Pol
-)
 _TABLE_COLUMN_BASE_TOTAL = sum(_TABLE_COLUMN_BASE_WIDTHS)
-_TABLE_COLUMN_STRETCH_TOTAL = sum(_TABLE_COLUMN_STRETCH_WEIGHTS)
 _RANGE_SETTING_HEADERS: tuple[str, ...] = (
     "Mode",
     "Range",
@@ -212,10 +198,16 @@ class TestManagerPanel(QWidget):
     """테스트 케이스 생성, 실행, 로그 출력의 중심 패널."""
 
     start_requested = Signal()
+    pause_requested = Signal()
+    get_tdf_list_requested = Signal()
+    tdf_all_off_requested = Signal()
+    set_tdf_requested = Signal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._active_tdf_file_name: str | None = None
         self._test_cases: list[TestCase] = []
+        self._test_case_progress: list[_TestCaseProgress] = []
         self._connection_indicators: dict[str, QFrame] = {}
         self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
         self._nr_group_settings: dict[str, NRGroupSettings] | None = None
@@ -276,6 +268,15 @@ class TestManagerPanel(QWidget):
         """Next Peak Search Level 입력값을 dB 단위 실수로 반환한다."""
 
         return self._optional_float_field("nextPeakSearchLevelEdit")
+
+    @property
+    def selected_tdf_file_name(self) -> str | None:
+        """TDF List Box에서 선택된 파일명을 반환한다."""
+
+        selected_items = self._tdf_list_widget.selectedItems()
+        if not selected_items:
+            return None
+        return self._tdf_item_file_name(selected_items[0])
 
     def set_current_case(self, case: TestCase) -> None:
         """현재 실행/표시 대상 TestCase 정보를 표시 필드에 반영한다."""
@@ -485,6 +486,87 @@ class TestManagerPanel(QWidget):
         self._excel_template_browse_button.setEnabled(not locked)
         self._screenshot_root_browse_button.setEnabled(not locked)
 
+    def set_pause_enabled(self, enabled: bool) -> None:
+        """현재 TC 중단 버튼 활성화 상태를 갱신한다."""
+
+        self._pause_button.setEnabled(enabled)
+
+    def reset_test_case_progress(self) -> None:
+        """TestCase 표의 진행 상태 표시를 초기화한다."""
+
+        self._test_case_progress = ["pending"] * len(self._test_cases)
+        self._refresh_test_case_progress_marks()
+
+    def mark_current_test_case(self, case: TestCase) -> None:
+        """현재 진행 중인 TestCase 행을 표시한다."""
+
+        current_index = self._find_test_case_index(case)
+        for row, status in enumerate(self._test_case_progress):
+            if status == "running":
+                self._test_case_progress[row] = "completed"
+        if current_index is not None:
+            self._test_case_progress[current_index] = "running"
+            first_item = self._test_case_table.item(current_index, 0)
+            if first_item is not None:
+                self._test_case_table.selectRow(current_index)
+                self._test_case_table.scrollToItem(
+                    first_item,
+                    QAbstractItemView.ScrollHint.PositionAtCenter,
+                )
+        self._refresh_test_case_progress_marks()
+
+    def complete_current_test_case(self) -> None:
+        """현재 진행 중인 TestCase 행을 완료 표시로 바꾼다."""
+
+        for row, status in enumerate(self._test_case_progress):
+            if status == "running":
+                self._test_case_progress[row] = "completed"
+        self._refresh_test_case_progress_marks()
+
+    def set_tdf_file_list(self, file_names: Iterable[str]) -> None:
+        """TDF 파일 목록을 List Box에 반영한다."""
+
+        selected_file_name = self.selected_tdf_file_name
+        file_name_list = [str(file_name) for file_name in file_names]
+        if self._active_tdf_file_name not in file_name_list:
+            self._active_tdf_file_name = None
+
+        self._tdf_list_widget.clear()
+        for file_name in file_name_list:
+            item = QListWidgetItem(file_name)
+            item.setData(Qt.ItemDataRole.UserRole, file_name)
+            self._tdf_list_widget.addItem(item)
+
+        self._refresh_tdf_active_marks()
+        if selected_file_name:
+            matching_items = self._tdf_list_widget.findItems(
+                selected_file_name,
+                Qt.MatchFlag.MatchExactly,
+            )
+            if matching_items:
+                self._tdf_list_widget.setCurrentItem(matching_items[0])
+
+    def set_active_tdf_file_name(self, file_name: str) -> None:
+        """마지막으로 활성화에 성공한 TDF 파일을 목록에 표시한다."""
+
+        self._active_tdf_file_name = file_name
+        self._refresh_tdf_active_marks()
+
+    def clear_active_tdf_file_name(self) -> None:
+        """TDF 활성 표시를 모두 해제한다."""
+
+        self._active_tdf_file_name = None
+        self._refresh_tdf_active_marks()
+
+    def set_tdf_operation_locked(self, locked: bool) -> None:
+        """TDF 작업 중 TDF 조작 위젯을 잠근다."""
+
+        enabled = not locked
+        self._tdf_list_widget.setEnabled(enabled)
+        self._get_tdf_list_button.setEnabled(enabled)
+        self._tdf_all_off_button.setEnabled(enabled)
+        self._set_tdf_button.setEnabled(enabled)
+
     def build_test_run_settings(self) -> TestRunSettings | None:
         """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
 
@@ -554,6 +636,7 @@ class TestManagerPanel(QWidget):
         content_layout.addLayout(bottom_layout)
 
         bottom_layout.addWidget(self._create_left_panel(), 3)
+        bottom_layout.addWidget(self._create_tdf_group(), 1)
         bottom_layout.addWidget(self._create_center_panel(), 4)
 
         self._log_panel = LogPanel(self)
@@ -587,6 +670,7 @@ class TestManagerPanel(QWidget):
         horizontal_header.setMinimumSectionSize(32)
         horizontal_header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
         table.verticalHeader().setVisible(False)
+        table.viewport().installEventFilter(self)
         self._apply_test_case_column_widths(table)
         return table
 
@@ -603,27 +687,20 @@ class TestManagerPanel(QWidget):
         if viewport_width <= 0:
             viewport_width = target_table.width() - (target_table.frameWidth() * 2)
         available_width = max(viewport_width, _TABLE_COLUMN_BASE_TOTAL)
-        extra_width = max(0, available_width - _TABLE_COLUMN_BASE_TOTAL)
-        widths = list(_TABLE_COLUMN_BASE_WIDTHS)
-
-        if extra_width and _TABLE_COLUMN_STRETCH_TOTAL:
-            distributed = 0
-            for column, weight in enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS):
-                extra_for_column = (extra_width * weight) // _TABLE_COLUMN_STRETCH_TOTAL
-                widths[column] += extra_for_column
-                distributed += extra_for_column
-
-            weighted_columns = [
-                column
-                for column, weight in sorted(
-                    enumerate(_TABLE_COLUMN_STRETCH_WEIGHTS),
-                    key=lambda item: (-item[1], item[0]),
-                )
-                if weight > 0
-            ]
-            remaining = extra_width - distributed
-            for index in range(remaining):
-                widths[weighted_columns[index % len(weighted_columns)]] += 1
+        widths = [
+            (available_width * base_width) // _TABLE_COLUMN_BASE_TOTAL
+            for base_width in _TABLE_COLUMN_BASE_WIDTHS
+        ]
+        columns_by_base_width = [
+            column
+            for column, _base_width in sorted(
+                enumerate(_TABLE_COLUMN_BASE_WIDTHS),
+                key=lambda item: (-item[1], item[0]),
+            )
+        ]
+        remaining = available_width - sum(widths)
+        for index in range(remaining):
+            widths[columns_by_base_width[index % len(columns_by_base_width)]] += 1
 
         for column, width in enumerate(widths):
             target_table.setColumnWidth(column, width)
@@ -662,6 +739,10 @@ class TestManagerPanel(QWidget):
         self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
         self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
+        self._pause_button.clicked.connect(self.pause_requested.emit)
+        self._get_tdf_list_button.clicked.connect(self.get_tdf_list_requested.emit)
+        self._tdf_all_off_button.clicked.connect(self.tdf_all_off_requested.emit)
+        self._set_tdf_button.clicked.connect(self.on_set_tdf_button_clicked)
 
     def _create_left_panel(self) -> QWidget:
         """EUT 입력과 좌측 하단 제어 영역을 만든다."""
@@ -818,6 +899,44 @@ class TestManagerPanel(QWidget):
 
         return group
 
+    def _create_tdf_group(self) -> QGroupBox:
+        """TDF 파일 목록과 조작 버튼 영역을 만든다."""
+
+        group = QGroupBox("TDF", self)
+        group.setObjectName("tdfGroupBox")
+        group.setMinimumWidth(170)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 16, 10, 8)
+        layout.setSpacing(6)
+
+        self._tdf_list_widget = QListWidget(group)
+        self._tdf_list_widget.setObjectName("tdfListWidget")
+        self._tdf_list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection,
+        )
+        self._tdf_list_widget.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers,
+        )
+        self._tdf_list_widget.setMinimumHeight(88)
+        layout.addWidget(self._tdf_list_widget, 1)
+
+        for text, object_name in (
+            ("Get List", "getTdfListButton"),
+            ("All Off", "tdfAllOffButton"),
+            ("Set TDF", "setTdfButton"),
+        ):
+            button = QPushButton(text, group)
+            button.setObjectName(object_name)
+            if object_name == "getTdfListButton":
+                self._get_tdf_list_button = button
+            elif object_name == "tdfAllOffButton":
+                self._tdf_all_off_button = button
+            elif object_name == "setTdfButton":
+                self._set_tdf_button = button
+            layout.addWidget(button)
+
+        return group
+
     def _create_center_panel(self) -> QWidget:
         """실행 버튼과 Info 영역을 만든다."""
 
@@ -841,6 +960,9 @@ class TestManagerPanel(QWidget):
             button.setObjectName(object_name)
             if object_name == "startButton":
                 self._start_button = button
+            elif object_name == "pauseButton":
+                self._pause_button = button
+                self._pause_button.setEnabled(False)
             elif object_name == "deleteButton":
                 self._delete_button = button
             elif object_name == "clearButton":
@@ -978,6 +1100,12 @@ class TestManagerPanel(QWidget):
                 padding: 1px 4px;
             }
 
+            QListWidget#tdfListWidget {
+                border: 1px solid #3f73a8;
+                background: #ffffff;
+                color: #111111;
+            }
+
             QPushButton {
                 border: 1px solid #3f73a8;
                 background: #f8f8f8;
@@ -1017,6 +1145,15 @@ class TestManagerPanel(QWidget):
             }
             """
         )
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802
+        if (
+            hasattr(self, "_test_case_table")
+            and watched is self._test_case_table.viewport()
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._apply_test_case_column_widths()
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
         """패널 폭 변경 시 TestCase 표 컬럼 폭을 다시 배분한다."""
@@ -1066,6 +1203,64 @@ class TestManagerPanel(QWidget):
         dialog = self._create_range_setting_dialog()
         self._range_setting_dialog = dialog
         dialog.show()
+
+    def on_set_tdf_button_clicked(self) -> None:
+        """선택된 TDF 파일 활성화를 요청한다."""
+
+        tdf_file_name = self.selected_tdf_file_name
+        if not tdf_file_name:
+            self._show_warning("활성화할 TDF 파일을 선택하세요.")
+            return
+        self.set_tdf_requested.emit(tdf_file_name)
+
+    def _refresh_tdf_active_marks(self) -> None:
+        """현재 활성 TDF 항목의 배경색만 표시한다."""
+
+        active_background = QBrush(QColor("#d8f3dc"))
+        for row in range(self._tdf_list_widget.count()):
+            item = self._tdf_list_widget.item(row)
+            is_active = self._tdf_item_file_name(item) == self._active_tdf_file_name
+            item.setBackground(active_background if is_active else QBrush())
+
+    def _refresh_test_case_progress_marks(self) -> None:
+        """TestCase 진행 상태에 따라 행 배경색을 갱신한다."""
+
+        for row in range(self._test_case_table.rowCount()):
+            status = (
+                self._test_case_progress[row]
+                if row < len(self._test_case_progress)
+                else "pending"
+            )
+            self._set_test_case_row_background(row, self._background_for_progress(status))
+
+    def _set_test_case_row_background(self, row: int, background: QBrush) -> None:
+        for column in range(self._test_case_table.columnCount()):
+            item = self._test_case_table.item(row, column)
+            if item is not None:
+                item.setBackground(background)
+
+    def _background_for_progress(self, status: _TestCaseProgress) -> QBrush:
+        if status == "running":
+            return QBrush(_TEST_CASE_RUNNING_BACKGROUND)
+        if status == "completed":
+            return QBrush(_TEST_CASE_COMPLETED_BACKGROUND)
+        return QBrush()
+
+    def _find_test_case_index(self, case: TestCase) -> int | None:
+        for index, candidate in enumerate(self._test_cases):
+            if candidate is case:
+                return index
+        for index, candidate in enumerate(self._test_cases):
+            if candidate == case:
+                return index
+        return None
+
+    @staticmethod
+    def _tdf_item_file_name(item: QListWidgetItem) -> str:
+        file_name = item.data(Qt.ItemDataRole.UserRole)
+        if isinstance(file_name, str):
+            return file_name
+        return item.text()
 
     def _create_range_setting_dialog(self) -> QDialog:
         """Range 세팅 값을 읽기 전용 표로 표시하는 팝업을 만든다."""
@@ -1149,7 +1344,9 @@ class TestManagerPanel(QWidget):
             return
 
         self._test_cases.pop(row)
+        self._test_case_progress.pop(row)
         self._test_case_table.removeRow(row)
+        self._refresh_test_case_progress_marks()
 
     def on_clear_button_clicked(self) -> None:
         """모든 TestCase를 삭제한다."""
@@ -1158,6 +1355,7 @@ class TestManagerPanel(QWidget):
             return
 
         self._test_cases.clear()
+        self._test_case_progress.clear()
         self._test_case_table.setRowCount(0)
 
     def on_load_item_button_clicked(self) -> None:
@@ -1396,7 +1594,9 @@ class TestManagerPanel(QWidget):
 
         for case in cases:
             self._test_cases.append(case)
+            self._test_case_progress.append("pending")
             self._append_test_case_row(case)
+        self._refresh_test_case_progress_marks()
 
     def _append_test_case_row(self, case: TestCase) -> None:
         """TestCase 하나를 실행 표에 표시한다."""

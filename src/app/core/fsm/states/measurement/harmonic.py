@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import FundamentalResult, HarmonicResult
 from app.models.nr_channel_lookup import resolve_target_frequency_mhz
@@ -98,6 +99,10 @@ class MeasureFundamentalState(State):
     name = "MeasureFundamental"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Fundamental 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         writer = ctx.report_writer
         if writer is not None:
@@ -185,6 +190,10 @@ class MeasureHarmonicsState(State):
     name = "MeasureHarmonics"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Harmonic 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         fundamental_frequency_mhz = ctx.fundamental_frequency_mhz
         if fundamental_frequency_mhz is None:
             _emit_error(

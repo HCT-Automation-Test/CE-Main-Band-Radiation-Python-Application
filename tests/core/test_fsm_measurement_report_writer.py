@@ -180,7 +180,7 @@ def _make_ctx(
     model_name: str = "SM-000",
     screenshot_root_dir: Path | None = None,
 ) -> SessionContext:
-    return SessionContext(
+    ctx = SessionContext(
         queue=[case or _make_case(test_type)],
         commands=commands or _Commands(),
         events=events,  # type: ignore[arg-type]
@@ -190,6 +190,9 @@ def _make_ctx(
         model_name=model_name,
         screenshot_root_dir=screenshot_root_dir or temp_dir,
     )
+    if test_type is MeasurementTestType.HARMONIC:
+        ctx.equipment_state = {"FSV40": True}
+    return ctx
 
 
 def _prepare_harmonic_measurement(
@@ -280,6 +283,25 @@ def test_measure_fundamental_reuses_excel_frequency_without_measurement(
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
+def test_measure_fundamental_skips_when_fsv40_is_not_connected() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = MeasureFundamentalState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "SetSwitchBox"
+    assert commands.measure_fundamental_calls == []
+    assert events.error.messages
+
+
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     tmp_path: Path,
 ) -> None:
@@ -314,6 +336,29 @@ def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     assert measured.harmonic_4th_peak_level_dbm is None
     assert measured.harmonic_5th_peak_level_dbm == -37.5
     assert screenshot_path.read_bytes() == b"fresh harmonic"
+
+
+def test_measure_harmonics_skips_when_fsv40_is_not_connected(
+    tmp_path: Path,
+) -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    ctx.equipment_state = {"FSV40": False}
+    state = MeasureHarmonicsState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
+    assert commands.measure_harmonics_calls == []
+    assert events.error.messages
 
 
 def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
@@ -746,7 +791,7 @@ def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
     assert measured.screenshot_path.is_file()
 
 
-def test_measure_fundamental_returns_ok_without_report_writer(
+def test_measure_fundamental_returns_fail_without_report_writer(
     tmp_path: Path,
 ) -> None:
     commands = _Commands(
@@ -761,11 +806,11 @@ def test_measure_fundamental_returns_ok_without_report_writer(
 
     result = MeasureFundamentalState().run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert ctx.fundamental_frequency_mhz == 3550.25
 
 
-def test_measure_harmonics_returns_ok_without_report_writer(
+def test_measure_harmonics_returns_fail_without_report_writer(
     tmp_path: Path,
 ) -> None:
     commands = _Commands(harmonic_screenshot_path=tmp_path / "harmonic.png")
@@ -778,7 +823,7 @@ def test_measure_harmonics_returns_ok_without_report_writer(
 
     result = MeasureHarmonicsState().run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert commands.measure_harmonics_calls == [
         (None, {"fundamental": 3550.25})
     ]
@@ -791,7 +836,7 @@ def test_measure_harmonics_returns_ok_without_report_writer(
         (MeasureBilogState(), MeasurementTestType.BILOG),
     ],
 )
-def test_non_harmonic_measurement_states_return_ok_without_report_writer(
+def test_non_harmonic_measurement_states_return_fail_without_report_writer(
     tmp_path: Path,
     state: Any,
     test_type: MeasurementTestType,
@@ -804,4 +849,4 @@ def test_non_harmonic_measurement_states_return_ok_without_report_writer(
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL

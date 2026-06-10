@@ -60,6 +60,12 @@ class FSMEngine:
             self._wait_if_paused()
             if self._ctx.stopped:
                 break
+            if (
+                self._ctx.current_case_stop_requested
+                and self._current_state_name != "Idle"
+            ):
+                self._return_to_idle_after_current_case_stop()
+                continue
 
             state_name = self._current_state_name
             try:
@@ -74,6 +80,9 @@ class FSMEngine:
             result = self._run_state(state)
             if self._ctx.stopped:
                 break
+            if self._ctx.current_case_stop_requested:
+                self._return_to_idle_after_current_case_stop()
+                continue
             if result is StateResult.RETRY:
                 continue
             if result is StateResult.WAIT_USER:
@@ -98,11 +107,19 @@ class FSMEngine:
         while self._ctx.paused and not self._ctx.stopped:
             time.sleep(_POLL_INTERVAL_SEC)
 
+    def _return_to_idle_after_current_case_stop(self) -> None:
+        """현재 TC 중단 요청을 소비하고 새 Start 대기 상태로 돌아간다."""
+        self._ctx.current_case_stop_requested = False
+        self._ctx.paused = False
+        self._ctx.test_start_requested.clear()
+        self._current_state_name = "Idle"
+
 
 def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     """모든 상태를 등록한 세션 엔진을 구성한다."""
     from app.core.fsm.states.measurement.bilog import MeasureBilogState
     from app.core.fsm.states.measurement.common import (
+        InitialTurntableZeroState,
         ResetSwitchBoxState,
         RotateTurntableState,
         SetSwitchBoxState,
@@ -152,6 +169,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(TestTypeChangeState())
 
     # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)
+    engine.register(InitialTurntableZeroState())
     engine.register(SetupSpectrumAnalyzerStartupLevelState())
     engine.register(SetSwitchBoxState())
     engine.register(SetupSpectrumAnalyzerState())

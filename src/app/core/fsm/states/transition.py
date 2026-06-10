@@ -5,7 +5,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.core.fsm.transition_flow import next_transition_or
+from app.models.band_group import find_band_group
 from app.models.enums import AntennaPol, InputPath, TestChannel
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
@@ -66,6 +69,16 @@ class AntPolChangeState(State):
         test_case = ctx.current_case
         input_path = test_case.range_definition.input_path
         pol = test_case.antenna_pol
+        required_equipment = (
+            "3D Controller" if input_path is InputPath.INPUT3 else "CO3000"
+        )
+        if not is_equipment_connected(ctx, required_equipment):
+            _emit_error(
+                ctx,
+                f"Antenna Pol 설정 스킵: {required_equipment}가 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
+
         try:
             configured = ctx.commands.set_antenna_pol(
                 ctx.client,
@@ -88,7 +101,12 @@ class AntPolChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return measurement_start_state_for(ctx.current_case.test_type)
+        if ctx.prev_case is None or ctx.current_index == ctx.start_index:
+            return "SetupSpectrumAnalyzerStartupLevel"
+        return next_transition_or(
+            ctx,
+            measurement_start_state_for(ctx.current_case.test_type),
+        )
 
 
 class HandoverState(State):
@@ -101,6 +119,10 @@ class HandoverState(State):
     name = "Handover"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Handover 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.FAIL
+
         test_case = ctx.current_case
         prev_case = ctx.prev_case
         if prev_case is None:
@@ -144,8 +166,10 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            # TODO(spec): INBAND/BILOG 확장 시 test_type별 시작 state로 분기한다.
-            return "MeasureFundamental"
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None
@@ -161,13 +185,39 @@ class RecallChangeState(State):
     name = "RecallChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: ctx.events.user_action_required.emit("Recall file 변경 필요")
-        # TODO(spec): 사용자 확인 대기
-        raise NotImplementedError("spec TODO")
+        prev_case = ctx.prev_case
+        current_case = ctx.current_case
+        if prev_case is None:
+            _emit_error(ctx, "Recall 변경 실패: previous test case is not set")
+            return StateResult.FAIL
+
+        try:
+            prev_recall = find_band_group(prev_case.band).mt8000_recall
+            current_recall = find_band_group(current_case.band).mt8000_recall
+        except ValueError as exc:
+            _emit_error(ctx, f"Recall 변경 실패: {exc}")
+            return StateResult.FAIL
+
+        ctx.user_action_completed.clear()
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit(
+                f"MT8000A Recall 변경: {prev_recall} -> {current_recall}"
+            )
+
+        while not ctx.stopped and not ctx.current_case_stop_requested:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped or ctx.current_case_stop_requested:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"
 
 
@@ -191,9 +241,9 @@ class DUTAxisChangeState(State):
                 f"DUT Axis 변경: {prev_axis} -> {current_axis}"
             )
 
-        while not ctx.stopped:
+        while not ctx.stopped and not ctx.current_case_stop_requested:
             if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
-                if ctx.stopped:
+                if ctx.stopped or ctx.current_case_stop_requested:
                     return StateResult.FAIL
                 ctx.user_action_completed.clear()
                 return StateResult.OK
@@ -220,6 +270,10 @@ class TestTypeChangeState(State):
     name = "TestTypeChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Call 상태 확인 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.FAIL
+
         try:
             call_connected = ctx.commands.check_call_status(ctx.client)
         except Exception as exc:
@@ -229,14 +283,17 @@ class TestTypeChangeState(State):
         if call_connected:
             return StateResult.OK
 
-        _emit_error(ctx, "NR Call 상태 확인 실패: check_call_status returned false")
+        _emit_error(ctx, "NR Call 끊김 감지: check_call_status returned disconnected")
         return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return measurement_start_state_for(ctx.current_case.test_type)
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None

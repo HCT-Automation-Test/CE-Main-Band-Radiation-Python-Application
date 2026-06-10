@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.models.band_group import find_band_group
 from app.models.enums import FilterPath, InputPath, TestType
 from app.models.switch_box import (
@@ -29,7 +30,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_ROTATION_TIMEOUT_SEC = 60.0
+_ROTATION_TIMEOUT_SEC = 300.0
 _POLL_INTERVAL_SEC = 0.2
 _SETTLING_SEC = 5.0
 _PROGRESS_EMIT_INTERVAL_SEC = 0.1
@@ -99,7 +100,7 @@ def _wait_for_saturation_time(ctx: "SessionContext") -> bool:
     """SA 안정화를 위해 Saturation Time만큼 대기한다."""
     deadline = time.monotonic() + max(0.0, _saturation_time_sec(ctx))
     while True:
-        if ctx.stopped:
+        if ctx.stopped or ctx.current_case_stop_requested:
             return False
         remaining = deadline - time.monotonic()
         if remaining <= 0:
@@ -119,6 +120,13 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
                 "Spectrum Analyzer Startup Level 설정 실패: settings is required",
             )
             return StateResult.FAIL
+
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(
+                ctx,
+                "Spectrum Analyzer Startup Level 설정 스킵: FSV40이 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
 
         try:
             configured = ctx.commands.setup_sa_startup_levels(
@@ -154,6 +162,10 @@ class SetSwitchBoxState(State):
     name = "SetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "Switch Box"):
+            _emit_error(ctx, "Switch Box RF 경로 설정 스킵: Switch Box가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_case = ctx.current_case
         test_range = test_case.range_definition
         try:
@@ -195,6 +207,10 @@ class SetupSpectrumAnalyzerState(State):
     name = "SetupSpectrumAnalyzer"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Spectrum Analyzer 설정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         test_range = ctx.current_case.range_definition
         try:
             configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
@@ -268,6 +284,10 @@ class RotateTurntableState(State):
 
     def run(self, ctx: "SessionContext") -> StateResult:
         self._target_angle = 360.0 if ctx.current_angle == 0 else 0.0
+        if not is_equipment_connected(ctx, "CO3000"):
+            _emit_error(ctx, "Turntable 회전 스킵: CO3000이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         try:
             band_group = find_band_group(ctx.current_case.band.value)
         except ValueError as exc:
@@ -299,7 +319,7 @@ class RotateTurntableState(State):
             self._emit_pending_progress_angle(force=False)
             if self._completed.is_set():
                 break
-            if ctx.stopped:
+            if ctx.stopped or ctx.current_case_stop_requested:
                 self._send_stop(ctx)
                 return StateResult.FAIL
             if time.monotonic() > deadline:
@@ -438,12 +458,81 @@ class RotateTurntableState(State):
         return current_angle
 
 
+class InitialTurntableZeroState(RotateTurntableState):
+    """시험 시작 전 CO3000 턴테이블을 0도로 정렬한다."""
+
+    name = "InitialTurntableZero"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        self._target_angle = 0.0
+        if not is_equipment_connected(ctx, "CO3000"):
+            _emit_error(
+                ctx,
+                "Turntable 초기 0도 정렬 스킵: CO3000가 연결되어 있지 않습니다.",
+            )
+            return StateResult.OK
+
+        try:
+            ctx.commands.rotate_turntable(
+                ctx.client,
+                angle=self._target_angle,
+                turntable_speed=4,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Turntable 초기 0도 정렬 명령 실패: {exc}")
+            return StateResult.FAIL
+
+        _emit_turntable_info(
+            ctx,
+            {
+                "target_angle": self._target_angle,
+                "setting_speed": 4,
+            },
+        )
+        ctx.events.progress.emit(0)
+
+        deadline = time.monotonic() + _ROTATION_TIMEOUT_SEC
+        self._drain_buffered_events(ctx)
+        while not self._completed.wait(_POLL_INTERVAL_SEC):
+            self._drain_buffered_events(ctx)
+            self._emit_pending_progress_angle(force=False)
+            if self._completed.is_set():
+                break
+            if ctx.stopped or ctx.current_case_stop_requested:
+                self._send_stop(ctx)
+                return StateResult.FAIL
+            if time.monotonic() > deadline:
+                _emit_error(ctx, "Turntable 초기 0도 정렬 타임아웃")
+                self._send_stop(ctx)
+                return StateResult.FAIL
+
+        if self._failed_reason is not None:
+            _emit_error(ctx, f"Turntable 초기 0도 정렬 실패: {self._failed_reason}")
+            return StateResult.FAIL
+
+        ctx.current_angle = self._target_angle
+        _emit_turntable_info(ctx, {"current_angle": self._target_angle})
+        ctx.events.progress.emit(100)
+        return StateResult.OK
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return "AntPolChange"
+
+
 class ResetSwitchBoxState(State):
     """§4.8 — Switch Box를 기본 경로로 복원한다(시퀀스 정리)."""
 
     name = "ResetSwitchBox"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "Switch Box"):
+            _emit_error(ctx, "Switch Box 기본 경로 복원 스킵: Switch Box가 연결되어 있지 않습니다.")
+            return StateResult.OK
+
         try:
             configured = ctx.commands.set_switch_box(
                 ctx.client,

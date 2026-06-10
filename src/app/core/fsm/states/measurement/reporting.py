@@ -24,7 +24,8 @@ def append_and_write_report(
     """writer가 설정된 경우에만 리포트를 기록한다."""
     writer = ctx.report_writer
     if writer is None:
-        return StateResult.OK
+        _emit_error(ctx, "리포트 작성 실패: report_writer is not set")
+        return StateResult.FAIL
 
     try:
         written = write_report(writer)

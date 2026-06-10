@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QSizePolicy,
     QStackedWidget,
@@ -27,9 +28,11 @@ from app.core.runner import (
     INSTRUMENT_SET_BLOCK_MESSAGE,
     Runner,
 )
+from app.core.tdf_service import TDF_OPERATION_IN_PROGRESS_MESSAGE, TdfService
 from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
+from app.ui.instrument_set_progress_dialog import InstrumentSetProgressDialog
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel
 from app.ui.test_manager_panel import TestManagerPanel
@@ -37,8 +40,9 @@ from app.ui.test_plot_screenshot_panel import TestPlotScreenshotPanel
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_WINDOW_SIZE = QSize(1600, 900)
+_DEFAULT_WINDOW_SIZE = QSize(1760, 940)
 _UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
+_FSV40_NOT_CONNECTED_MESSAGE = "FSV40 연결을 먼저 완료하세요."
 _GWL_STYLE = -16
 _WS_THICKFRAME = 0x00040000
 _WS_MAXIMIZEBOX = 0x00010000
@@ -67,6 +71,15 @@ class MainWindow(QMainWindow):
         self._ui.setupUi(self)
         self._runner = Runner(self)
         self._instrument_set_active = False
+        self._tdf_operation_active = False
+        self._pending_tdf_operation: str | None = None
+        self._pending_tdf_file_name: str | None = None
+        self._tdf_progress_dialog: InstrumentSetProgressDialog | None = None
+        self._tdf_service = TdfService(
+            self,
+            client=self._runner.client,
+            commands=self._runner.commands,
+        )
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._lock_default_window_size()
         self._setup_main_layout()
@@ -80,6 +93,24 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.start_requested.connect(
             self.on_start_requested,
         )
+        self._test_manager_panel.pause_requested.connect(
+            self._runner.pause,
+        )
+        self._test_manager_panel.get_tdf_list_requested.connect(
+            self.on_get_tdf_list_requested,
+        )
+        self._test_manager_panel.tdf_all_off_requested.connect(
+            self.on_tdf_all_off_requested,
+        )
+        self._test_manager_panel.set_tdf_requested.connect(
+            self.on_set_tdf_requested,
+        )
+        self._tdf_service.operation_started.connect(self.on_tdf_operation_started)
+        self._tdf_service.tdf_list_received.connect(
+            self._test_manager_panel.set_tdf_file_list,
+        )
+        self._tdf_service.operation_finished.connect(self.on_tdf_operation_finished)
+        self._tdf_service.operation_failed.connect(self.on_tdf_operation_failed)
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
         )
@@ -103,6 +134,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.user_action_required.connect(
             self.on_user_action_required,
+        )
+        self._runner.events.session_finished.connect(
+            self.on_session_finished,
         )
         self._runner.instrument_connection_service.connection_started.connect(
             self._test_manager_panel.set_connection_connecting,
@@ -292,10 +326,76 @@ class MainWindow(QMainWindow):
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
+        if self._runner.restart_index is None:
+            self._test_manager_panel.reset_test_case_progress()
         self._runner.start(
             list(self._test_manager_panel.test_cases),
             settings=settings,
         )
+
+    def on_get_tdf_list_requested(self) -> None:
+        """TDF 파일 목록 조회 요청을 서비스에 전달한다."""
+
+        if not self._ensure_tdf_operation_allowed():
+            return
+        self._pending_tdf_operation = "get_list"
+        self._pending_tdf_file_name = None
+        self._begin_tdf_operation_lock()
+        self._tdf_service.get_tdf_list()
+
+    def on_tdf_all_off_requested(self) -> None:
+        """모든 TDF 비활성화 요청을 서비스에 전달한다."""
+
+        if not self._ensure_tdf_operation_allowed():
+            return
+        self._pending_tdf_operation = "all_off"
+        self._pending_tdf_file_name = None
+        self._begin_tdf_operation_lock()
+        self._tdf_service.tdf_all_off()
+
+    def on_set_tdf_requested(self, tdf_file_name: str) -> None:
+        """선택 TDF 활성화 요청을 서비스에 전달한다."""
+
+        if not self._ensure_tdf_operation_allowed():
+            return
+        self._pending_tdf_operation = "set_tdf"
+        self._pending_tdf_file_name = tdf_file_name
+        self._begin_tdf_operation_lock()
+        self._tdf_service.set_tdf(tdf_file_name)
+
+    def on_tdf_operation_started(self) -> None:
+        """TDF 작업 진행 상태를 UI에 반영한다."""
+
+        self._begin_tdf_operation_lock()
+        self._show_tdf_progress_dialog("TDF 작업 진행 중")
+
+    def on_tdf_operation_finished(self, message: str) -> None:
+        """TDF 작업 완료 상태를 UI에 반영한다."""
+
+        self._tdf_operation_active = False
+        self._test_manager_panel.set_tdf_operation_locked(False)
+        self._close_tdf_progress_dialog()
+        self._update_instrument_operation_lock()
+        if self._pending_tdf_operation == "set_tdf" and self._pending_tdf_file_name:
+            self._test_manager_panel.set_active_tdf_file_name(
+                self._pending_tdf_file_name,
+            )
+        elif self._pending_tdf_operation == "all_off":
+            self._test_manager_panel.clear_active_tdf_file_name()
+        self._pending_tdf_operation = None
+        self._pending_tdf_file_name = None
+        self._show_info("TDF", message)
+
+    def on_tdf_operation_failed(self, message: str) -> None:
+        """TDF 작업 실패 상태를 UI에 반영한다."""
+
+        self._tdf_operation_active = False
+        self._test_manager_panel.set_tdf_operation_locked(False)
+        self._close_tdf_progress_dialog()
+        self._update_instrument_operation_lock()
+        self._pending_tdf_operation = None
+        self._pending_tdf_file_name = None
+        self._show_warning("TDF", f"TDF 작업 실패: {message}")
 
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
@@ -348,16 +448,81 @@ class MainWindow(QMainWindow):
             block_reason = INSTRUMENT_CONNECTION_BLOCK_MESSAGE
         elif self._instrument_set_active:
             block_reason = INSTRUMENT_SET_BLOCK_MESSAGE
+        elif self._tdf_operation_active:
+            block_reason = TDF_OPERATION_IN_PROGRESS_MESSAGE
 
         self._instrument_check_panel.set_connection_block_reason(block_reason)
         self._test_manager_panel.set_run_settings_locked(
-            self._runner.is_measurement_active or self._instrument_set_active
+            self._runner.is_measurement_active
+            or self._instrument_set_active
+            or self._tdf_operation_active
         )
+        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+
+    def _ensure_tdf_operation_allowed(self) -> bool:
+        block_reason = self._tdf_operation_block_reason()
+        if block_reason:
+            self._show_warning("TDF", block_reason)
+            return False
+        return True
+
+    def _begin_tdf_operation_lock(self) -> None:
+        """TDF 요청 직후 다른 장비 조작을 즉시 차단한다."""
+
+        self._tdf_operation_active = True
+        self._test_manager_panel.set_tdf_operation_locked(True)
+        self._update_instrument_operation_lock()
+
+    def _tdf_operation_block_reason(self) -> str | None:
+        if self._runner.is_measurement_active:
+            return INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+        if self._instrument_set_active:
+            return INSTRUMENT_SET_BLOCK_MESSAGE
+        if self._tdf_operation_active or self._tdf_service.is_running:
+            return TDF_OPERATION_IN_PROGRESS_MESSAGE
+        if self._runner.instrument_connection_service.is_connecting:
+            return "장비 연결 요청이 진행 중입니다."
+        if self._runner.equipment_state.get("FSV40") is not True:
+            return _FSV40_NOT_CONNECTED_MESSAGE
+        return None
+
+    def _show_tdf_progress_dialog(self, initial_step: str) -> None:
+        """TDF 작업 진행 상태를 modeless dialog로 표시한다."""
+
+        self._close_tdf_progress_dialog()
+        dialog = InstrumentSetProgressDialog(self, initial_step=initial_step)
+        dialog.setObjectName("tdfProgressDialog")
+        dialog.setWindowTitle("TDF 작업 진행 중")
+        dialog.set_step(initial_step)
+        self._tdf_progress_dialog = dialog
+        dialog.start()
+
+    def _close_tdf_progress_dialog(self) -> None:
+        """TDF 완료/실패 또는 종료 시 진행 dialog를 닫는다."""
+
+        dialog = self._tdf_progress_dialog
+        if dialog is None:
+            return
+        self._tdf_progress_dialog = None
+        dialog.close_without_action()
+        dialog.setParent(None)
+        dialog.deleteLater()
 
     def on_current_case_changed(self, case: TestCase) -> None:
         """현재 실행 중인 TestCase 요약 정보를 갱신한다."""
 
         self._test_manager_panel.set_current_case(case)
+        self._test_manager_panel.mark_current_test_case(case)
+
+    def on_session_finished(self) -> None:
+        self._test_manager_panel.complete_current_test_case()
+        self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
+
+    def _show_info(self, title: str, message: str) -> None:
+        QMessageBox.information(self, title, message)
+
+    def _show_warning(self, title: str, message: str) -> None:
+        QMessageBox.warning(self, title, message)
 
     def on_user_action_required(self, message: str) -> None:
         """시험원이 수동 조작 완료를 입력할 수 있는 팝업을 표시한다."""
@@ -426,12 +591,16 @@ class MainWindow(QMainWindow):
         """윈도우 종료 전에 worker를 가진 하위 패널을 정리한다."""
 
         self._shutdown_child_panels()
+        self._close_tdf_progress_dialog()
+        self._tdf_service.shutdown()
         self._runner.shutdown()
         super().closeEvent(event)
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Destroy:
             self._shutdown_child_panels()
+            self._close_tdf_progress_dialog()
+            self._tdf_service.shutdown()
             self._runner.shutdown()
         return super().event(event)
 

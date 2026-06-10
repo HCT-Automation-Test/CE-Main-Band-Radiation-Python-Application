@@ -12,6 +12,7 @@ from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.engine import build_session_engine
 from app.core.fsm.states.measurement.common import (
+    InitialTurntableZeroState,
     RotateTurntableState,
     SetupSpectrumAnalyzerStartupLevelState,
     measurement_start_state_for,
@@ -23,6 +24,8 @@ from app.core.fsm.states.measurement.harmonic import (
 )
 from app.core.fsm.states.measurement.inband import MeasureInBandState
 from app.core.fsm.states.nr_setup import NRCallConnectState
+from app.core.fsm.states.session import IdleState
+from app.core.fsm.states.transition import AntPolChangeState
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
@@ -101,6 +104,20 @@ def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect() -> None
     )
 
 
+def test_idle_starts_with_turntable_zero_before_ant_pol_change() -> None:
+    ctx = _make_ctx(TestType.HARMONIC)
+
+    assert IdleState().next_state(ctx, StateResult.OK) == "InitialTurntableZero"
+    assert (
+        InitialTurntableZeroState().next_state(ctx, StateResult.OK)
+        == "AntPolChange"
+    )
+    assert (
+        AntPolChangeState().next_state(ctx, StateResult.OK)
+        == "SetupSpectrumAnalyzerStartupLevel"
+    )
+
+
 @pytest.mark.parametrize(
     ("state_factory", "test_type"),
     [
@@ -151,6 +168,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "RecallChange",
         "DUTAxisChange",
         "TestTypeChange",
+        "InitialTurntableZero",
         "SetupSpectrumAnalyzerStartupLevel",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",

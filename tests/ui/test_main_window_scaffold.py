@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import logging
+import threading
 from types import SimpleNamespace
 
+import pytest
 from PySide6.QtCore import QPoint, QSize, Qt
 from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
+    QAbstractItemView,
     QDialog,
     QFileDialog,
     QGroupBox,
     QLabel,
     QLineEdit,
+    QListWidget,
     QPlainTextEdit,
     QPushButton,
     QStackedWidget,
@@ -44,12 +48,15 @@ from app.ui.main_window import MainWindow
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.nr_select import NRSelectDialog
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel
-from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
+from app.ui.test_manager_panel import (
+    _TABLE_COLUMN_BASE_WIDTHS,
+    TestManagerPanel as ManagerPanel,
+)
 from app.ui.test_plot_screenshot_panel import (
     TestPlotScreenshotPanel as PlotScreenshotPanel,
 )
 
-DEFAULT_WINDOW_SIZE = QSize(1600, 900)
+DEFAULT_WINDOW_SIZE = QSize(1760, 940)
 UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
 
 
@@ -227,6 +234,25 @@ def test_main_window_user_action_popup_ignores_reject(qtbot) -> None:
     assert window.findChild(QDialog, "userActionRequiredDialog") is dialog
 
 
+def test_main_window_session_finished_shows_completion_popup(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    infos: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        window,
+        "_show_info",
+        lambda title, message: infos.append((title, message)),
+    )
+
+    window._runner.events.session_finished.emit()
+
+    assert infos == [("시험 완료", "모든 시험이 완료되었습니다.")]
+
+
 def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     """Instrument Check가 Runner 소유 연결 서비스를 사용한다."""
 
@@ -263,6 +289,35 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     start_button.click()
 
     assert messages == ["시험 시작 실패: Instrument Check 연결을 완료하세요"]
+
+
+def test_main_window_pause_button_requests_runner_pause(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    ctx = SimpleNamespace(
+        current_index=0,
+        current_case_stop_requested=False,
+        paused=True,
+        test_start_requested=threading.Event(),
+        user_action_completed=threading.Event(),
+    )
+    window._runner._ctx = ctx
+    window._runner._set_measurement_active(True)
+
+    pause_button = window.findChild(QPushButton, "pauseButton")
+    assert pause_button is not None
+    assert pause_button.isEnabled()
+
+    pause_button.click()
+
+    assert ctx.current_case_stop_requested
+    assert not ctx.paused
+    assert not ctx.test_start_requested.is_set()
+    assert ctx.user_action_completed.is_set()
+
+    window._runner._set_measurement_active(False)
+
+    assert not pause_button.isEnabled()
 
 
 def test_main_window_blocks_instrument_connect_while_measurement_active(
@@ -496,17 +551,22 @@ def test_test_manager_panel_test_case_table_distributes_extra_width(qtbot) -> No
     table = panel.findChild(QTableWidget, "testCaseTable")
     assert table is not None
 
-    generation_width = table.columnWidth(0)
-    modulation_width = table.columnWidth(5)
-    rb_allocation_width = table.columnWidth(6)
-    arfc_width = table.columnWidth(10)
-    pol_width = table.columnWidth(16)
+    column_widths = [table.columnWidth(column) for column in range(table.columnCount())]
+    total_width = sum(column_widths)
+    viewport_width = table.viewport().width()
 
     assert table.horizontalScrollBar().maximum() == 0
-    assert pol_width < modulation_width
-    assert pol_width < rb_allocation_width
-    assert pol_width < arfc_width
-    assert modulation_width > generation_width
+    assert total_width == viewport_width
+
+    for column in (0, 5, 6, 8, 16):
+        expected_ratio = (
+            _TABLE_COLUMN_BASE_WIDTHS[column] / sum(_TABLE_COLUMN_BASE_WIDTHS)
+        )
+        actual_ratio = column_widths[column] / total_width
+        assert actual_ratio == pytest.approx(expected_ratio, abs=0.003)
+
+    assert column_widths[16] < column_widths[5]
+    assert column_widths[16] < column_widths[6]
 
 
 def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
@@ -531,6 +591,9 @@ def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
         "clearButton",
         "loadItemButton",
         "saveItemButton",
+        "getTdfListButton",
+        "tdfAllOffButton",
+        "setTdfButton",
     ):
         assert panel.findChild(QPushButton, object_name) is not None
 
@@ -538,11 +601,184 @@ def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
         "connectionGroupBox",
         "turnTableGroupBox",
         "polarizationGroupBox",
+        "tdfGroupBox",
         "infoGroupBox",
     ):
         assert panel.findChild(QGroupBox, object_name) is not None
 
+    tdf_list = panel.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert tdf_list.selectionMode() == QAbstractItemView.SelectionMode.SingleSelection
     assert panel.findChild(QWidget, "technologyButtonPanel") is not None
+
+
+def test_test_manager_panel_places_tdf_between_polarization_and_info(qtbot) -> None:
+    """TDF 영역을 Polarization과 Info 사이에 배치한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    panel.resize(1500, 760)
+    panel.show()
+    qtbot.wait(0)
+
+    polarization_group = panel.findChild(QGroupBox, "polarizationGroupBox")
+    tdf_group = panel.findChild(QGroupBox, "tdfGroupBox")
+    info_group = panel.findChild(QGroupBox, "infoGroupBox")
+
+    assert polarization_group is not None
+    assert tdf_group is not None
+    assert info_group is not None
+    polarization_x = polarization_group.mapTo(panel, QPoint(0, 0)).x()
+    tdf_x = tdf_group.mapTo(panel, QPoint(0, 0)).x()
+    info_x = info_group.mapTo(panel, QPoint(0, 0)).x()
+    assert polarization_x < tdf_x < info_x
+
+
+def test_test_manager_panel_set_tdf_requires_selection(qtbot, monkeypatch) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    warnings: list[str] = []
+    emitted: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    panel.set_tdf_requested.connect(emitted.append)
+
+    panel.findChild(QPushButton, "setTdfButton").click()
+
+    assert warnings == ["활성화할 TDF 파일을 선택하세요."]
+    assert emitted == []
+
+
+def test_test_manager_panel_marks_active_tdf_without_changing_text(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_tdf_file_list(["a.tdf", "b.tdf"])
+    panel.set_active_tdf_file_name("b.tdf")
+
+    tdf_list = panel.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert [tdf_list.item(row).text() for row in range(tdf_list.count())] == [
+        "a.tdf",
+        "b.tdf",
+    ]
+    assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
+    assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
+    assert not tdf_list.item(0).font().bold()
+    assert not tdf_list.item(1).font().bold()
+
+
+def test_test_manager_panel_clears_active_tdf_mark(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_tdf_file_list(["a.tdf", "b.tdf"])
+    panel.set_active_tdf_file_name("b.tdf")
+    panel.clear_active_tdf_file_name()
+
+    tdf_list = panel.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert all(
+        tdf_list.item(row).background().style() == Qt.BrushStyle.NoBrush
+        for row in range(tdf_list.count())
+    )
+
+
+def test_test_manager_panel_preserves_active_tdf_mark_on_list_refresh(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_tdf_file_list(["a.tdf", "b.tdf"])
+    panel.set_active_tdf_file_name("b.tdf")
+    panel.set_tdf_file_list(["b.tdf", "c.tdf"])
+
+    tdf_list = panel.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert tdf_list.item(0).text() == "b.tdf"
+    assert tdf_list.item(0).background().style() != Qt.BrushStyle.NoBrush
+
+
+def test_test_manager_panel_drops_active_tdf_mark_when_missing_from_refresh(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+
+    panel.set_tdf_file_list(["a.tdf", "b.tdf"])
+    panel.set_active_tdf_file_name("b.tdf")
+    panel.set_tdf_file_list(["a.tdf", "c.tdf"])
+
+    tdf_list = panel.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert all(
+        tdf_list.item(row).background().style() == Qt.BrushStyle.NoBrush
+        for row in range(tdf_list.count())
+    )
+
+
+def test_test_manager_panel_marks_test_case_progress_rows(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert all(
+        table.item(row, 0).background().style() == Qt.BrushStyle.NoBrush
+        for row in range(table.rowCount())
+    )
+
+    panel.mark_current_test_case(first_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().style() == Qt.BrushStyle.NoBrush
+
+    running_color = table.item(0, 0).background().color().name()
+    panel.mark_current_test_case(second_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    panel.complete_current_test_case()
+
+    assert table.item(1, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().color().name() != running_color
+
+
+def test_test_manager_panel_resets_test_case_progress_rows(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_test_case()
+    panel.add_test_cases([case])
+    panel.mark_current_test_case(case)
+
+    panel.reset_test_case_progress()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_test_manager_panel_keeps_progress_state_in_sync_when_rows_change(qtbot) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+    panel.mark_current_test_case(second_case)
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    table.selectRow(0)
+    panel.findChild(QPushButton, "deleteButton").click()
+
+    assert table.rowCount() == 1
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+
+    panel.findChild(QPushButton, "clearButton").click()
+
+    assert table.rowCount() == 0
+    assert panel.test_cases == ()
 
 
 def test_test_manager_panel_polarization_labels_match_physical_masts(qtbot) -> None:
@@ -638,6 +874,9 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         "clearButton": "초기화",
         "loadItemButton": "불러오기",
         "saveItemButton": "저장",
+        "getTdfListButton": "Get List",
+        "tdfAllOffButton": "All Off",
+        "setTdfButton": "Set TDF",
         "nrButton": "NR",
         "lteButton": "LTE",
         "wcdmaButton": "WCDMA",
@@ -948,6 +1187,97 @@ def test_main_window_updates_current_case_summary_from_runner_event(qtbot) -> No
         assert panel.findChild(QLineEdit, object_name).text() == value
 
 
+def test_main_window_updates_test_case_progress_from_runner_events(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel = window._test_manager_panel
+    panel.add_test_cases([first_case, second_case])
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    window._runner.events.current_case_changed.emit(first_case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+    assert table.item(1, 0).background().style() == Qt.BrushStyle.NoBrush
+
+    running_color = table.item(0, 0).background().color().name()
+    window._runner.events.current_case_changed.emit(second_case)
+
+    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    window._runner.events.session_finished.emit()
+
+    assert table.item(1, 0).background().color().name() != running_color
+
+
+def test_main_window_start_resets_test_case_progress(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    case = _make_test_case()
+    panel.add_test_cases([case])
+    panel.mark_current_test_case(case)
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+
+    window.on_start_requested()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_main_window_start_preserves_completed_progress_on_pause_restart(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+    panel.mark_current_test_case(first_case)
+    panel.mark_current_test_case(second_case)
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    completed_color = table.item(0, 0).background().color().name()
+    running_color = table.item(1, 0).background().color().name()
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    window._runner._restart_index = 1
+    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+
+    window.on_start_requested()
+
+    assert table.item(0, 0).background().color().name() == completed_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+    window._runner.events.current_case_changed.emit(second_case)
+
+    assert table.item(0, 0).background().color().name() == completed_color
+    assert table.item(1, 0).background().color().name() == running_color
+
+
 def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
@@ -1204,6 +1534,193 @@ def test_main_window_locks_instrument_operations_while_set_active(
 
     assert connect_button.isEnabled()
     assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+
+def test_main_window_blocks_tdf_when_fsv40_is_not_connected(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    warnings: list[tuple[str, str]] = []
+    calls: list[bool] = []
+    monkeypatch.setattr(window, "_show_warning", lambda title, message: warnings.append((title, message)))
+    monkeypatch.setattr(window._tdf_service, "get_tdf_list", lambda: calls.append(True))
+
+    window.on_get_tdf_list_requested()
+
+    assert calls == []
+    assert warnings == [("TDF", "FSV40 연결을 먼저 완료하세요.")]
+
+
+def test_main_window_updates_tdf_list_from_service_signal(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert [tdf_list.item(row).text() for row in range(tdf_list.count())] == [
+        "a.tdf",
+        "b.tdf",
+    ]
+
+
+def test_main_window_set_tdf_request_passes_selected_file(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    calls: list[str] = []
+    window._runner._equipment_state = {"FSV40": True}
+    monkeypatch.setattr(window._tdf_service, "set_tdf", calls.append)
+
+    window.on_set_tdf_requested("a.tdf")
+
+    assert calls == ["a.tdf"]
+
+
+def test_main_window_locks_tdf_operations_immediately_after_request(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._runner._equipment_state = {"FSV40": True}
+    monkeypatch.setattr(window._tdf_service, "get_tdf_list", lambda: None)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    connect_button = window.findChild(QPushButton, "connectInstrumentButton")
+    get_tdf_button = window.findChild(QPushButton, "getTdfListButton")
+
+    assert connect_button is not None
+    assert get_tdf_button is not None
+
+    window.on_get_tdf_list_requested()
+
+    assert not connect_button.isEnabled()
+    assert not get_tdf_button.isEnabled()
+    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QDialog, "tdfProgressDialog") is None
+
+    window.on_tdf_operation_finished("done")
+
+    assert connect_button.isEnabled()
+    assert get_tdf_button.isEnabled()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+
+
+def test_main_window_marks_tdf_active_after_set_success(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    monkeypatch.setattr(window._tdf_service, "set_tdf", lambda file_name: None)
+    window._runner._equipment_state = {"FSV40": True}
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    window.on_set_tdf_requested("b.tdf")
+    window.on_tdf_operation_finished("done")
+
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
+    assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
+
+
+def test_main_window_clears_tdf_active_after_all_off_success(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    monkeypatch.setattr(window._tdf_service, "set_tdf", lambda file_name: None)
+    monkeypatch.setattr(window._tdf_service, "tdf_all_off", lambda: None)
+    window._runner._equipment_state = {"FSV40": True}
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    window.on_set_tdf_requested("b.tdf")
+    window.on_tdf_operation_finished("set done")
+    window.on_tdf_all_off_requested()
+    window.on_tdf_operation_finished("all off done")
+
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert all(
+        tdf_list.item(row).background().style() == Qt.BrushStyle.NoBrush
+        for row in range(tdf_list.count())
+    )
+
+
+def test_main_window_keeps_tdf_active_mark_after_failure(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    monkeypatch.setattr(window, "_show_warning", lambda title, message: None)
+    monkeypatch.setattr(window._tdf_service, "set_tdf", lambda file_name: None)
+    window._runner._equipment_state = {"FSV40": True}
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    window.on_set_tdf_requested("b.tdf")
+    window.on_tdf_operation_finished("set done")
+    window.on_set_tdf_requested("a.tdf")
+    window.on_tdf_operation_failed("boom")
+
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
+    assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
+
+
+def test_main_window_locks_instrument_operations_while_tdf_active(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_info", lambda title, message: None)
+    connect_button = window.findChild(QPushButton, "connectInstrumentButton")
+    get_tdf_button = window.findChild(QPushButton, "getTdfListButton")
+
+    assert connect_button is not None
+    assert get_tdf_button is not None
+
+    window.on_tdf_operation_started()
+
+    assert not connect_button.isEnabled()
+    assert not get_tdf_button.isEnabled()
+    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QDialog, "tdfProgressDialog") is not None
+
+    window.on_tdf_operation_finished("done")
+
+    assert connect_button.isEnabled()
+    assert get_tdf_button.isEnabled()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QDialog, "tdfProgressDialog") is None
+
+
+def test_main_window_tdf_failure_closes_progress_and_warns(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(window, "_show_warning", lambda title, message: warnings.append((title, message)))
+
+    window.on_tdf_operation_started()
+    window.on_tdf_operation_failed("boom")
+
+    assert window.findChild(QDialog, "tdfProgressDialog") is None
+    assert warnings == [("TDF", "TDF 작업 실패: boom")]
 
 
 def test_main_window_keeps_measurement_lock_after_set_finishes(

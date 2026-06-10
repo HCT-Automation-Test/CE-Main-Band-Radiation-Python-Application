@@ -8,7 +8,7 @@ import pytest
 from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import RANGE_6
 from app.net import commands
-from app.net.mock_lv_server import MockLvServer, _MINIMAL_PNG
+from app.net.mock_lv_server import MOCK_TDF_FILE_LIST, MockLvServer, _MINIMAL_PNG
 from app.net.tcp_client import TcpClient
 
 
@@ -590,6 +590,29 @@ def test_mock_lv_server_bad_harmonic_result_scenario(qtbot, tmp_path) -> None:
 
         with pytest.raises(commands.CommandError, match="must contain 4 values"):
             commands.measure_harmonics(client, fundamental=3550.25)
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.get_tdf_list(client) == list(MOCK_TDF_FILE_LIST)
+        assert commands.tdf_all_off(client)
+        assert commands.set_tdf(client, tdf_file_name="NR_Radiated.tdf")
+
+        requests = server.received_requests[-3:]
+        assert [(request.target, request.command, request.params) for request in requests] == [
+            ("FSV40", "Get TDF List", {}),
+            ("FSV40", "TDF All Off", {}),
+            ("FSV40", "Set TDF", {"TDF File Name": "NR_Radiated.tdf"}),
+        ]
     finally:
         client.disconnect_from_host()
         server.stop()

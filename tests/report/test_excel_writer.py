@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import sys
+import types
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from openpyxl import Workbook, load_workbook
@@ -23,7 +26,12 @@ from app.models.measurement_result import (
     InbandResult,
 )
 from app.models.test_case import TestCase
-from app.report.excel_writer import ExcelReportWriter
+import app.report.excel_writer as excel_writer
+from app.report.excel_writer import (
+    ExcelReportWriter,
+    _find_open_excel_workbook,
+    _find_workbook_from_running_object_table,
+)
 from app.report import template_map
 
 
@@ -62,6 +70,105 @@ def _make_workbook(path: Path, *bands: NRBand) -> Path:
 def _cell(path: Path, sheet: str, cell: str) -> object:
     workbook = load_workbook(path)
     return workbook[sheet][cell].value
+
+
+class _FakeWorkbook:
+    def __init__(self, full_name: Path | str | None = None) -> None:
+        if full_name is not None:
+            self.FullName = str(full_name)
+        self.saved = False
+        self.sheets: dict[str, _FakeSheet] = {}
+
+    def Worksheets(self, sheet_name: str) -> "_FakeSheet":
+        return self.sheets.setdefault(sheet_name, _FakeSheet())
+
+    def Save(self) -> None:
+        self.saved = True
+
+
+class _FakeSheet:
+    def __init__(self) -> None:
+        self.ranges: dict[str, _FakeRange] = {}
+
+    def Range(self, cell: str) -> "_FakeRange":
+        return self.ranges.setdefault(cell, _FakeRange())
+
+
+class _FakeRange:
+    def __init__(self) -> None:
+        self.Value: object = None
+
+
+class _BrokenWorkbook:
+    @property
+    def FullName(self) -> str:
+        raise RuntimeError("broken workbook")
+
+
+class _FakeRunningObjects:
+    def __init__(self, objects: list[Any]) -> None:
+        self._objects = objects
+
+    def EnumRunning(self) -> "_FakeMonikers":
+        return _FakeMonikers(list(range(len(self._objects))))
+
+    def GetObject(self, moniker: int) -> Any:
+        return self._objects[moniker]
+
+
+class _FakeMonikers:
+    def __init__(self, monikers: list[int]) -> None:
+        self._monikers = monikers
+        self._index = 0
+
+    def Next(self, _: int) -> tuple[int, ...]:
+        if self._index >= len(self._monikers):
+            return ()
+        moniker = self._monikers[self._index]
+        self._index += 1
+        return (moniker,)
+
+
+class _FakePythoncom:
+    def __init__(self, objects: list[Any]) -> None:
+        self._running_objects = _FakeRunningObjects(objects)
+
+    def CreateBindCtx(self, _: int) -> object:
+        return object()
+
+    def GetRunningObjectTable(self) -> _FakeRunningObjects:
+        return self._running_objects
+
+
+class _FakeWin32Client:
+    def __init__(self, active_excel: Any | None = None) -> None:
+        self._active_excel = active_excel
+
+    def Dispatch(self, candidate: Any) -> Any:
+        return candidate
+
+    def GetActiveObject(self, _: str) -> Any:
+        if self._active_excel is None:
+            raise RuntimeError("no active excel")
+        return self._active_excel
+
+
+class _FakeExcel:
+    def __init__(self, workbooks: list[Any]) -> None:
+        self.Workbooks = workbooks
+
+
+def _install_fake_com_modules(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[types.ModuleType, types.ModuleType]:
+    pythoncom = types.ModuleType("pythoncom")
+    win32com = types.ModuleType("win32com")
+    win32_client = types.ModuleType("win32com.client")
+    win32com.client = win32_client  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pythoncom", pythoncom)
+    monkeypatch.setitem(sys.modules, "win32com", win32com)
+    monkeypatch.setitem(sys.modules, "win32com.client", win32_client)
+    return pythoncom, win32_client
 
 
 def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) -> None:
@@ -324,3 +431,139 @@ def test_write_inband_fails_when_required_result_value_is_missing(tmp_path: Path
             _make_case(test_type=MeasurementTestType.INBAND),
             InbandResult(inband_peak_level_dbm=None),
         )
+
+
+def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    fallback_cells: list[tuple[str, str, object]] = []
+
+    def raise_permission_error(_: Path) -> None:
+        raise PermissionError("locked")
+
+    def save_open_workbook() -> None:
+        fallback_cells.extend(writer._pending_cells)
+        writer._pending_cells.clear()
+
+    monkeypatch.setattr(writer.workbook, "save", raise_permission_error)
+    monkeypatch.setattr(writer, "_save_open_workbook_with_excel", save_open_workbook)
+
+    assert writer.write_inband(
+        _make_case(
+            test_type=MeasurementTestType.INBAND,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.Z,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.5),
+    )
+
+    assert ("Sub6 n78", "D62", -45.5) in fallback_cells
+    assert writer._pending_cells == []
+
+
+def test_save_open_workbook_with_excel_writes_cells_to_found_workbook(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    workbook = _FakeWorkbook(path)
+    pythoncom, win32_client = _install_fake_com_modules(monkeypatch)
+
+    def find_workbook(
+        template_path: Path,
+        pythoncom_module: object,
+        win32_client_module: object,
+    ) -> object:
+        assert template_path == path
+        assert pythoncom_module is pythoncom
+        assert win32_client_module is win32_client
+        return workbook
+
+    monkeypatch.setattr(excel_writer, "_find_open_excel_workbook", find_workbook)
+    writer._pending_cells = [("Sub6 n78", "D62", -45.5)]
+
+    writer._save_open_workbook_with_excel()
+
+    assert workbook.Worksheets("Sub6 n78").Range("D62").Value == -45.5
+    assert workbook.saved
+    assert writer._pending_cells == []
+
+
+def test_save_open_workbook_with_excel_raises_when_no_workbook_is_found(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    _install_fake_com_modules(monkeypatch)
+    monkeypatch.setattr(
+        excel_writer,
+        "_find_open_excel_workbook",
+        lambda *_: None,
+    )
+    writer._pending_cells = [("Sub6 n78", "D62", -45.5)]
+
+    with pytest.raises(PermissionError, match="no open Excel workbook"):
+        writer._save_open_workbook_with_excel()
+
+
+def test_find_open_workbook_prefers_running_object_table(tmp_path: Path) -> None:
+    target_path = tmp_path / "report.xlsx"
+    rot_workbook = _FakeWorkbook(target_path)
+    active_workbook = _FakeWorkbook(tmp_path / "other.xlsx")
+
+    found = _find_open_excel_workbook(
+        target_path,
+        _FakePythoncom([rot_workbook]),
+        _FakeWin32Client(_FakeExcel([active_workbook])),
+    )
+
+    assert found is rot_workbook
+
+
+def test_find_open_workbook_uses_active_excel_when_rot_has_no_match(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "report.xlsx"
+    active_workbook = _FakeWorkbook(target_path)
+
+    found = _find_open_excel_workbook(
+        target_path,
+        _FakePythoncom([_FakeWorkbook(tmp_path / "other.xlsx")]),
+        _FakeWin32Client(_FakeExcel([active_workbook])),
+    )
+
+    assert found is active_workbook
+
+
+def test_running_object_table_ignores_objects_without_readable_full_name(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "report.xlsx"
+    target_workbook = _FakeWorkbook(target_path)
+
+    found = _find_workbook_from_running_object_table(
+        target_path,
+        _FakePythoncom([_BrokenWorkbook(), target_workbook]),
+        _FakeWin32Client(),
+    )
+
+    assert found is target_workbook
+
+
+def test_find_open_workbook_returns_none_when_rot_and_active_excel_do_not_match(
+    tmp_path: Path,
+) -> None:
+    target_path = tmp_path / "report.xlsx"
+
+    found = _find_open_excel_workbook(
+        target_path,
+        _FakePythoncom([_FakeWorkbook(tmp_path / "other.xlsx")]),
+        _FakeWin32Client(_FakeExcel([_FakeWorkbook(tmp_path / "also_other.xlsx")])),
+    )
+
+    assert found is None

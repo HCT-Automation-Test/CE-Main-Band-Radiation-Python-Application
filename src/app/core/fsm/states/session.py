@@ -8,11 +8,14 @@ from app.core.fsm.base import State, StateResult
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.instrument_connection import (
     describe_equipment_not_ready,
-    is_required_equipment_ready,
+    is_selected_equipment_ready,
 )
+from app.models.band_group import find_band_group
+from app.models.enums import InputPath
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
+    from app.models.test_case import TestCase
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +30,57 @@ def _emit_error(ctx: "SessionContext", message: str) -> None:
 
 def _wait_for_event(ctx: "SessionContext", event_name: str) -> bool:
     event = getattr(ctx, event_name)
-    while not ctx.stopped:
+    while not ctx.stopped and not ctx.current_case_stop_requested:
         if event.wait(_WAIT_INTERVAL_SEC):
             event.clear()
+            if ctx.stopped or ctx.current_case_stop_requested:
+                return False
             return True
     return False
+
+
+def _uses_3d_controller_mast(input_path: InputPath) -> bool:
+    return input_path is InputPath.INPUT3
+
+
+def _antenna_pol_setup_required(
+    prev_case: "TestCase",
+    current_case: "TestCase",
+) -> bool:
+    if prev_case.antenna_pol != current_case.antenna_pol:
+        return True
+
+    prev_uses_3d_mast = _uses_3d_controller_mast(
+        prev_case.range_definition.input_path
+    )
+    current_uses_3d_mast = _uses_3d_controller_mast(
+        current_case.range_definition.input_path
+    )
+    return prev_uses_3d_mast != current_uses_3d_mast
+
+
+def _transition_states_for(
+    prev_case: "TestCase",
+    current_case: "TestCase",
+) -> list[str]:
+    transition_states: list[str] = []
+
+    if prev_case.band != current_case.band:
+        prev_recall = find_band_group(prev_case.band).mt8000_recall
+        current_recall = find_band_group(current_case.band).mt8000_recall
+        if prev_recall != current_recall:
+            transition_states.append("RecallChange")
+        else:
+            transition_states.append("Handover")
+
+    if prev_case.dut_axis != current_case.dut_axis:
+        transition_states.append("DUTAxisChange")
+    if _antenna_pol_setup_required(prev_case, current_case):
+        transition_states.append("AntPolChange")
+    if prev_case.test_type != current_case.test_type:
+        transition_states.append("TestTypeChange")
+
+    return transition_states
 
 
 class SessionInitState(State):
@@ -51,7 +100,7 @@ class SessionInitState(State):
             _emit_error(ctx, "장비 연결 확인 실패: equipment_state is empty")
             return StateResult.RETRY
 
-        if not is_required_equipment_ready(ctx.equipment_state):
+        if not is_selected_equipment_ready(ctx.equipment_state):
             _emit_error(
                 ctx,
                 "장비 연결 확인 실패: "
@@ -100,9 +149,11 @@ class IdleState(State):
             _emit_error(ctx, "시험 시작 실패: screenshot_root_dir is required")
             return StateResult.RETRY
 
-        ctx.current_index = 0
+        ctx.current_index = ctx.start_index
         ctx.fundamental_frequency_mhz = None
+        ctx.pending_transition_states.clear()
         ctx.stopped = False
+        ctx.current_case_stop_requested = False
         if ctx.events is not None:
             ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
@@ -113,7 +164,7 @@ class IdleState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "SetupSpectrumAnalyzerStartupLevel"
+        return "InitialTurntableZero"
 
 
 class CheckNextCaseState(State):
@@ -128,6 +179,7 @@ class CheckNextCaseState(State):
     def run(self, ctx: "SessionContext") -> StateResult:
         self._previous_case = ctx.current_case
         self._advanced = False
+        ctx.pending_transition_states.clear()
         if ctx.events is not None:
             ctx.events.tc_finished.emit(ctx.current_index)
 
@@ -155,15 +207,10 @@ class CheckNextCaseState(State):
         if prev_case is None:
             return measurement_start_state_for(current_case.test_type)
 
-        # TODO(spec): Band 변경 + Recall 필요 판정 규칙 확정
-        if prev_case.band != current_case.band:
-            return "Handover"
-        if prev_case.dut_axis != current_case.dut_axis:
-            return "DUTAxisChange"
-        if prev_case.antenna_pol != current_case.antenna_pol:
-            return "AntPolChange"
-        if prev_case.test_type != current_case.test_type:
-            return "TestTypeChange"
+        transition_states = _transition_states_for(prev_case, current_case)
+        if transition_states:
+            ctx.pending_transition_states = transition_states[1:]
+            return transition_states[0]
         return measurement_start_state_for(current_case.test_type)
 
 
@@ -173,9 +220,12 @@ class TestEndState(State):
     name = "TestEnd"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if ctx.events is not None:
+            ctx.events.session_finished.emit()
         ctx.queue = []
         ctx.current_index = 0
         ctx.fundamental_frequency_mhz = None
+        ctx.pending_transition_states.clear()
         return StateResult.OK
 
     def next_state(

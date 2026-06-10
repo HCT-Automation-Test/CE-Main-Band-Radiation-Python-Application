@@ -5,7 +5,9 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
+from app.core.fsm.transition_flow import next_transition_or
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -14,6 +16,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _DEFAULT_CONNECTION_WAITING_TIME_SEC = 5
+_USER_ACTION_WAIT_INTERVAL_SEC = 0.1
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -32,6 +35,10 @@ class NRCallConnectState(State):
     name = "NRCallConnect"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NR Call 연결 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.FAIL
+
         test_case = ctx.current_case
         waiting_time = _DEFAULT_CONNECTION_WAITING_TIME_SEC
         if ctx.settings is not None:
@@ -67,9 +74,14 @@ class NRCallConnectState(State):
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        if result is not StateResult.OK:
-            return None
-        return measurement_start_state_for(ctx.current_case.test_type)
+        if result is StateResult.OK:
+            return next_transition_or(
+                ctx,
+                measurement_start_state_for(ctx.current_case.test_type),
+            )
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
 
 
 class NRCallDisconnectedState(State):
@@ -82,11 +94,22 @@ class NRCallDisconnectedState(State):
     name = "NRCallDisconnected"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        # calls: ctx.events.user_action_required.emit("비행기 모드 On/Off 후 확인")
-        # TODO(spec): 사용자 확인 대기 메커니즘
-        raise NotImplementedError("spec TODO")
+        ctx.user_action_completed.clear()
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit("비행기 모드 On/Off 후 확인")
+
+        while not ctx.stopped and not ctx.current_case_stop_requested:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped or ctx.current_case_stop_requested:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
+        if result is not StateResult.OK:
+            return None
         return "NRCallConnect"

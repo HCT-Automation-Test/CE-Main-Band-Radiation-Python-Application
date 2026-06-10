@@ -14,6 +14,7 @@ from app.core.fsm.states.session import (
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    InputPath,
     Modulation,
     NRBand,
     RBAllocation,
@@ -28,7 +29,7 @@ class _SignalRecorder:
     def __init__(self) -> None:
         self.values: list[Any] = []
 
-    def emit(self, value: Any) -> None:
+    def emit(self, value: Any = None) -> None:
         self.values.append(value)
 
 
@@ -38,6 +39,7 @@ class _Events:
         self.tc_started = _SignalRecorder()
         self.tc_finished = _SignalRecorder()
         self.current_case_changed = _SignalRecorder()
+        self.session_finished = _SignalRecorder()
 
 
 class _Client:
@@ -72,12 +74,13 @@ def _make_case(
     test_type: TestType = TestType.HARMONIC,
     *,
     band: NRBand = NRBand.N78,
+    bandwidth: float = 100.0,
     antenna_pol: AntennaPol = AntennaPol.H,
     dut_axis: DUTAxis = DUTAxis.X,
 ) -> TestCase:
     return TestCase(
         band=band,
-        bandwidth=100.0,
+        bandwidth=bandwidth,
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
@@ -140,9 +143,7 @@ def test_session_init_retries_when_equipment_state_is_empty() -> None:
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == [
-        "장비 연결 확인 실패: equipment_state is empty"
-    ]
+    assert events.error.values[0].endswith("equipment_state is empty")
 
 
 def test_session_init_retries_when_client_is_missing() -> None:
@@ -159,9 +160,7 @@ def test_session_init_retries_when_client_is_missing() -> None:
     result = SessionInitState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == [
-        "장비 연결 확인 실패: TCP client is not set"
-    ]
+    assert events.error.values[0].endswith("TCP client is not set")
 
 
 def test_session_init_retries_when_any_equipment_status_is_false() -> None:
@@ -183,12 +182,10 @@ def test_session_init_retries_when_any_equipment_status_is_false() -> None:
     assert result is StateResult.RETRY
     assert ctx.equipment_state == states
     assert commands.connect_calls == []
-    assert events.error.values == [
-        "장비 연결 확인 실패: disconnected equipment: FSV40"
-    ]
+    assert events.error.values[0].endswith("disconnected equipment: FSV40")
 
 
-def test_session_init_retries_when_required_equipment_is_missing() -> None:
+def test_session_init_accepts_partial_success_equipment_state() -> None:
     events = _Events()
     commands = _Commands(response={"FSV40": True})
     ctx = SessionContext(
@@ -202,12 +199,26 @@ def test_session_init_retries_when_required_equipment_is_missing() -> None:
 
     result = SessionInitState().run(ctx)
 
-    assert result is StateResult.RETRY
+    assert result is StateResult.OK
     assert commands.connect_calls == []
-    assert events.error.values == [
-        "장비 연결 확인 실패: missing equipment: "
-        "MT8000A, CO3000, Switch Box, 3D Controller"
-    ]
+    assert events.error.values == []
+
+
+def test_session_init_retries_when_equipment_state_has_only_unknown_keys() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=_Commands(response=True),
+        events=events,  # type: ignore[arg-type]
+        client=_Client(),
+    )
+    ctx.equipment_state = {"Extra Device": True}
+    ctx.equipment_connect_requested.set()
+
+    result = SessionInitState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values[0].endswith("equipment_state is not ready")
 
 
 def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
@@ -232,7 +243,34 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
     assert result is StateResult.OK
     assert events.current_case_changed.values == [case]
     assert events.tc_started.values == [0]
-    assert IdleState().next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
+    assert IdleState().next_state(ctx, result) == "InitialTurntableZero"
+
+
+def test_idle_starts_from_context_start_index(tmp_path: Path) -> None:
+    events = _Events()
+    settings = _make_settings(tmp_path)
+    first_case = _make_case()
+    second_case = _make_case(antenna_pol=AntennaPol.V)
+    ctx = SessionContext(
+        queue=[first_case, second_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        report_writer=object(),  # type: ignore[arg-type]
+        temp_dir=tmp_path,
+        settings=settings,
+        model_name=settings.eut_name,
+        template_path=settings.template_path,
+        screenshot_root_dir=settings.screenshot_root_dir,
+        start_index=1,
+    )
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_index == 1
+    assert events.current_case_changed.values == [second_case]
+    assert events.tc_started.values == [1]
 
 
 def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
@@ -253,7 +291,7 @@ def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
     result = IdleState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == ["시험 시작 실패: report_writer is not set"]
+    assert events.error.values[0].endswith("report_writer is not set")
 
 
 def test_idle_retries_without_settings(tmp_path: Path) -> None:
@@ -273,7 +311,23 @@ def test_idle_retries_without_settings(tmp_path: Path) -> None:
     result = IdleState().run(ctx)
 
     assert result is StateResult.RETRY
-    assert events.error.values == ["시험 시작 실패: settings is required"]
+    assert events.error.values[0].endswith("settings is required")
+
+
+def test_idle_stop_wakeup_returns_fail_without_empty_queue_error() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    ctx.stopped = True
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.values == []
 
 
 def test_check_next_case_advances_and_routes_by_test_type() -> None:
@@ -296,6 +350,138 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
     assert state.next_state(ctx, result) == "TestTypeChange"
 
 
+def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N78)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+
+
+def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    next_case = _make_case(TestType.BILOG, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT3
+    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+
+
+def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N77)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "Handover"
+    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+
+
+def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
+    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT3
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
+    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+
+
+def test_check_next_case_does_not_treat_co3000_mast_change_as_ant_pol_change() -> None:
+    events = _Events()
+    prev_case = _make_case(TestType.HARMONIC, band=NRBand.N1, bandwidth=20.0)
+    next_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
+    ctx = SessionContext(
+        queue=[prev_case, next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert prev_case.range_definition.input_path is InputPath.INPUT1
+    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "TestTypeChange"
+
+
+def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() -> None:
+    events = _Events()
+    next_case = _make_case(band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[_make_case(band=NRBand.N77), next_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "Handover"
+
+
+def test_check_next_case_routes_band_change_to_recall_change_when_recall_differs() -> None:
+    events = _Events()
+    next_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx = SessionContext(
+        queue=[
+            _make_case(band=NRBand.N7, bandwidth=20.0),
+            next_case,
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
+
+
 def test_check_next_case_goes_to_test_end_at_queue_end() -> None:
     events = _Events()
     ctx = SessionContext(
@@ -313,10 +499,11 @@ def test_check_next_case_goes_to_test_end_at_queue_end() -> None:
 
 
 def test_test_end_clears_queue_and_returns_to_idle() -> None:
+    events = _Events()
     ctx = SessionContext(
         queue=[_make_case()],
         commands=object(),
-        events=_Events(),  # type: ignore[arg-type]
+        events=events,  # type: ignore[arg-type]
         current_index=0,
         fundamental_frequency_mhz=3550.25,
     )
@@ -325,6 +512,7 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert events.session_finished.values == [None]
     assert ctx.queue == []
     assert ctx.fundamental_frequency_mhz is None
     assert state.next_state(ctx, result) == "Idle"

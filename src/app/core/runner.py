@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QThread, Signal, Slot
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 
 from app.core.events import RunnerEvents
 from app.core.fsm.context import SessionContext
@@ -13,7 +13,7 @@ from app.core.fsm.engine import FSMEngine, build_session_engine
 from app.core.instrument_connection import (
     InstrumentConnectionService,
     describe_equipment_not_ready,
-    is_required_equipment_ready,
+    is_selected_equipment_ready,
     normalize_equipment_state,
     should_preserve_equipment_state_on_connection_error,
 )
@@ -117,6 +117,7 @@ class Runner(QObject):
         self._temp_dir = Path(temp_dir)
         self._equipment_state: dict[str, bool] = {}
         self._measurement_active = False
+        self._restart_index: int | None = None
         self._shutting_down = False
         self._instrument_connection_service = (
             instrument_connection_service
@@ -158,6 +159,24 @@ class Runner(QObject):
         return self._instrument_connection_service
 
     @property
+    def client(self) -> Any:
+        """외부 LabVIEW TCP 서버와 통신하는 공용 client를 반환한다."""
+
+        return self._client
+
+    @property
+    def commands(self) -> Any:
+        """Runner와 보조 서비스가 공유할 command facade를 반환한다."""
+
+        return self._commands
+
+    @property
+    def restart_index(self) -> int | None:
+        """Pause 후 재시작할 TestCase index를 반환한다."""
+
+        return self._restart_index
+
+    @property
     def equipment_state(self) -> dict[str, bool]:
         """마지막으로 확인된 장비 연결 상태를 반환한다."""
 
@@ -167,7 +186,7 @@ class Runner(QObject):
     def is_equipment_ready(self) -> bool:
         """모든 장비가 연결 완료 상태인지 반환한다."""
 
-        return is_required_equipment_ready(self._equipment_state)
+        return is_selected_equipment_ready(self._equipment_state)
 
     @property
     def is_measurement_active(self) -> bool:
@@ -208,7 +227,10 @@ class Runner(QObject):
         self._worker = _RunnerWorker(self._ctx, self._engine_factory)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(self._thread.quit)
+        self._worker.finished.connect(
+            self._thread.quit,
+            Qt.ConnectionType.DirectConnection,
+        )
         self._worker.finished.connect(self._worker.deleteLater)
         self._thread.finished.connect(self._thread.deleteLater)
         self._thread.finished.connect(self._on_thread_finished)
@@ -311,9 +333,14 @@ class Runner(QObject):
         ctx = self._ctx
         ctx.queue = list(cases)
         ctx.report_writer = report_writer
-        ctx.current_index = 0
+        start_index = self._restart_index
+        if start_index is None or start_index >= len(cases):
+            start_index = 0
+        ctx.start_index = start_index
+        ctx.current_index = start_index
         ctx.paused = False
         ctx.stopped = False
+        ctx.current_case_stop_requested = False
         ctx.current_angle = 0.0
         ctx.fundamental_frequency_mhz = None
         ctx.temp_dir = self._temp_dir
@@ -321,13 +348,18 @@ class Runner(QObject):
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
+        self._restart_index = None
         self._set_measurement_active(True)
         ctx.test_start_requested.set()
 
     def pause(self) -> None:
-        """실행 일시정지. ctx.paused = True."""
-        if self._ctx is not None:
-            self._ctx.paused = True
+        """현재 TC 실행을 중단하고 같은 TC부터 다시 시작할 수 있게 한다."""
+        if self._ctx is None or not self.is_measurement_active:
+            return
+        self._restart_index = self._ctx.current_index
+        self._ctx.current_case_stop_requested = True
+        self._ctx.paused = False
+        self._ctx.user_action_completed.set()
 
     def resume(self) -> None:
         """일시정지 해제."""

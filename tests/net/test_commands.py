@@ -94,6 +94,44 @@ def test_connect_equipment_without_params_keeps_empty_param_compatibility() -> N
     ]
 
 
+def test_connect_equipment_with_config_sends_only_selected_visa_targets() -> None:
+    client = _Client(_default_ok(), _default_ok())
+    config = commands.EquipmentConnectionConfig(
+        fsv40_visa_resource="TCPIP0::192.168.0.2::inst0::INSTR",
+        mt8000a_visa_resource="",
+        co3000_visa_resource="ASRL1::INSTR",
+        controller_3d_visa_resource="",
+        switch_box_ip_address="",
+        switch_box_port=None,
+    )
+
+    assert commands.connect_equipment(client, config=config) == {
+        "FSV40": True,
+        "CO3000": True,
+    }
+    assert client.calls == [
+        ("FSV40", "Connect", {"VISA Resource": "TCPIP0::192.168.0.2::inst0::INSTR"}),
+        ("CO3000", "Connect", {"VISA Resource": "ASRL1::INSTR"}),
+    ]
+
+
+def test_connect_equipment_with_config_sends_switch_box_only_when_complete() -> None:
+    client = _Client(_default_ok())
+    config = commands.EquipmentConnectionConfig(
+        fsv40_visa_resource="",
+        mt8000a_visa_resource="",
+        co3000_visa_resource="",
+        controller_3d_visa_resource="",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+
+    assert commands.connect_equipment(client, config=config) == {"Switch Box": True}
+    assert client.calls == [
+        ("Switch Box", "Connect", {"ip address": "192.168.0.10", "port": 5000}),
+    ]
+
+
 def test_connect_equipment_raises_when_target_connect_returns_error() -> None:
     client = _Client(
         _default_ok(),
@@ -255,11 +293,57 @@ def test_self_align_fsv40_sends_default_params() -> None:
     assert client.calls == [("FSV40", "Self Alignment", {})]
 
 
+def test_get_tdf_list_returns_file_names() -> None:
+    client = _Client(_ok(**{"TDF File List": ["a.tdf", "b.tdf"]}))
+
+    assert commands.get_tdf_list(client) == ["a.tdf", "b.tdf"]
+    assert client.calls == [("FSV40", "Get TDF List", {})]
+
+
+def test_get_tdf_list_rejects_non_list_result() -> None:
+    client = _Client(_ok(**{"TDF File List": "a.tdf,b.tdf"}))
+
+    with pytest.raises(commands.CommandError, match="TDF File List must be a list"):
+        commands.get_tdf_list(client)
+
+
+def test_get_tdf_list_rejects_missing_result_object() -> None:
+    client = _Client(_default_ok())
+
+    with pytest.raises(commands.CommandError, match="Result must be an object"):
+        commands.get_tdf_list(client)
+
+
+def test_get_tdf_list_rejects_non_string_items() -> None:
+    client = _Client(_ok(**{"TDF File List": ["a.tdf", 7]}))
+
+    with pytest.raises(
+        commands.CommandError,
+        match="TDF File List must contain only strings",
+    ):
+        commands.get_tdf_list(client)
+
+
+def test_tdf_all_off_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.tdf_all_off(client) is True
+    assert client.calls == [("FSV40", "TDF All Off", {})]
+
+
+def test_set_tdf_sends_file_name_param() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.set_tdf(client, tdf_file_name="a.tdf") is True
+    assert client.calls == [("FSV40", "Set TDF", {"TDF File Name": "a.tdf"})]
+
+
 @pytest.mark.parametrize(
     ("facade", "target", "command"),
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
+        (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
 def test_instrument_set_commands_raise_on_error_response(
@@ -347,7 +431,7 @@ def test_setup_sa_startup_levels_raises_on_error_response() -> None:
 
 
 def test_measure_fundamental_returns_frequency() -> None:
-    client = _Client(_ok(**{"Fundamental Frequency": 3550.25}))
+    client = _Client(_ok(**{"Fundamental Frequency": 3550250000.0}))
 
     assert commands.measure_fundamental(client, target_freq=3550.0) == 3550.25
     assert client.calls == [
@@ -381,6 +465,35 @@ def test_measure_harmonics_returns_four_levels() -> None:
     assert client.calls == [
         ("FSV40", "Mark Harmonic", {"Fundamental Frequency": 3550.25})
     ]
+
+
+def test_measure_inband_returns_amplitude() -> None:
+    client = _Client(_ok(Amplitude=-42.1))
+
+    assert commands.measure_inband(client, limit=-30.0) == -42.1
+    assert client.calls == [
+        ("FSV40", "Mark Inband", {"Limit": -30.0})
+    ]
+
+
+def test_measure_inband_rejects_missing_amplitude() -> None:
+    client = _Client(_ok())
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_inband(client, limit=-30.0)
+
+
+def test_measure_inband_rejects_non_numeric_amplitude() -> None:
+    client = _Client(_ok(Amplitude="-42.1"))
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_inband(client, limit=-30.0)
 
 
 def test_set_switch_box_sends_input_then_filter() -> None:
@@ -443,6 +556,23 @@ def test_check_call_status_returns_ok_and_connected() -> None:
 
     assert commands.check_call_status(client) is True
     assert client.calls == [("MT8000A", "Check Call Status", {})]
+
+
+def test_check_call_status_returns_false_when_call_is_disconnected() -> None:
+    client = _Client(_ok(ok=True, connected=False))
+
+    assert commands.check_call_status(client) is False
+    assert client.calls == [("MT8000A", "Check Call Status", {})]
+
+
+def test_check_call_status_raises_when_status_check_failed() -> None:
+    client = _Client(_ok(ok=False, connected=False))
+
+    with pytest.raises(
+        commands.CommandError,
+        match="MT8000A / Check Call Status returned ok=false",
+    ):
+        commands.check_call_status(client)
 
 
 def test_set_antenna_pol_routes_by_input_path() -> None:

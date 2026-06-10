@@ -17,6 +17,7 @@ class RunnerEvents(QObject):
     state_changed = Signal(str)             # state name
     progress = Signal(int)                  # percent
     screenshot_saved = Signal(str)          # path
+    session_finished = Signal()             # all test cases finished normally
     error = Signal(str)                     # message
     user_action_required = Signal(str)      # reason
 

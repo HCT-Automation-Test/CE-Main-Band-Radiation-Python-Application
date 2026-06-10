@@ -23,6 +23,7 @@ _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -33,6 +34,11 @@ _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
+_COMMAND_GET_TDF_LIST = "Get TDF List"
+_COMMAND_TDF_ALL_OFF = "TDF All Off"
+_COMMAND_SET_TDF = "Set TDF"
+
+_HZ_PER_MHZ = 1_000_000.0
 
 _CONNECT_TARGETS = (
     _TARGET_FSV40,
@@ -56,7 +62,7 @@ class EquipmentConnectionConfig:
     co3000_visa_resource: str
     controller_3d_visa_resource: str
     switch_box_ip_address: str
-    switch_box_port: int
+    switch_box_port: int | None
 
 
 def _normalize_modulation(modulation: Modulation | str) -> str:
@@ -132,6 +138,26 @@ def _build_connect_params(
     return {}
 
 
+def _selected_connect_targets(
+    config: EquipmentConnectionConfig | None,
+) -> tuple[str, ...]:
+    if config is None:
+        return _CONNECT_TARGETS
+
+    targets: list[str] = []
+    if config.fsv40_visa_resource.strip():
+        targets.append(_TARGET_FSV40)
+    if config.mt8000a_visa_resource.strip():
+        targets.append(_TARGET_MT8000A)
+    if config.co3000_visa_resource.strip():
+        targets.append(_TARGET_CO3000)
+    if config.switch_box_ip_address.strip() and config.switch_box_port is not None:
+        targets.append(_TARGET_SWITCH_BOX)
+    if config.controller_3d_visa_resource.strip():
+        targets.append(_TARGET_3D_CONTROLLER)
+    return tuple(targets)
+
+
 def connect_equipment(
     client: Any,
     *,
@@ -139,7 +165,7 @@ def connect_equipment(
 ) -> dict[str, bool]:
     """LabVIEW 프로그램을 통해 장비 연결/상태 확인을 수행한다."""
     states: dict[str, bool] = {}
-    for target in _CONNECT_TARGETS:
+    for target in _selected_connect_targets(config):
         params = _build_connect_params(config, target)
         response = _send_request(client, target, _COMMAND_CONNECT, params)
         states[target] = _action_ok(response, target, _COMMAND_CONNECT)
@@ -222,8 +248,54 @@ def self_align_fsv40(client: Any) -> bool:
     return _action_ok(response, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT)
 
 
+def get_tdf_list(client: Any) -> list[str]:
+    """FSV40에 저장된 TDF 파일 목록을 조회한다."""
+
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_GET_TDF_LIST, {})
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_GET_TDF_LIST)
+    tdf_file_list = result.get("TDF File List")
+    if isinstance(tdf_file_list, str | bytes) or not isinstance(
+        tdf_file_list,
+        Sequence,
+    ):
+        raise CommandError(
+            f"{_TARGET_FSV40} / {_COMMAND_GET_TDF_LIST} "
+            "Result.TDF File List must be a list"
+        )
+    normalized = [str(file_name) for file_name in tdf_file_list]
+    if any(not isinstance(file_name, str) for file_name in tdf_file_list):
+        raise CommandError(
+            f"{_TARGET_FSV40} / {_COMMAND_GET_TDF_LIST} "
+            "Result.TDF File List must contain only strings"
+        )
+    return normalized
+
+
+def tdf_all_off(client: Any) -> bool:
+    """FSV40의 모든 TDF를 비활성화한다."""
+
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_TDF_ALL_OFF, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_TDF_ALL_OFF)
+
+
+def set_tdf(client: Any, *, tdf_file_name: str) -> bool:
+    """선택한 TDF 파일 하나를 FSV40에 활성화한다."""
+
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_SET_TDF,
+        {"TDF File Name": str(tdf_file_name)},
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_SET_TDF)
+
+
 def measure_fundamental(client: Any, *, target_freq: float) -> float:
-    """기본파 측정 후 fundamental frequency를 반환한다. §4.3."""
+    """기본파 측정 후 fundamental frequency를 MHz로 반환한다. §4.3.
+
+    요청의 Center Frequency는 MHz로 전송하고, LV 응답의 Fundamental Frequency는
+    Hz로 수신한다. Python 내부/리포트/FSM은 MHz 기준을 유지한다.
+    """
     response = _send_request(
         client,
         _TARGET_FSV40,
@@ -235,12 +307,13 @@ def measure_fundamental(client: Any, *, target_freq: float) -> float:
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
     )
-    return _number(
+    frequency_hz = _number(
         result,
         "Fundamental Frequency",
         _TARGET_FSV40,
         _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY,
     )
+    return frequency_hz / _HZ_PER_MHZ
 
 
 def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> bool:
@@ -361,10 +434,16 @@ def measure_harmonics(
     return normalized
 
 
-def measure_inband(client: Any, **kwargs: Any) -> Any:
-    """In-Band 측정."""
-    # TODO(spec): 파라미터/반환 스키마 확정 필요
-    raise NotImplementedError("spec TODO: send_request command name pending")
+def measure_inband(client: Any, *, limit: float) -> float:
+    """In-Band 측정 amplitude(dBm)를 반환한다."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_MARK_INBAND,
+        {"Limit": float(limit)},
+    )
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_INBAND)
+    return _number(result, "Amplitude", _TARGET_FSV40, _COMMAND_MARK_INBAND)
 
 
 def measure_bilog(client: Any, **kwargs: Any) -> Any:
@@ -378,13 +457,14 @@ def check_call_status(client: Any) -> bool:
     response = _send_request(client, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     result = _result_dict(response, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     ok = _boolean(result, "ok", _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
-    connected = _boolean(
+    if not ok:
+        raise CommandError(f"{_TARGET_MT8000A} / {_COMMAND_CHECK_CALL_STATUS} returned ok=false")
+    return _boolean(
         result,
         "connected",
         _TARGET_MT8000A,
         _COMMAND_CHECK_CALL_STATUS,
     )
-    return ok and connected
 
 
 def set_antenna_pol(client: Any, *, pol: AntennaPol, input_path: InputPath) -> bool:
