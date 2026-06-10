@@ -334,8 +334,8 @@ def test_ant_pol_change_does_not_emit_display_info_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == [
         "Antenna Pol 설정 실패: set_antenna_pol returned false"
@@ -354,8 +354,8 @@ def test_ant_pol_change_does_not_emit_display_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzerStartupLevel"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.polarization_info_changed.messages == []
     assert events.error.messages == ["Antenna Pol 설정 실패: instrument timeout"]
 

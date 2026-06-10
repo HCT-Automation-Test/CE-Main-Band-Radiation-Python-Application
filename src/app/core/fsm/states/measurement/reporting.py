@@ -24,19 +24,20 @@ def append_and_write_report(
     """writer가 설정된 경우에만 리포트를 기록한다."""
     writer = ctx.report_writer
     if writer is None:
-        return StateResult.OK
+        _emit_error(ctx, "리포트 작성 실패: report_writer is not set")
+        return StateResult.FAIL
 
     try:
         written = write_report(writer)
     except Exception as exc:
         _emit_error(ctx, f"리포트 작성 실패: {exc}")
-        return StateResult.OK
+        return StateResult.FAIL
 
     if written:
         return StateResult.OK
 
     _emit_error(ctx, false_message)
-    return StateResult.OK
+    return StateResult.FAIL
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:

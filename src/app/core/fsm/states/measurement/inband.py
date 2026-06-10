@@ -37,7 +37,7 @@ class MeasureInBandState(State):
         # TODO(spec): In-Band 측정 파라미터/반환 스키마
         if ctx.temp_dir is None:
             _emit_error(ctx, "In-Band 스크린샷 경로 생성 실패: temp_dir is not set")
-            return StateResult.OK
+            return StateResult.FAIL
 
         screenshot_path = ctx.temp_dir / _INBAND_SCREENSHOT_NAME
         if not screenshot_path.is_file():
@@ -45,7 +45,7 @@ class MeasureInBandState(State):
                 ctx,
                 f"In-Band 스크린샷 저장 실패: {screenshot_path} does not exist",
             )
-            return StateResult.OK
+            return StateResult.FAIL
 
         result = InbandResult(screenshot_path=screenshot_path)
         return append_and_write_report(

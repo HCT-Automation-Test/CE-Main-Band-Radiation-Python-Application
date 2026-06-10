@@ -86,14 +86,14 @@ class AntPolChangeState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Antenna Pol 설정 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if configured:
             _emit_polarization_info(ctx, pol=pol, input_path=input_path)
             return StateResult.OK
 
         _emit_error(ctx, "Antenna Pol 설정 실패: set_antenna_pol returned false")
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult

@@ -319,7 +319,7 @@ def test_initial_turntable_zero_current_case_stop_requests_stop_and_fail() -> No
     assert state.next_state(ctx, result) is None
 
 
-def test_initial_turntable_zero_error_event_continues_to_ant_pol() -> None:
+def test_initial_turntable_zero_error_event_returns_fail() -> None:
     commands = _Commands()
     client = _FakeClient()
     case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
@@ -339,8 +339,8 @@ def test_initial_turntable_zero_error_event_continues_to_ant_pol() -> None:
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "AntPolChange"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert ctx.current_angle == 180.0
     assert commands.stop_calls == []
     assert events.error.values == ["Turntable 초기 0도 정렬 실패: stalled"]
@@ -729,11 +729,11 @@ def test_timeout_calls_stop_and_fails(monkeypatch: pytest.MonkeyPatch) -> None:
 
     result = _drive_state(state, ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert commands.stop_calls == [client]
     assert events.error.values == ["턴테이블 회전 타임아웃"]
     assert ctx.current_angle == 0.0
-    assert state.next_state(ctx, result) == "MeasureHarmonics"
+    assert state.next_state(ctx, result) is None
 
 
 def test_error_event_marks_failure() -> None:
@@ -750,7 +750,7 @@ def test_error_event_marks_failure() -> None:
     result = _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert events.error.values == ["턴테이블 회전 실패: stalled"]
     assert commands.stop_calls == []
     assert ctx.current_angle == 0.0
@@ -765,7 +765,7 @@ def test_rotate_command_exception_returns_fail() -> None:
 
     result = _drive_state(state, ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert events.error.values == ["턴테이블 회전 명령 실패: send failed"]
     assert commands.stop_calls == []
 
@@ -903,7 +903,7 @@ def test_error_event_flushes_pending_progress_without_waiting(
     elapsed = time.monotonic() - started_at
     thread.join(timeout=1.0)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert elapsed < 0.5
     assert events.error.values == ["턴테이블 회전 실패: stalled"]
     assert events.turntable_info_changed.values == [

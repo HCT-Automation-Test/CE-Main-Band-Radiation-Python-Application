@@ -99,6 +99,17 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 - 한 브랜치의 목적과 다른 성격의 변경을 섞지 않는다. 예를 들어 screenshot store 브랜치에서 measurement 로직을 임의로 수정하지 않는다.
 - 사용자가 "고쳐줘", "구현해줘"라고만 말했더라도, 변경 범위는 해당 이슈/파일/기능의 직접 원인으로 제한한다.
 
+## Temporary Equipment Policy
+
+현재 개발 단계에서는 Harmonic 1차 테스트 완료 후 In-band / Bilog 및 최종 통합 테스트가 남아 있으므로,
+일부 장비가 미연결인 상태에서도 선택 연결된 장비 기준으로 FSM 흐름을 검증할 수 있다.
+
+- 이 임시 정책에서는 선택/연결되지 않은 장비가 필요한 FSM state가 해당 장비 동작을 스킵하고 다음 state로 진행할 수 있다.
+- 이 스킵 정책은 개발/검증 편의를 위한 임시 정책이며 실제 배포/운영 정책이 아니다.
+- 실제 배포/운영에서는 필수 장비 전체가 연결되어 있지 않으면 시험을 시작하거나 진행하면 안 된다.
+- 다른 agent는 `is_selected_equipment_ready`, 장비 미연결 스킵, 관련 `StateResult.OK` 경로를 최종 제품 요구사항으로 해석하지 말아야 한다.
+- 최종 통합 단계에서는 필수 장비 전체 연결 확인 정책으로 되돌리거나 별도 production gate를 추가해야 한다.
+
 ## When Adding A New Test Type
 
 1. `src/app/core/fsm/<type>/` 아래에 `states.py`, `sequence.py`를 추가한다.

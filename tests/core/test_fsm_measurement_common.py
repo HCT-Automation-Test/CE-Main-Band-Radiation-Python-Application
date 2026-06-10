@@ -200,8 +200,8 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_false_result(
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "Spectrum Analyzer Startup Level 설정 실패: "
         "setup_sa_startup_levels returned false"
@@ -223,8 +223,8 @@ def test_setup_spectrum_analyzer_startup_level_returns_fail_on_exception(
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "Spectrum Analyzer Startup Level 설정 실패: instrument timeout"
     ]
@@ -339,7 +339,7 @@ def test_reset_switch_box_does_not_emit_info_on_false_result() -> None:
 
     result = ResetSwitchBoxState().run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert events.switch_box_info_changed.messages == []
 
 
@@ -355,8 +355,8 @@ def test_reset_switch_box_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "CheckNextCase"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.switch_box_info_changed.messages == []
     assert events.error.messages == [
         "Switch Box 기본 경로 복원 실패: instrument timeout"
@@ -403,8 +403,8 @@ def test_set_switch_box_returns_fail_and_stops_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "Switch Box RF 경로 설정 실패: set_switch_box returned false"
     ]
@@ -421,7 +421,7 @@ def test_set_switch_box_does_not_emit_info_on_false_result() -> None:
 
     result = SetSwitchBoxState().run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert events.switch_box_info_changed.messages == []
 
 
@@ -437,8 +437,8 @@ def test_set_switch_box_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "SetupSpectrumAnalyzer"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.switch_box_info_changed.messages == []
     assert events.error.messages == [
         "Switch Box RF 경로 설정 실패: instrument timeout"
@@ -560,8 +560,8 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "RotateTurntable"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "Spectrum Analyzer 설정 실패: setup_sa returned false"
     ]
@@ -578,7 +578,7 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
-    assert result is StateResult.OK
+    assert result is StateResult.FAIL
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
@@ -594,8 +594,8 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "RotateTurntable"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.spectrum_analyzer_info_changed.messages == []
     assert events.error.messages == [
         "Spectrum Analyzer 설정 실패: instrument timeout"
@@ -662,8 +662,8 @@ def test_reset_switch_box_returns_fail_and_stops_on_false_result() -> None:
 
     result = state.run(ctx)
 
-    assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "CheckNextCase"
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
     assert events.error.messages == [
         "Switch Box 기본 경로 복원 실패: set_switch_box returned false"
     ]

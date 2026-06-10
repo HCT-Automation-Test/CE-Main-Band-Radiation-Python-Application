@@ -136,7 +136,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Spectrum Analyzer Startup Level 설정 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if configured:
             return StateResult.OK
@@ -146,7 +146,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             "Spectrum Analyzer Startup Level 설정 실패: "
             "setup_sa_startup_levels returned false",
         )
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -180,7 +180,7 @@ class SetSwitchBoxState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Switch Box RF 경로 설정 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if configured:
             _emit_switch_box_info(
@@ -191,7 +191,7 @@ class SetSwitchBoxState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box RF 경로 설정 실패: set_switch_box returned false")
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -216,7 +216,7 @@ class SetupSpectrumAnalyzerState(State):
             configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
         except Exception as exc:
             _emit_error(ctx, f"Spectrum Analyzer 설정 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if configured:
             _emit_spectrum_analyzer_info(
@@ -235,7 +235,7 @@ class SetupSpectrumAnalyzerState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
@@ -292,7 +292,7 @@ class RotateTurntableState(State):
             band_group = find_band_group(ctx.current_case.band.value)
         except ValueError as exc:
             _emit_error(ctx, f"BandGroup 조회 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
         speed = band_group.turntable_speed
 
         try:
@@ -301,7 +301,7 @@ class RotateTurntableState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"턴테이블 회전 명령 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         _emit_turntable_info(
             ctx,
@@ -325,11 +325,11 @@ class RotateTurntableState(State):
             if time.monotonic() > deadline:
                 _emit_error(ctx, "턴테이블 회전 타임아웃")
                 self._send_stop(ctx)
-                return StateResult.OK
+                return StateResult.FAIL
 
         if self._failed_reason is not None:
             _emit_error(ctx, f"턴테이블 회전 실패: {self._failed_reason}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         ctx.current_angle = self._target_angle
         _emit_turntable_info(ctx, {"current_angle": self._target_angle})
@@ -480,7 +480,7 @@ class InitialTurntableZeroState(RotateTurntableState):
             )
         except Exception as exc:
             _emit_error(ctx, f"Turntable 초기 0도 정렬 명령 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         _emit_turntable_info(
             ctx,
@@ -504,11 +504,11 @@ class InitialTurntableZeroState(RotateTurntableState):
             if time.monotonic() > deadline:
                 _emit_error(ctx, "Turntable 초기 0도 정렬 타임아웃")
                 self._send_stop(ctx)
-                return StateResult.OK
+                return StateResult.FAIL
 
         if self._failed_reason is not None:
             _emit_error(ctx, f"Turntable 초기 0도 정렬 실패: {self._failed_reason}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         ctx.current_angle = self._target_angle
         _emit_turntable_info(ctx, {"current_angle": self._target_angle})
@@ -541,7 +541,7 @@ class ResetSwitchBoxState(State):
             )
         except Exception as exc:
             _emit_error(ctx, f"Switch Box 기본 경로 복원 실패: {exc}")
-            return StateResult.OK
+            return StateResult.FAIL
 
         if configured:
             _emit_switch_box_info(
@@ -552,7 +552,7 @@ class ResetSwitchBoxState(State):
             return StateResult.OK
 
         _emit_error(ctx, "Switch Box 기본 경로 복원 실패: set_switch_box returned false")
-        return StateResult.OK
+        return StateResult.FAIL
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
