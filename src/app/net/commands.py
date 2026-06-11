@@ -446,10 +446,9 @@ def measure_inband(client: Any, *, limit: float) -> float:
     return _number(result, "Amplitude", _TARGET_FSV40, _COMMAND_MARK_INBAND)
 
 
-def measure_bilog(client: Any, **kwargs: Any) -> Any:
-    """Bilog 측정."""
-    # TODO(spec): 파라미터/반환 스키마 확정 필요
-    raise NotImplementedError("spec TODO: send_request command name pending")
+def measure_bilog(client: Any, *, limit: float) -> float:
+    """Bilog 측정 amplitude(dBm)를 반환한다."""
+    return measure_inband(client, limit=limit)
 
 
 def check_call_status(client: Any) -> bool:

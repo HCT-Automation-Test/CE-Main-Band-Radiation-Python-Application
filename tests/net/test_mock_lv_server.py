@@ -595,6 +595,28 @@ def test_mock_lv_server_bad_harmonic_result_scenario(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_server_handles_inband_command(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.measure_inband(client, limit=-30.0) == -42.1
+        assert (tmp_path / "inband.png").is_file()
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "FSV40",
+            "Mark Inband",
+            {"Limit": -30.0},
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()

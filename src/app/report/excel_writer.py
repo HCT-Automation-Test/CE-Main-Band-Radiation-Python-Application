@@ -121,10 +121,7 @@ class ExcelReportWriter:
     ) -> bool:
         """In-band peak level 결과를 작성한다."""
 
-        level_dbm = _require_value(
-            result.inband_peak_level_dbm,
-            "inband_peak_level_dbm",
-        )
+        level_dbm = _harmonic_level_value(result.inband_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
@@ -143,10 +140,7 @@ class ExcelReportWriter:
     ) -> bool:
         """Bilog peak level 결과를 작성한다."""
 
-        level_dbm = _require_value(
-            result.bilog_peak_level_dbm,
-            "bilog_peak_level_dbm",
-        )
+        level_dbm = _harmonic_level_value(result.bilog_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
@@ -242,27 +236,31 @@ class ExcelReportWriter:
                 f"Excel report file is open and cannot be saved: {self.template_path}"
             ) from exc
 
-        workbook = _find_open_excel_workbook(
-            self.template_path,
-            pythoncom,
-            win32com.client,
-        )
-        if workbook is None:
-            raise PermissionError(
-                f"Excel report file is locked but no open Excel workbook was found: "
-                f"{self.template_path}"
-            )
-
+        pythoncom.CoInitialize()
         try:
-            for sheet_name, cell, value in self._pending_cells:
-                workbook.Worksheets(sheet_name).Range(cell).Value = value
-            workbook.Save()
-        except Exception as exc:
-            raise PermissionError(
-                f"Excel report file is open but could not be updated through Excel: "
-                f"{self.template_path}"
-            ) from exc
-        self._pending_cells.clear()
+            workbook = _find_open_excel_workbook(
+                self.template_path,
+                pythoncom,
+                win32com.client,
+            )
+            if workbook is None:
+                raise PermissionError(
+                    f"Excel report file is locked but no open Excel workbook was found: "
+                    f"{self.template_path}"
+                )
+
+            try:
+                for sheet_name, cell, value in self._pending_cells:
+                    workbook.Worksheets(sheet_name).Range(cell).Value = value
+                workbook.Save()
+            except Exception as exc:
+                raise PermissionError(
+                    f"Excel report file is open but could not be updated through Excel: "
+                    f"{self.template_path}"
+                ) from exc
+            self._pending_cells.clear()
+        finally:
+            pythoncom.CoUninitialize()
 
 
 def _find_open_excel_workbook(

@@ -82,7 +82,7 @@ RANGE_1 = TestRange(
     vbw=0.3,
     limit=-36.0,
     sweep_point=10001,
-    input_path=InputPath.INPUT2,
+    input_path=InputPath.INPUT1,
     filter_mode=FilterMode.BRF,
 )
 
@@ -94,7 +94,7 @@ RANGE_2 = TestRange(
     vbw=3.0,
     limit=-30.0,
     sweep_point=30001,
-    input_path=InputPath.INPUT1,
+    input_path=InputPath.INPUT2,
     filter_mode=FilterMode.BRF,
 )
 
@@ -106,7 +106,7 @@ RANGE_3 = TestRange(
     vbw=3.0,
     limit=-30.0,
     sweep_point=30001,
-    input_path=InputPath.INPUT1,
+    input_path=InputPath.INPUT2,
     filter_mode=FilterMode.HPF_1G,
 )
 
@@ -118,7 +118,7 @@ RANGE_4 = TestRange(
     vbw=3.0,
     limit=-30.0,
     sweep_point=30001,
-    input_path=InputPath.INPUT1,
+    input_path=InputPath.INPUT2,
     filter_mode=FilterMode.HPF_3G,
 )
 

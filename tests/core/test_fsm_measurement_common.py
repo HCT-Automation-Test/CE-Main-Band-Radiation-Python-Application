@@ -626,7 +626,7 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
         )
     ]
     assert events.switch_box_info_changed.messages == [
-        {"mast": "3m", "filter": "THRU"}
+        {"mast": "Bilog", "filter": "THRU"}
     ]
 
 

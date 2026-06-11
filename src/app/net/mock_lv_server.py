@@ -41,6 +41,7 @@ _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -229,6 +230,10 @@ class MockLvServer:
             if self.scenario == "bad-harmonic-result":
                 return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0]})
             return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0, -56.2]})
+        if request.command == _COMMAND_MARK_INBAND:
+            self._write_png("inband.png")
+            limit = _coerce_float(request.params.get("Limit"), -30.0)
+            return _ok(request, {"Amplitude": limit - 12.1})
         if request.command == _COMMAND_SELF_ALIGNMENT:
             self._start_set_event(
                 target=_TARGET_FSV40,
