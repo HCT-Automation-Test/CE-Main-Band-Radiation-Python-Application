@@ -162,6 +162,17 @@ def _install_fake_com_modules(
     monkeypatch: pytest.MonkeyPatch,
 ) -> tuple[types.ModuleType, types.ModuleType]:
     pythoncom = types.ModuleType("pythoncom")
+    com_calls: list[str] = []
+
+    def co_initialize() -> None:
+        com_calls.append("initialize")
+
+    def co_uninitialize() -> None:
+        com_calls.append("uninitialize")
+
+    pythoncom.CoInitialize = co_initialize  # type: ignore[attr-defined]
+    pythoncom.CoUninitialize = co_uninitialize  # type: ignore[attr-defined]
+    pythoncom.calls = com_calls  # type: ignore[attr-defined]
     win32com = types.ModuleType("win32com")
     win32_client = types.ModuleType("win32com.client")
     win32com.client = win32_client  # type: ignore[attr-defined]
@@ -504,6 +515,10 @@ def test_save_open_workbook_with_excel_writes_cells_to_found_workbook(
 
     writer._save_open_workbook_with_excel()
 
+    assert pythoncom.calls == [  # type: ignore[attr-defined]
+        "initialize",
+        "uninitialize",
+    ]
     assert workbook.Worksheets("Sub6 n78").Range("D62").Value == -45.5
     assert workbook.saved
     assert writer._pending_cells == []
@@ -515,7 +530,7 @@ def test_save_open_workbook_with_excel_raises_when_no_workbook_is_found(
 ) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)
-    _install_fake_com_modules(monkeypatch)
+    pythoncom, _ = _install_fake_com_modules(monkeypatch)
     monkeypatch.setattr(
         excel_writer,
         "_find_open_excel_workbook",
@@ -525,6 +540,11 @@ def test_save_open_workbook_with_excel_raises_when_no_workbook_is_found(
 
     with pytest.raises(PermissionError, match="no open Excel workbook"):
         writer._save_open_workbook_with_excel()
+
+    assert pythoncom.calls == [  # type: ignore[attr-defined]
+        "initialize",
+        "uninitialize",
+    ]
 
 
 def test_find_open_workbook_prefers_running_object_table(tmp_path: Path) -> None:
