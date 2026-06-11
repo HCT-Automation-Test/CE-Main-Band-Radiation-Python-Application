@@ -246,18 +246,18 @@ def test_write_fails_when_screenshot_source_is_missing(tmp_path: Path) -> None:
 def test_excel_failure_does_not_store_screenshot(tmp_path: Path) -> None:
     report_path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     screenshot_root = tmp_path / "screenshots"
-    source = tmp_path / "temp" / "inband.png"
+    source = tmp_path / "temp" / "fundamental.png"
     source.parent.mkdir()
-    source.write_bytes(b"inband")
+    source.write_bytes(b"fundamental")
     writer = _make_writer(
         report_path=report_path,
         screenshot_root=screenshot_root,
     )
 
-    with pytest.raises(ValueError, match="inband_peak_level_dbm"):
-        writer.write_inband(
-            _make_case(test_type=MeasurementTestType.INBAND),
-            InbandResult(screenshot_path=source),
+    with pytest.raises(ValueError, match="fundamental_frequency_mhz"):
+        writer.write_fundamental(
+            _make_case(test_type=MeasurementTestType.HARMONIC),
+            FundamentalResult(screenshot_path=source),
         )
 
     assert not screenshot_root.exists()

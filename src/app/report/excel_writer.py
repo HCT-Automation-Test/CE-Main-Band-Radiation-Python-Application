@@ -121,10 +121,7 @@ class ExcelReportWriter:
     ) -> bool:
         """In-band peak level 결과를 작성한다."""
 
-        level_dbm = _require_value(
-            result.inband_peak_level_dbm,
-            "inband_peak_level_dbm",
-        )
+        level_dbm = _harmonic_level_value(result.inband_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
@@ -143,10 +140,7 @@ class ExcelReportWriter:
     ) -> bool:
         """Bilog peak level 결과를 작성한다."""
 
-        level_dbm = _require_value(
-            result.bilog_peak_level_dbm,
-            "bilog_peak_level_dbm",
-        )
+        level_dbm = _harmonic_level_value(result.bilog_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
         self._write_band_info_once(worksheet, layout.band_info_cells, test_case)

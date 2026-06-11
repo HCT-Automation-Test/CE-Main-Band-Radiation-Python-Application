@@ -422,15 +422,31 @@ def test_write_fails_for_invalid_cell_coordinate(
         )
 
 
-def test_write_inband_fails_when_required_result_value_is_missing(tmp_path: Path) -> None:
+def test_write_inband_and_bilog_write_dash_for_missing_peak(
+    tmp_path: Path,
+) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)
 
-    with pytest.raises(ValueError, match="inband_peak_level_dbm"):
-        writer.write_inband(
-            _make_case(test_type=MeasurementTestType.INBAND),
-            InbandResult(inband_peak_level_dbm=None),
-        )
+    inband_case = _make_case(
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+    )
+    bilog_case = _make_case(
+        test_type=MeasurementTestType.BILOG,
+        antenna_pol=AntennaPol.V,
+        dut_axis=DUTAxis.X,
+    )
+
+    assert writer.write_inband(
+        inband_case,
+        InbandResult(inband_peak_level_dbm=None),
+    )
+    assert writer.write_bilog(bilog_case, BilogResult(bilog_peak_level_dbm=None))
+
+    assert _cell(path, "Sub6 n78", "D62") == "-"
+    assert _cell(path, "Sub6 n78", "B56") == "-"
 
 
 def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(

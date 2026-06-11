@@ -496,6 +496,33 @@ def test_measure_inband_rejects_non_numeric_amplitude() -> None:
         commands.measure_inband(client, limit=-30.0)
 
 
+def test_measure_bilog_uses_mark_inband_and_returns_amplitude() -> None:
+    client = _Client(_ok(Amplitude=-47.2))
+
+    assert commands.measure_bilog(client, limit=-46.0) == -47.2
+    assert client.calls == [("FSV40", "Mark Inband", {"Limit": -46.0})]
+
+
+def test_measure_bilog_rejects_missing_amplitude() -> None:
+    client = _Client(_ok())
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_bilog(client, limit=-46.0)
+
+
+def test_measure_bilog_rejects_non_numeric_amplitude() -> None:
+    client = _Client(_ok(Amplitude="-47.2"))
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_bilog(client, limit=-46.0)
+
+
 def test_set_switch_box_sends_input_then_filter() -> None:
     client = _Client(_default_ok(), _default_ok())
 

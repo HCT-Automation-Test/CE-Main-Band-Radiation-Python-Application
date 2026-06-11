@@ -53,19 +53,33 @@ class _Commands:
         *,
         fundamental_frequency_mhz: float = 3549.99,
         harmonic_levels: object = (-41.0, -39.5, -40.0, -37.0),
+        inband_amplitude: float = -39.5,
+        bilog_amplitude: float = -45.5,
         fundamental_exception: Exception | None = None,
         harmonics_exception: Exception | None = None,
+        inband_exception: Exception | None = None,
+        bilog_exception: Exception | None = None,
         fundamental_screenshot_path: Path | None = None,
         harmonic_screenshot_path: Path | None = None,
+        inband_screenshot_path: Path | None = None,
+        bilog_screenshot_path: Path | None = None,
     ) -> None:
         self.fundamental_frequency_mhz = fundamental_frequency_mhz
         self.harmonic_levels = harmonic_levels
+        self.inband_amplitude = inband_amplitude
+        self.bilog_amplitude = bilog_amplitude
         self.fundamental_exception = fundamental_exception
         self.harmonics_exception = harmonics_exception
+        self.inband_exception = inband_exception
+        self.bilog_exception = bilog_exception
         self.fundamental_screenshot_path = fundamental_screenshot_path
         self.harmonic_screenshot_path = harmonic_screenshot_path
+        self.inband_screenshot_path = inband_screenshot_path
+        self.bilog_screenshot_path = bilog_screenshot_path
         self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_inband_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_bilog_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def measure_fundamental(self, client: Any, *, target_freq: float) -> float:
         self.measure_fundamental_calls.append(
@@ -86,6 +100,22 @@ class _Commands:
         if self.harmonic_screenshot_path is not None:
             self.harmonic_screenshot_path.write_bytes(b"fresh harmonic")
         return self.harmonic_levels
+
+    def measure_inband(self, client: Any, *, limit: float) -> float:
+        self.measure_inband_calls.append((client, {"limit": limit}))
+        if self.inband_exception is not None:
+            raise self.inband_exception
+        if self.inband_screenshot_path is not None:
+            self.inband_screenshot_path.write_bytes(b"fresh inband")
+        return self.inband_amplitude
+
+    def measure_bilog(self, client: Any, *, limit: float) -> float:
+        self.measure_bilog_calls.append((client, {"limit": limit}))
+        if self.bilog_exception is not None:
+            raise self.bilog_exception
+        if self.bilog_screenshot_path is not None:
+            self.bilog_screenshot_path.write_bytes(b"fresh bilog")
+        return self.bilog_amplitude
 
 
 class _ReportWriter:
@@ -359,6 +389,55 @@ def test_measure_harmonics_skips_when_fsv40_is_not_connected(
     assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == []
     assert events.error.messages
+
+
+@pytest.mark.parametrize(
+    ("state", "test_type", "command_attr", "expected_message"),
+    [
+        (
+            MeasureInBandState(),
+            MeasurementTestType.INBAND,
+            "measure_inband_calls",
+            "In-Band 측정 스킵: FSV40이 연결되어 있지 않습니다.",
+        ),
+        (
+            MeasureBilogState(),
+            MeasurementTestType.BILOG,
+            "measure_bilog_calls",
+            "Bilog 측정 스킵: FSV40이 연결되어 있지 않습니다.",
+        ),
+    ],
+)
+def test_non_harmonic_measurement_states_skip_when_fsv40_is_not_connected(
+    tmp_path: Path,
+    state: Any,
+    test_type: MeasurementTestType,
+    command_attr: str,
+    expected_message: str,
+) -> None:
+    commands = _Commands(
+        inband_screenshot_path=tmp_path / "inband.png",
+        bilog_screenshot_path=tmp_path / "inband.png",
+    )
+    report_writer = _ReportWriter()
+    events = _Events()
+    ctx = _make_ctx(
+        test_type,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    ctx.equipment_state = {"FSV40": False}
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
+    assert getattr(commands, command_attr) == []
+    assert report_writer.calls == []
+    assert not (tmp_path / "inband.png").exists()
+    assert events.error.messages == [expected_message]
 
 
 def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
@@ -713,13 +792,15 @@ def test_measurement_state_returns_fail_when_report_writer_returns_false(
 ) -> None:
     report_writer = _ReportWriter(return_value=False)
     events = _Events()
-    (tmp_path / "inband.png").write_bytes(b"png")
+    commands = _Commands(inband_screenshot_path=tmp_path / "inband.png")
     ctx = _make_ctx(
         MeasurementTestType.INBAND,
+        commands=commands,
         report_writer=report_writer,
         events=events,
         temp_dir=tmp_path,
     )
+    ctx.equipment_state = {"FSV40": True}
     state = MeasureInBandState()
 
     result = state.run(ctx)
@@ -737,13 +818,15 @@ def test_measurement_state_returns_fail_when_report_writer_raises(
 ) -> None:
     report_writer = _ReportWriter(exception=RuntimeError("disk full"))
     events = _Events()
-    (tmp_path / "bilog.png").write_bytes(b"png")
+    commands = _Commands(bilog_screenshot_path=tmp_path / "inband.png")
     ctx = _make_ctx(
         MeasurementTestType.BILOG,
+        commands=commands,
         report_writer=report_writer,
         events=events,
         temp_dir=tmp_path,
     )
+    ctx.equipment_state = {"FSV40": True}
     state = MeasureBilogState()
 
     result = state.run(ctx)
@@ -755,15 +838,34 @@ def test_measurement_state_returns_fail_when_report_writer_raises(
 
 
 @pytest.mark.parametrize(
-    ("state", "test_type", "expected_name", "expected_result_type"),
+    (
+        "state",
+        "test_type",
+        "expected_name",
+        "expected_result_type",
+        "command_attr",
+        "peak_attr",
+        "expected_limit",
+    ),
     [
         (
             MeasureInBandState(),
             MeasurementTestType.INBAND,
             "inband",
             InbandResult,
+            "measure_inband_calls",
+            "inband_peak_level_dbm",
+            -40.0,
         ),
-        (MeasureBilogState(), MeasurementTestType.BILOG, "bilog", BilogResult),
+        (
+            MeasureBilogState(),
+            MeasurementTestType.BILOG,
+            "bilog",
+            BilogResult,
+            "measure_bilog_calls",
+            "bilog_peak_level_dbm",
+            -46.0,
+        ),
     ],
 )
 def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
@@ -772,23 +874,92 @@ def test_non_harmonic_measurement_states_call_individual_report_writer_methods(
     test_type: MeasurementTestType,
     expected_name: str,
     expected_result_type: type,
+    command_attr: str,
+    peak_attr: str,
+    expected_limit: float,
 ) -> None:
     report_writer = _ReportWriter()
-    screenshot_name = (
-        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    commands = _Commands(
+        inband_screenshot_path=tmp_path / "inband.png",
+        bilog_screenshot_path=tmp_path / "inband.png",
     )
-    (tmp_path / screenshot_name).write_bytes(b"png")
-    ctx = _make_ctx(test_type, report_writer=report_writer, temp_dir=tmp_path)
+    ctx = _make_ctx(
+        test_type,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+    ctx.equipment_state = {"FSV40": True}
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert getattr(commands, command_attr) == [(None, {"limit": expected_limit})]
     assert report_writer.calls[0][0] == expected_name
     assert report_writer.calls[0][1] == ctx.current_case
     measured = report_writer.calls[0][2]
     assert isinstance(measured, expected_result_type)
-    assert measured.screenshot_path is not None
-    assert measured.screenshot_path.is_file()
+    assert measured.screenshot_path == tmp_path / "inband.png"
+    assert measured.screenshot_path.read_bytes() in {
+        b"fresh inband",
+        b"fresh bilog",
+    }
+    assert getattr(measured, peak_attr) is not None
+
+
+@pytest.mark.parametrize(
+    (
+        "state",
+        "test_type",
+        "command_kwargs",
+        "expected_result_type",
+        "peak_attr",
+    ),
+    [
+        (
+            MeasureInBandState(),
+            MeasurementTestType.INBAND,
+            {"inband_amplitude": -40.0},
+            InbandResult,
+            "inband_peak_level_dbm",
+        ),
+        (
+            MeasureBilogState(),
+            MeasurementTestType.BILOG,
+            {"bilog_amplitude": -47.0},
+            BilogResult,
+            "bilog_peak_level_dbm",
+        ),
+    ],
+)
+def test_non_harmonic_measurement_states_write_dash_value_below_threshold(
+    tmp_path: Path,
+    state: Any,
+    test_type: MeasurementTestType,
+    command_kwargs: dict[str, float],
+    expected_result_type: type,
+    peak_attr: str,
+) -> None:
+    commands = _Commands(
+        **command_kwargs,
+        inband_screenshot_path=tmp_path / "inband.png",
+        bilog_screenshot_path=tmp_path / "inband.png",
+    )
+    report_writer = _ReportWriter()
+    ctx = _make_ctx(
+        test_type,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+    ctx.equipment_state = {"FSV40": True}
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, expected_result_type)
+    assert getattr(measured, peak_attr) is None
 
 
 def test_measure_fundamental_returns_fail_without_report_writer(
@@ -841,11 +1012,12 @@ def test_non_harmonic_measurement_states_return_fail_without_report_writer(
     state: Any,
     test_type: MeasurementTestType,
 ) -> None:
-    screenshot_name = (
-        "inband.png" if test_type is MeasurementTestType.INBAND else "bilog.png"
+    commands = _Commands(
+        inband_screenshot_path=tmp_path / "inband.png",
+        bilog_screenshot_path=tmp_path / "inband.png",
     )
-    (tmp_path / screenshot_name).write_bytes(b"png")
-    ctx = _make_ctx(test_type, temp_dir=tmp_path)
+    ctx = _make_ctx(test_type, commands=commands, temp_dir=tmp_path)
+    ctx.equipment_state = {"FSV40": True}
 
     result = state.run(ctx)
 
