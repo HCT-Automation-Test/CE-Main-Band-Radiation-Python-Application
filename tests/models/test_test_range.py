@@ -25,11 +25,11 @@ def test_get_test_range_uses_fixed_spec_values() -> None:
 
     assert range_2.start_freq == 1000.0
     assert range_2.stop_freq == 3000.0
-    assert range_2.input_path is InputPath.INPUT1
+    assert range_2.input_path is InputPath.INPUT2
     assert range_2.filter_mode is FilterMode.BRF
     assert range_4.start_freq == 3000.0
     assert range_4.stop_freq == 12750.0
-    assert range_4.input_path is InputPath.INPUT1
+    assert range_4.input_path is InputPath.INPUT2
     assert range_4.filter_mode is FilterMode.HPF_3G
     assert range_5.start_freq == 1000.0
     assert range_5.stop_freq == 6000.0
@@ -46,7 +46,7 @@ def test_get_test_range_covers_low_band_settings() -> None:
     assert range_1.vbw == 0.3
     assert range_1.limit == -36.0
     assert range_1.sweep_point == 10001
-    assert range_1.input_path is InputPath.INPUT2
+    assert range_1.input_path is InputPath.INPUT1
     assert range_1.filter_mode is FilterMode.BRF
     assert resolve_filter_path(range_1.filter_mode, "n78") is FilterPath.PORT_14
 
@@ -55,7 +55,7 @@ def test_get_test_range_keeps_group_specific_paths() -> None:
     range_3 = get_test_range(RangeId.RANGE_3)
     range_6 = get_test_range(RangeId.RANGE_6)
 
-    assert range_3.input_path is InputPath.INPUT1
+    assert range_3.input_path is InputPath.INPUT2
     assert range_3.filter_mode is FilterMode.HPF_1G
     assert range_6.input_path is InputPath.INPUT3
     assert range_6.filter_mode is FilterMode.HPF_6G

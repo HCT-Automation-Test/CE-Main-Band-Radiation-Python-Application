@@ -363,7 +363,7 @@ def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
 
     result = state.run(ctx)
 
-    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert prev_case.range_definition.input_path is InputPath.INPUT1
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
@@ -383,7 +383,7 @@ def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
     result = state.run(ctx)
 
     assert prev_case.range_definition.input_path is InputPath.INPUT3
-    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT1
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
 
@@ -401,7 +401,7 @@ def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None
 
     result = state.run(ctx)
 
-    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert prev_case.range_definition.input_path is InputPath.INPUT1
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "Handover"
@@ -421,7 +421,7 @@ def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
 
     result = state.run(ctx)
 
-    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert prev_case.range_definition.input_path is InputPath.INPUT1
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "RecallChange"
@@ -441,8 +441,8 @@ def test_check_next_case_does_not_treat_co3000_mast_change_as_ant_pol_change() -
 
     result = state.run(ctx)
 
-    assert prev_case.range_definition.input_path is InputPath.INPUT1
-    assert next_case.range_definition.input_path is InputPath.INPUT2
+    assert prev_case.range_definition.input_path is InputPath.INPUT2
+    assert next_case.range_definition.input_path is InputPath.INPUT1
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "TestTypeChange"
 

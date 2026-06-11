@@ -177,8 +177,8 @@ _RANGE_SETTING_COLUMN_WIDTHS: tuple[int, ...] = (
     92,
 )
 _MAST_LABELS: dict[InputPath, str] = {
-    InputPath.INPUT1: "Mast1",
-    InputPath.INPUT2: "Mast2",
+    InputPath.INPUT1: "Mast2",
+    InputPath.INPUT2: "Mast1",
     InputPath.INPUT3: "Mast3",
 }
 _CONTROLLER_LABELS: dict[InputPath, str] = {
