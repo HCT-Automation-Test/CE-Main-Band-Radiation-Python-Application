@@ -7,6 +7,8 @@ VISA 제어는 외부 LabVIEW 프로그램 책임이다.
 
 > Note: 일부 장비 미연결 시 FSM state를 스킵하는 동작은 In-band/Bilog 및 최종 통합 전 검증을 위한 임시 개발 정책이다. 실제 배포에서는 필수 장비 전체 연결 없이는 시험을 진행하지 않는다.
 
+> Note: Bilog measurement currently shares the In-band LV measurement protocol by confirmed chamber test behavior. It uses `FSV40 / Mark Inband`; Bilog-specific behavior is represented by source signal and Range/analyzer-band settings.
+
 ## Build / Run / Test
 
 ```bash
