@@ -331,6 +331,13 @@ def test_tdf_all_off_sends_default_params() -> None:
     assert client.calls == [("FSV40", "TDF All Off", {})]
 
 
+def test_preset_sa_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.preset_sa(client) is True
+    assert client.calls == [("FSV40", "Preset", {})]
+
+
 def test_set_tdf_sends_file_name_param() -> None:
     client = _Client(_default_ok())
 
@@ -343,6 +350,7 @@ def test_set_tdf_sends_file_name_param() -> None:
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
+        (commands.preset_sa, "FSV40", "Preset"),
         (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
@@ -381,42 +389,6 @@ def test_setup_sa_sends_range_setting_params() -> None:
                     "VBW": 3.0,
                     "Sweep Point": 30001,
                     "Limit": -30.0,
-                },
-            },
-        )
-    ]
-
-
-def test_setup_sa_full_sends_unified_setting_params() -> None:
-    client = _Client(_default_ok())
-
-    assert commands.setup_sa_full(
-        client,
-        test_range=RANGE_6,
-        atten_level_db=1.5,
-        next_peak_search_level_db=-20,
-        tdf_file_name="NR_Radiated.tdf",
-    ) is True
-
-    assert client.calls == [
-        (
-            "FSV40",
-            "Load SA Setting",
-            {
-                "SA Setting Param": {
-                    "SA Range Param": {
-                        "Start Frequency": 6000.0,
-                        "Stop Frequency": 18000.0,
-                        "RBW": 1.0,
-                        "VBW": 3.0,
-                        "Sweep Point": 30001,
-                        "Limit": -30.0,
-                    },
-                    "SA Level Param": {
-                        "Atten Level": 1.5,
-                        "Next Peak Search Level": -20.0,
-                    },
-                    "TDF File Name": "NR_Radiated.tdf",
                 },
             },
         )

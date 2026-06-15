@@ -112,6 +112,10 @@ class _Commands:
         self.calls.append(("setup_sa_startup_levels", params))
         return True
 
+    def preset_sa(self, client: Any) -> bool:
+        self.calls.append(("preset_sa", {}))
+        return True
+
     def setup_mt8000(self, client: Any, **params: Any) -> bool:
         self.calls.append(("setup_mt8000", params))
         if len(self.setup_mt8000_results) > 1:
@@ -149,8 +153,12 @@ class _Commands:
         )
         return True
 
-    def setup_sa_full(self, client: Any, **params: Any) -> bool:
-        self.calls.append(("setup_sa_full", params))
+    def set_tdf(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("set_tdf", params))
+        return True
+
+    def setup_sa(self, client: Any, *, test_range: Any) -> bool:
+        self.calls.append(("setup_sa", {"test_range": test_range}))
         return True
 
     def rotate_turntable(self, client: _FakeClient, **params: Any) -> None:

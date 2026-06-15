@@ -11,6 +11,9 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
+from app.core.fsm.states.measurement.common import (
+    _apply_spectrum_analyzer_preset_settings,
+)
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import FundamentalResult, HarmonicResult
 from app.models.nr_channel_lookup import resolve_target_frequency_mhz
@@ -133,6 +136,13 @@ class MeasureFundamentalState(State):
             return StateResult.FAIL
 
         screenshot_path = _fundamental_screenshot_path(ctx.temp_dir)
+        prepared = _apply_spectrum_analyzer_preset_settings(
+            ctx,
+            failure_context="Fundamental 측정 실패",
+        )
+        if prepared is not StateResult.OK:
+            return prepared
+
         try:
             _remove_stale_screenshot(screenshot_path)
             fundamental_frequency_mhz = float(
