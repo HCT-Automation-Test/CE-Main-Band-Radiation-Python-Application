@@ -659,6 +659,50 @@ def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_server_handles_load_sa_setting(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.setup_sa_full(
+            client,
+            test_range=RANGE_6,
+            atten_level_db=1.5,
+            next_peak_search_level_db=-20,
+            tdf_file_name="NR_Radiated.tdf",
+        )
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "FSV40",
+            "Load SA Setting",
+            {
+                "SA Setting Param": {
+                    "SA Range Param": {
+                        "Start Frequency": 6000.0,
+                        "Stop Frequency": 18000.0,
+                        "RBW": 1.0,
+                        "VBW": 3.0,
+                        "Sweep Point": 30001,
+                        "Limit": -30.0,
+                    },
+                    "SA Level Param": {
+                        "Atten Level": 1.5,
+                        "Next Peak Search Level": -20.0,
+                    },
+                    "TDF File Name": "NR_Radiated.tdf",
+                },
+            },
+        )
+        assert server.state.last_sa_setting_params == request.params
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_rejects_unsupported_command(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()

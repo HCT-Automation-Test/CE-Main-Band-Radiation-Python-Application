@@ -20,6 +20,7 @@ _TARGET_SWITCH_BOX = "Switch Box"
 _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
+_COMMAND_LOAD_SA_SETTING = "Load SA Setting"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
@@ -357,6 +358,43 @@ def setup_sa(client: Any, test_range: TestRange) -> bool:
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_RANGE_SETTING)
+
+
+def setup_sa_full(
+    client: Any,
+    *,
+    test_range: TestRange,
+    atten_level_db: float,
+    next_peak_search_level_db: float,
+    tdf_file_name: str,
+) -> bool:
+    """FSV40 전체 SA 설정을 로드한다.
+
+    LV는 이 command 내부에서 preset/reset 이후 Range, Level, TDF를 재설정한다.
+    """
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_LOAD_SA_SETTING,
+        {
+            "SA Setting Param": {
+                "SA Range Param": {
+                    "Start Frequency": float(test_range.start_freq),
+                    "Stop Frequency": float(test_range.stop_freq),
+                    "RBW": float(test_range.rbw),
+                    "VBW": float(test_range.vbw),
+                    "Sweep Point": int(test_range.sweep_point),
+                    "Limit": float(test_range.limit),
+                },
+                "SA Level Param": {
+                    "Atten Level": float(atten_level_db),
+                    "Next Peak Search Level": float(next_peak_search_level_db),
+                },
+                "TDF File Name": str(tdf_file_name),
+            },
+        },
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_SETTING)
 
 
 def setup_sa_startup_levels(

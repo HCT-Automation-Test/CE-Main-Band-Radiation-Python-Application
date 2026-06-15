@@ -126,6 +126,10 @@ class _Commands:
         self.calls.append(("check_call_status", {}))
         return True
 
+    def get_turntable_angle(self, client: Any) -> float:
+        self.calls.append(("get_turntable_angle", {}))
+        return 0.0
+
     def set_antenna_pol(self, client: Any, **params: Any) -> bool:
         self.calls.append(("set_antenna_pol", params))
         return True
@@ -145,8 +149,8 @@ class _Commands:
         )
         return True
 
-    def setup_sa(self, client: Any, *, test_range: Any) -> bool:
-        self.calls.append(("setup_sa", {"test_range": test_range}))
+    def setup_sa_full(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("setup_sa_full", params))
         return True
 
     def rotate_turntable(self, client: _FakeClient, **params: Any) -> None:
@@ -257,6 +261,7 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
         connection_waiting_time_sec=1,
         atten_level_db=0,
         next_peak_search_level_db=0,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 

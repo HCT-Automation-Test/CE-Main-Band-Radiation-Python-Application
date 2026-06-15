@@ -63,7 +63,7 @@ class _Commands:
         self.startup_level_configured = startup_level_configured
         self.startup_level_exception = startup_level_exception
         self.switch_box_calls: list[tuple[Any, dict[str, Any]]] = []
-        self.setup_sa_calls: list[tuple[Any, TestRange]] = []
+        self.setup_sa_calls: list[tuple[Any, dict[str, Any]]] = []
         self.startup_level_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def set_switch_box(self, client: Any, **params: Any) -> bool:
@@ -72,8 +72,8 @@ class _Commands:
             raise self.switch_box_exception
         return self.switch_box_configured
 
-    def setup_sa(self, client: Any, *, test_range: TestRange) -> bool:
-        self.setup_sa_calls.append((client, test_range))
+    def setup_sa_full(self, client: Any, **params: Any) -> bool:
+        self.setup_sa_calls.append((client, params))
         if self.sa_exception is not None:
             raise self.sa_exception
         return self.sa_configured
@@ -118,6 +118,7 @@ def _make_settings(
         connection_waiting_time_sec=5,
         atten_level_db=atten_level_db,
         next_peak_search_level_db=next_peak_search_level_db,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -445,23 +446,39 @@ def test_set_switch_box_does_not_emit_info_on_exception() -> None:
     ]
 
 
-def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
+def test_setup_spectrum_analyzer_uses_current_case_settings(tmp_path: Path) -> None:
     commands = _Commands()
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
     events = _Events()
+    settings = _make_settings(
+        tmp_path,
+        atten_level_db=2.5,
+        next_peak_search_level_db=-18.5,
+    )
     ctx = _connect_equipment(SessionContext(
         queue=[case],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
+        settings=settings,
     ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
     assert result is StateResult.OK
-    assert commands.setup_sa_calls == [(client, case.range_definition)]
-    test_range = commands.setup_sa_calls[0][1]
+    assert commands.setup_sa_calls == [
+        (
+            client,
+            {
+                "test_range": case.range_definition,
+                "atten_level_db": 2.5,
+                "next_peak_search_level_db": -18.5,
+                "tdf_file_name": "NR_Radiated.tdf",
+            },
+        )
+    ]
+    test_range = commands.setup_sa_calls[0][1]["test_range"]
     assert test_range.start_freq == 6000.0
     assert test_range.stop_freq == 18000.0
     assert test_range.rbw == 1.0
@@ -522,7 +539,17 @@ def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert commands.setup_sa_calls == [(client, case.range_definition)]
+    assert commands.setup_sa_calls == [
+        (
+            client,
+            {
+                "test_range": case.range_definition,
+                "atten_level_db": 1.5,
+                "next_peak_search_level_db": -20.0,
+                "tdf_file_name": "NR_Radiated.tdf",
+            },
+        )
+    ]
 
 
 def test_setup_spectrum_analyzer_returns_fail_when_current_case_stop_requested(
@@ -546,16 +573,29 @@ def test_setup_spectrum_analyzer_returns_fail_when_current_case_stop_requested(
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
-    assert commands.setup_sa_calls == [(client, case.range_definition)]
+    assert commands.setup_sa_calls == [
+        (
+            client,
+            {
+                "test_range": case.range_definition,
+                "atten_level_db": 1.5,
+                "next_peak_search_level_db": -20.0,
+                "tdf_file_name": "NR_Radiated.tdf",
+            },
+        )
+    ]
 
 
-def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
+def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 
@@ -564,17 +604,20 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
     assert events.error.messages == [
-        "Spectrum Analyzer 설정 실패: setup_sa returned false"
+        "Spectrum Analyzer 설정 실패: setup_sa_full returned false"
     ]
 
 
-def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
+def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
@@ -583,13 +626,16 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
-def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
+def test_setup_spectrum_analyzer_does_not_emit_info_on_exception(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_exception=RuntimeError("instrument timeout"))
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 

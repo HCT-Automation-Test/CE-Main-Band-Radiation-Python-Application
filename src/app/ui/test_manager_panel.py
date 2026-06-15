@@ -270,6 +270,12 @@ class TestManagerPanel(QWidget):
         return self._optional_float_field("nextPeakSearchLevelEdit")
 
     @property
+    def active_tdf_file_name(self) -> str | None:
+        """마지막으로 활성화에 성공한 TDF 파일명을 반환한다."""
+
+        return self._active_tdf_file_name
+
+    @property
     def selected_tdf_file_name(self) -> str | None:
         """TDF List Box에서 선택된 파일명을 반환한다."""
 
@@ -608,6 +614,7 @@ class TestManagerPanel(QWidget):
                     "nextPeakSearchLevelEdit",
                     "Next Peak Search Level",
                 ),
+                active_tdf_file_name=self._required_active_tdf_file_name(),
             )
         except ValueError as exc:
             self._show_warning(str(exc))
@@ -1418,6 +1425,12 @@ class TestManagerPanel(QWidget):
         if not value.is_dir():
             raise ValueError(f"{label} 폴더가 존재하지 않습니다.")
         return value
+
+    def _required_active_tdf_file_name(self) -> str:
+        file_name = self.active_tdf_file_name
+        if not file_name:
+            raise ValueError("활성화된 TDF 파일이 없습니다.")
+        return file_name
 
     def _float_field(self, object_name: str, label: str) -> float:
         text = self._field_text(object_name)

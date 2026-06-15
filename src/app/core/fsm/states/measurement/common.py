@@ -211,9 +211,19 @@ class SetupSpectrumAnalyzerState(State):
             _emit_error(ctx, "Spectrum Analyzer 설정 스킵: FSV40이 연결되어 있지 않습니다.")
             return StateResult.OK
 
+        if ctx.settings is None:
+            _emit_error(ctx, "Spectrum Analyzer 설정 실패: settings is required")
+            return StateResult.FAIL
+
         test_range = ctx.current_case.range_definition
         try:
-            configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
+            configured = ctx.commands.setup_sa_full(
+                ctx.client,
+                test_range=test_range,
+                atten_level_db=ctx.settings.atten_level_db,
+                next_peak_search_level_db=ctx.settings.next_peak_search_level_db,
+                tdf_file_name=ctx.settings.active_tdf_file_name,
+            )
         except Exception as exc:
             _emit_error(ctx, f"Spectrum Analyzer 설정 실패: {exc}")
             return StateResult.FAIL
@@ -235,7 +245,7 @@ class SetupSpectrumAnalyzerState(State):
                 return StateResult.FAIL
             return StateResult.OK
 
-        _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa returned false")
+        _emit_error(ctx, "Spectrum Analyzer 설정 실패: setup_sa_full returned false")
         return StateResult.FAIL
 
     def next_state(

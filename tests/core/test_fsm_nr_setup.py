@@ -80,6 +80,7 @@ def _make_settings(tmp_path: Path, *, connection_waiting_time_sec: int) -> TestR
         connection_waiting_time_sec=connection_waiting_time_sec,
         atten_level_db=0,
         next_peak_search_level_db=0,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
