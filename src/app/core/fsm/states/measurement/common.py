@@ -228,6 +228,7 @@ class SetupSpectrumAnalyzerState(State):
                     "rbw": test_range.rbw,
                     "vbw": test_range.vbw,
                     "sweep_point": test_range.sweep_point,
+                    "limit": test_range.limit,
                 },
             )
             if not _wait_for_saturation_time(ctx):

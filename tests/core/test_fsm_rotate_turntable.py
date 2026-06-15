@@ -362,12 +362,12 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
     assert result is StateResult.OK
     assert ctx.current_angle == 360.0
     assert commands.rotate_calls == [
-        (client, {"angle": 360.0, "turntable_speed": 6}),
+        (client, {"angle": 360.0, "turntable_speed": 5}),
     ]
     assert commands.stop_calls == []
     assert events.progress.values == [0, 100]
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 360.0},
     ]
     assert state.next_state(ctx, result) == "MeasureHarmonics"
@@ -477,7 +477,7 @@ def test_rotate_discards_live_progress_duplicate_from_buffer(tmp_path: Path) -> 
 
     assert result is StateResult.OK
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 90.0},
         {"current_angle": 360.0},
     ]
@@ -510,7 +510,7 @@ def test_rotate_discards_buffered_progress_duplicate_from_late_signal(
 
     assert result is StateResult.OK
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 90.0},
         {"current_angle": 360.0},
     ]
@@ -536,7 +536,7 @@ def test_rotate_consumes_buffered_progress_event_for_display_only() -> None:
     assert result is StateResult.OK
     assert ctx.current_angle == 360.0
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 90.0},
         {"current_angle": 360.0},
     ]
@@ -570,7 +570,7 @@ def test_rotate_uses_last_valid_buffered_progress_angle() -> None:
     assert result is StateResult.OK
     assert ctx.current_angle == 360.0
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 180.0},
         {"current_angle": 360.0},
     ]
@@ -592,7 +592,7 @@ def test_rotate_360_to_zero_toggle() -> None:
     assert result is StateResult.OK
     assert ctx.current_angle == 0.0
     assert commands.rotate_calls == [
-        (client, {"angle": 0.0, "turntable_speed": 4}),
+        (client, {"angle": 0.0, "turntable_speed": 3}),
     ]
 
 
@@ -674,7 +674,7 @@ def test_band_group_speed_for_n78() -> None:
     _drive_state(state, ctx)
     thread.join(timeout=1.0)
 
-    assert commands.rotate_calls[0][1]["turntable_speed"] == 4
+    assert commands.rotate_calls[0][1]["turntable_speed"] == 3
 
 
 def test_ui_stop_triggers_stop_turntable_and_fail() -> None:
@@ -825,7 +825,7 @@ def test_progress_events_emit_current_angle_without_updating_context() -> None:
     assert angles_during_progress == [0.0, 0.0]
     assert ctx.current_angle == 360.0
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 90.0},
         {"current_angle": 270.0},
         {"current_angle": 360.0},
@@ -861,7 +861,7 @@ def test_rapid_progress_events_are_coalesced_for_display() -> None:
     assert result is StateResult.OK
     assert events.progress.values == [0, 100]
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 90.0},
         {"current_angle": 180.0},
         {"current_angle": 360.0},
@@ -907,7 +907,7 @@ def test_error_event_flushes_pending_progress_without_waiting(
     assert elapsed < 0.5
     assert events.error.values == ["턴테이블 회전 실패: stalled"]
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 45.0},
         {"current_angle": 90.0},
     ]
@@ -940,6 +940,6 @@ def test_progress_event_ignores_unapproved_angle_key() -> None:
 
     assert result is StateResult.OK
     assert events.turntable_info_changed.values == [
-        {"target_angle": 360.0, "setting_speed": 6},
+        {"target_angle": 360.0, "setting_speed": 5},
         {"current_angle": 360.0},
     ]

@@ -1,15 +1,67 @@
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
+
+from app.models.enums import TestType as MeasurementTestType
+
+from tests.core.test_fsm_harmonic import (
+    _call_names,
+    _make_case,
+    _make_ctx,
+    _run_session,
+    _writer_call_names,
+)
 
 
-@pytest.mark.skip(reason="spec TODO: In-Band 측정 명세 확정 후")
-def test_inband_measurement_chain() -> None:
-    """NRCallConnect → SetSwitchBox → ... → MeasureInBand → ResetSwitchBox → CheckNextCase 전이 확인."""
-    ...
+def test_inband_measurement_chain(tmp_path: Path) -> None:
+    case = _make_case(MeasurementTestType.INBAND)
+    ctx, events, commands, writer = _make_ctx(tmp_path, [case])
+
+    _run_session(ctx)
+
+    assert events.state_changed.values == [
+        "SessionInit",
+        "Idle",
+        "InitialTurntableZero",
+        "AntPolChange",
+        "SetupSpectrumAnalyzerStartupLevel",
+        "NRCallConnect",
+        "SetSwitchBox",
+        "SetupSpectrumAnalyzer",
+        "RotateTurntable",
+        "MeasureInBand",
+        "ResetSwitchBox",
+        "CheckNextCase",
+        "TestEnd",
+    ]
+    assert "measure_inband" in _call_names(commands)
+    assert _writer_call_names(writer) == ["write_inband"]
+    assert events.error.values == []
 
 
-@pytest.mark.skip(reason="spec TODO: In-Band 측정 명세 확정 후")
-def test_inband_test_type_change_from_harmonic() -> None:
-    """Harmonic TC 다음에 같은 Band/AntPol/Axis의 In-Band TC가 오면 TestTypeChange 경유 확인."""
-    ...
+def test_inband_test_type_change_from_harmonic(tmp_path: Path) -> None:
+    harmonic_case = _make_case(MeasurementTestType.HARMONIC)
+    inband_case = _make_case(MeasurementTestType.INBAND)
+    ctx, events, commands, writer = _make_ctx(
+        tmp_path,
+        [harmonic_case, inband_case],
+    )
+
+    _run_session(ctx)
+
+    first_check_next_case = events.state_changed.values.index("CheckNextCase")
+    assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 5] == [
+        "TestTypeChange",
+        "SetSwitchBox",
+        "SetupSpectrumAnalyzer",
+        "RotateTurntable",
+    ]
+    assert "measure_harmonics" in _call_names(commands)
+    assert "measure_inband" in _call_names(commands)
+    assert _writer_call_names(writer) == [
+        "read_fundamental_frequency",
+        "write_fundamental",
+        "write_harmonic",
+        "write_inband",
+    ]
+    assert events.error.values == []

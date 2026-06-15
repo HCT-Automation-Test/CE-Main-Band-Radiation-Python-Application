@@ -476,6 +476,7 @@ def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
             "rbw": 1.0,
             "vbw": 3.0,
             "sweep_point": 30001,
+            "limit": -30.0,
         }
     ]
 
