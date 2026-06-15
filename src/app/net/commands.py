@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -30,6 +31,7 @@ _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
 _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
+_COMMAND_GET_TURNTABLE_ANGLE = "Get TurnTable Angle"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
@@ -393,6 +395,28 @@ def rotate_turntable(client: Any, *, angle: float, turntable_speed: int) -> None
         },
     )
     _require_action_ok(response, _TARGET_CO3000, _COMMAND_MOVE_TURNTABLE)
+
+
+def get_turntable_angle(client: Any) -> float:
+    response = _send_request(
+        client,
+        _TARGET_CO3000,
+        _COMMAND_GET_TURNTABLE_ANGLE,
+        {},
+    )
+    result = _result_dict(response, _TARGET_CO3000, _COMMAND_GET_TURNTABLE_ANGLE)
+    current_angle = _number(
+        result,
+        "Current Angle",
+        _TARGET_CO3000,
+        _COMMAND_GET_TURNTABLE_ANGLE,
+    )
+    if not math.isfinite(current_angle) or not 0.0 <= current_angle <= 360.0:
+        raise CommandError(
+            f"{_TARGET_CO3000} / {_COMMAND_GET_TURNTABLE_ANGLE} "
+            "Result.Current Angle must be between 0 and 360"
+        )
+    return current_angle
 
 
 def stop_turntable(client: Any) -> None:

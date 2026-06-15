@@ -48,6 +48,7 @@ _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
 _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
+_COMMAND_GET_TURNTABLE_ANGLE = "Get TurnTable Angle"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
 _COMMAND_SET_REFERENCE = "Set Reference"
@@ -273,6 +274,8 @@ class MockLvServer:
         if request.command == _COMMAND_STOP_TURNTABLE:
             self.state.turntable_stop_requested.set()
             return _ok(request)
+        if request.command == _COMMAND_GET_TURNTABLE_ANGLE:
+            return _ok(request, {"Current Angle": self.state.current_angle})
         if request.command == _COMMAND_CHANGE_ANT_POL:
             self.state.antenna_pol = str(request.params.get("pol", ""))
             return _ok(request)

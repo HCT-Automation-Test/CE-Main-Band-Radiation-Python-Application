@@ -465,13 +465,22 @@ class InitialTurntableZeroState(RotateTurntableState):
     name = "InitialTurntableZero"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        self._target_angle = 0.0
         if not is_equipment_connected(ctx, "CO3000"):
             _emit_error(
                 ctx,
                 "Turntable 초기 0도 정렬 스킵: CO3000가 연결되어 있지 않습니다.",
             )
             return StateResult.OK
+
+        try:
+            current_angle = ctx.commands.get_turntable_angle(ctx.client)
+        except Exception as exc:
+            _emit_error(ctx, f"Turntable 현재 각도 조회 실패: {exc}")
+            return StateResult.FAIL
+
+        ctx.current_angle = current_angle
+        _emit_turntable_info(ctx, {"current_angle": current_angle})
+        self._target_angle = 0.0 if current_angle <= 180.0 else 360.0
 
         try:
             ctx.commands.rotate_turntable(
