@@ -36,7 +36,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         sa_recall="1G HPF",
         mt8000_recall="SA_FDD",
         scs_khz=15,
-        turntable_speed=6,
+        turntable_speed=5,
     ),
     BandGroupProfile(
         key="mhb_fdd",
@@ -45,7 +45,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         sa_recall="3G HPF",
         mt8000_recall="SA_FDD",
         scs_khz=15,
-        turntable_speed=6,
+        turntable_speed=5,
     ),
     BandGroupProfile(
         key="mhb_tdd",
@@ -54,7 +54,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         sa_recall="3G HPF",
         mt8000_recall="SA_TDD",
         scs_khz=30,
-        turntable_speed=4,
+        turntable_speed=3,
     ),
     BandGroupProfile(
         key="uhb_tdd",
@@ -63,7 +63,7 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         sa_recall="6G HPF",
         mt8000_recall="SA_TDD",
         scs_khz=30,
-        turntable_speed=4,
+        turntable_speed=3,
     ),
 )
 

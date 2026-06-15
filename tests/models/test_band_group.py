@@ -50,7 +50,7 @@ def test_find_band_group_returns_expected_profile() -> None:
     assert group.sa_recall == "6G HPF"
     assert group.mt8000_recall == "SA_TDD"
     assert group.scs_khz == 30
-    assert group.turntable_speed == 4
+    assert group.turntable_speed == 3
     assert group.test_ranges == (RangeId.RANGE_1, RangeId.RANGE_5, RangeId.RANGE_6)
 
 

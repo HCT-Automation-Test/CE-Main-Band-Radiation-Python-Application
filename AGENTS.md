@@ -21,6 +21,16 @@
 - 장비 연결, 설정, 측정, 상태 확인은 외부 프로그램과 **TCP 기반 JSON 프로토콜**로만 수행한다.
 - 예외적으로 UI 입력 편의를 위한 로컬 VISA Resource 주소 목록 조회는 허용한다.
 
+## Bilog / In-band Protocol Policy
+
+현장 챔버 1차 컨펌 기준으로 Bilog는 In-band와 시험 과정상 동일한 LV 측정 프로토콜을 사용한다.
+Bilog와 In-band의 차이는 방사원 신호와 스펙트럼 분석 대역/Range 설정 표시 차이에 한정된다.
+
+- Bilog 측정 command는 In-band와 동일하게 `FSV40 / Mark Inband`를 사용한다.
+- Python `measure_bilog()`가 `measure_inband()` 경로를 위임하는 것은 현재 명세상 의도된 동작이다.
+- LV가 측정 중 `temp_dir/inband.png`를 생성하고 Bilog 상태가 그 파일을 소비하는 것도 현재 명세상 의도된 동작이다.
+- Bilog 전용 command 또는 별도 임시 스크린샷 파일명은 외부 LV 명세가 변경될 때만 검토한다.
+
 ## Python Responsibilities
 
 1. CSV Test Case 로드, 편집, Range 확장
