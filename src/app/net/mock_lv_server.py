@@ -37,7 +37,6 @@ _TARGET_SWITCH_BOX = "Switch Box"
 _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
-_COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
@@ -106,8 +105,6 @@ class MockLvState:
     switch_input_path: int | None = None
     switch_filter_path: int | None = None
     antenna_pol: str | None = None
-    last_preset_params: dict[str, Any] | None = None
-    preset_count: int = 0
     last_sa_range_params: dict[str, Any] | None = None
     last_sa_level_params: dict[str, Any] | None = None
     last_sa_precision_params: dict[str, Any] | None = None
@@ -219,10 +216,6 @@ class MockLvServer:
         return _error(request, "unsupported command")
 
     def _handle_fsv40(self, request: Request) -> Response:
-        if request.command == _COMMAND_PRESET:
-            self.state.last_preset_params = dict(request.params)
-            self.state.preset_count += 1
-            return _ok(request)
         if request.command == _COMMAND_LOAD_SA_LEVEL_SETTING:
             self.state.last_sa_level_params = dict(request.params)
             return _ok(request)

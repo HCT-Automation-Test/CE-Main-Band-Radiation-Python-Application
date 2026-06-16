@@ -21,7 +21,6 @@ _TARGET_SWITCH_BOX = "Switch Box"
 _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
-_COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
@@ -252,12 +251,6 @@ def set_reference_co3000(client: Any) -> bool:
 def self_align_fsv40(client: Any) -> bool:
     response = _send_request(client, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT, {})
     return _action_ok(response, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT)
-
-
-def preset_sa(client: Any) -> bool:
-    """FSV40 Spectrum Analyzer preset을 수행한다."""
-    response = _send_request(client, _TARGET_FSV40, _COMMAND_PRESET, {})
-    return _action_ok(response, _TARGET_FSV40, _COMMAND_PRESET)
 
 
 def get_tdf_list(client: Any) -> list[str]:

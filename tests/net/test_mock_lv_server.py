@@ -668,29 +668,6 @@ def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
         server.stop()
 
 
-def test_mock_lv_server_handles_preset(qtbot, tmp_path) -> None:
-    server = MockLvServer(port=0, temp_dir=tmp_path)
-    server.start()
-    client = TcpClient()
-
-    try:
-        _connect(client, server, qtbot)
-
-        assert commands.preset_sa(client)
-
-        request = server.received_requests[-1]
-        assert (request.target, request.command, request.params) == (
-            "FSV40",
-            "Preset",
-            {},
-        )
-        assert server.state.last_preset_params == {}
-        assert server.state.preset_count == 1
-    finally:
-        client.disconnect_from_host()
-        server.stop()
-
-
 def test_mock_lv_server_rejects_unsupported_command(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()

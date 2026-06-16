@@ -331,13 +331,6 @@ def test_tdf_all_off_sends_default_params() -> None:
     assert client.calls == [("FSV40", "TDF All Off", {})]
 
 
-def test_preset_sa_sends_default_params() -> None:
-    client = _Client(_default_ok())
-
-    assert commands.preset_sa(client) is True
-    assert client.calls == [("FSV40", "Preset", {})]
-
-
 def test_set_tdf_sends_file_name_param() -> None:
     client = _Client(_default_ok())
 
@@ -350,7 +343,6 @@ def test_set_tdf_sends_file_name_param() -> None:
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
-        (commands.preset_sa, "FSV40", "Preset"),
         (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
