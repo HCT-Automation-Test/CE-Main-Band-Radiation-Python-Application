@@ -269,10 +269,7 @@ class Runner(QObject):
         self,
         cases: list[TestCase],
         *,
-        settings: TestRunSettings | None = None,
-        model_name: str = "",
-        template_path: Path | None = None,
-        screenshot_root_dir: Path | None = None,
+        settings: TestRunSettings,
     ) -> None:
         """Idle 상태에서 시험 실행 요청을 주입한다."""
         if self.is_equipment_connecting:
@@ -293,31 +290,9 @@ class Runner(QObject):
         if not cases:
             self._emit_error("시험 시작 실패: TestCase queue is empty")
             return
-        try:
-            run_settings = self._normalize_run_settings(
-                settings=settings,
-                model_name=model_name,
-                template_path=template_path,
-                screenshot_root_dir=screenshot_root_dir,
-            )
-        except ValueError as exc:
-            self._emit_error(f"시험 시작 실패: {exc}")
-            return
-        normalized_model_name = run_settings.eut_name
-        template_path = run_settings.template_path
-        screenshot_root_dir = run_settings.screenshot_root_dir
-        if not normalized_model_name:
-            self._emit_error("시험 시작 실패: model_name is required")
-            return
-        if template_path is None:
-            self._emit_error("시험 시작 실패: template_path is required")
-            return
-        if screenshot_root_dir is None:
-            self._emit_error("시험 시작 실패: screenshot_root_dir is required")
-            return
-
-        template = Path(template_path)
-        screenshot_root = Path(screenshot_root_dir)
+        normalized_model_name = settings.eut_name
+        template = settings.template_path
+        screenshot_root = settings.screenshot_root_dir
         self._temp_dir.mkdir(parents=True, exist_ok=True)
         try:
             report_writer = self._report_writer_factory(
@@ -344,7 +319,7 @@ class Runner(QObject):
         ctx.current_angle = 0.0
         ctx.fundamental_frequency_mhz = None
         ctx.temp_dir = self._temp_dir
-        ctx.settings = run_settings
+        ctx.settings = settings
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
@@ -405,32 +380,6 @@ class Runner(QObject):
     def _emit_error(self, message: str) -> None:
         logger.error(message)
         self.events.error.emit(message)
-
-    def _normalize_run_settings(
-        self,
-        *,
-        settings: TestRunSettings | None,
-        model_name: str,
-        template_path: Path | None,
-        screenshot_root_dir: Path | None,
-    ) -> TestRunSettings:
-        if settings is not None:
-            return settings
-        if not model_name.strip():
-            raise ValueError("model_name is required")
-        if template_path is None:
-            raise ValueError("template_path is required")
-        if screenshot_root_dir is None:
-            raise ValueError("screenshot_root_dir is required")
-        return TestRunSettings(
-            eut_name=model_name,
-            template_path=Path(template_path),
-            screenshot_root_dir=Path(screenshot_root_dir),
-            saturation_time_sec=5,
-            connection_waiting_time_sec=5,
-            atten_level_db=0,
-            next_peak_search_level_db=0,
-        )
 
     def _is_waiting_for_start(self) -> bool:
         if self._worker is None or self._worker.engine is None:

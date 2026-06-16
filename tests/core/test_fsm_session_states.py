@@ -104,6 +104,7 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=0,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 

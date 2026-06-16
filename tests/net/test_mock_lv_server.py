@@ -192,6 +192,25 @@ def test_mock_lv_server_turntable_progress_event(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_server_get_turntable_angle_returns_current_state(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path, turntable_delay_sec=0.01)
+    server.state.current_angle = 270.0
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.get_turntable_angle(client) == 270.0
+        request = server.received_requests[-1]
+        assert request.target == "CO3000"
+        assert request.command == "Get TurnTable Angle"
+        assert request.params == {}
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_set_reference_sends_complete_event(qtbot, tmp_path) -> None:
     server = MockLvServer(
         port=0,
@@ -635,6 +654,29 @@ def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
             ("FSV40", "TDF All Off", {}),
             ("FSV40", "Set TDF", {"TDF File Name": "NR_Radiated.tdf"}),
         ]
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_handles_preset(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.preset_sa(client)
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "FSV40",
+            "Preset",
+            {},
+        )
+        assert server.state.last_preset_params == {}
+        assert server.state.preset_count == 1
     finally:
         client.disconnect_from_host()
         server.stop()

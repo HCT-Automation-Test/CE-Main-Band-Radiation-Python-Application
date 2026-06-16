@@ -94,12 +94,25 @@ class _Commands:
         self,
         *,
         raise_on_rotate: Exception | None = None,
+        raise_on_angle_readback: Exception | None = None,
         buffer_on_rotate: _FakeEvent | list[_FakeEvent] | None = None,
+        readback_angle: float | None = None,
     ) -> None:
         self.raise_on_rotate = raise_on_rotate
+        self.raise_on_angle_readback = raise_on_angle_readback
         self.buffer_on_rotate = buffer_on_rotate
+        self.readback_angle = readback_angle
+        self.angle_calls: list[Any] = []
         self.rotate_calls: list[tuple[Any, dict[str, Any]]] = []
         self.stop_calls: list[Any] = []
+
+    def get_turntable_angle(self, client: Any) -> float:
+        self.angle_calls.append(client)
+        if self.raise_on_angle_readback is not None:
+            raise self.raise_on_angle_readback
+        if self.readback_angle is None:
+            raise AssertionError("readback_angle must be set")
+        return self.readback_angle
 
     def rotate_turntable(self, client: Any, **kwargs: Any) -> None:
         self.rotate_calls.append((client, kwargs))
@@ -140,6 +153,8 @@ def _make_ctx(
     current_angle: float = 0.0,
     settings: TestRunSettings | None = None,
 ) -> tuple[SessionContext, _Events]:
+    if commands.readback_angle is None:
+        commands.readback_angle = current_angle
     events = _Events()
     ctx = SessionContext(
         queue=[case],
@@ -166,6 +181,7 @@ def _make_settings(tmp_path: Path, *, saturation_time_sec: float) -> TestRunSett
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=0,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -196,15 +212,28 @@ def _emit_after(client: _FakeClient, delay: float, event: _FakeEvent) -> threadi
     return thread
 
 
-def test_initial_turntable_zero_uses_zero_angle_and_speed_4() -> None:
-    commands = _Commands()
+@pytest.mark.parametrize(
+    ("readback_angle", "expected_target"),
+    [
+        (0.0, 0.0),
+        (179.9, 0.0),
+        (180.0, 0.0),
+        (180.1, 360.0),
+        (360.0, 360.0),
+    ],
+)
+def test_initial_turntable_zero_uses_nearest_reference_angle_and_speed_4(
+    readback_angle: float,
+    expected_target: float,
+) -> None:
+    commands = _Commands(readback_angle=readback_angle)
     client = _FakeClient()
     case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
     ctx, events = _make_ctx(
         case,
         commands=commands,
         client=client,
-        current_angle=360.0,
+        current_angle=0.0,
     )
     state = InitialTurntableZeroState()
 
@@ -215,15 +244,17 @@ def test_initial_turntable_zero_uses_zero_angle_and_speed_4() -> None:
     thread.join(timeout=1.0)
 
     assert result is StateResult.OK
-    assert ctx.current_angle == 0.0
+    assert ctx.current_angle == expected_target
+    assert commands.angle_calls == [client]
     assert commands.rotate_calls == [
-        (client, {"angle": 0.0, "turntable_speed": 4}),
+        (client, {"angle": expected_target, "turntable_speed": 4}),
     ]
     assert commands.stop_calls == []
     assert events.progress.values == [0, 100]
     assert events.turntable_info_changed.values == [
-        {"target_angle": 0.0, "setting_speed": 4},
-        {"current_angle": 0.0},
+        {"current_angle": readback_angle},
+        {"target_angle": expected_target, "setting_speed": 4},
+        {"current_angle": expected_target},
     ]
     assert state.next_state(ctx, result) == "AntPolChange"
 
@@ -249,7 +280,9 @@ def test_initial_turntable_zero_consumes_buffered_progress_and_complete() -> Non
 
     assert result is StateResult.OK
     assert ctx.current_angle == 0.0
+    assert commands.angle_calls == [client]
     assert events.turntable_info_changed.values == [
+        {"current_angle": 180.0},
         {"target_angle": 0.0, "setting_speed": 4},
         {"current_angle": 30.0},
         {"current_angle": 0.0},
@@ -273,10 +306,37 @@ def test_initial_turntable_zero_skips_when_co3000_is_not_connected() -> None:
 
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
+    assert commands.angle_calls == []
     assert commands.rotate_calls == []
     assert ctx.current_angle == 180.0
     assert events.turntable_info_changed.values == []
     assert events.error.values
+
+
+def test_initial_turntable_zero_readback_error_returns_fail() -> None:
+    commands = _Commands(raise_on_angle_readback=RuntimeError("angle unavailable"))
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        current_angle=180.0,
+    )
+    state = InitialTurntableZeroState()
+
+    result = _drive_state(state, ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None
+    assert commands.angle_calls == [client]
+    assert commands.rotate_calls == []
+    assert commands.stop_calls == []
+    assert ctx.current_angle == 180.0
+    assert events.turntable_info_changed.values == []
+    assert events.error.values == [
+        "Turntable 현재 각도 조회 실패: angle unavailable"
+    ]
 
 
 def test_initial_turntable_zero_stop_requests_stop_turntable_and_fail() -> None:

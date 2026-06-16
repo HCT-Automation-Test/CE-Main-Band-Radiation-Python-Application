@@ -51,6 +51,10 @@ class _Commands:
         *,
         switch_box_configured: bool = True,
         switch_box_exception: Exception | None = None,
+        preset_configured: bool = True,
+        preset_exception: Exception | None = None,
+        tdf_configured: bool = True,
+        tdf_exception: Exception | None = None,
         sa_configured: bool = True,
         sa_exception: Exception | None = None,
         startup_level_configured: bool = True,
@@ -58,27 +62,51 @@ class _Commands:
     ) -> None:
         self.switch_box_configured = switch_box_configured
         self.switch_box_exception = switch_box_exception
+        self.preset_configured = preset_configured
+        self.preset_exception = preset_exception
+        self.tdf_configured = tdf_configured
+        self.tdf_exception = tdf_exception
         self.sa_configured = sa_configured
         self.sa_exception = sa_exception
         self.startup_level_configured = startup_level_configured
         self.startup_level_exception = startup_level_exception
+        self.calls: list[tuple[str, dict[str, Any]]] = []
         self.switch_box_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.preset_calls: list[Any] = []
+        self.tdf_calls: list[tuple[Any, dict[str, Any]]] = []
         self.setup_sa_calls: list[tuple[Any, TestRange]] = []
         self.startup_level_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def set_switch_box(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("set_switch_box", params))
         self.switch_box_calls.append((client, params))
         if self.switch_box_exception is not None:
             raise self.switch_box_exception
         return self.switch_box_configured
 
+    def preset_sa(self, client: Any) -> bool:
+        self.calls.append(("preset_sa", {}))
+        self.preset_calls.append(client)
+        if self.preset_exception is not None:
+            raise self.preset_exception
+        return self.preset_configured
+
+    def set_tdf(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("set_tdf", params))
+        self.tdf_calls.append((client, params))
+        if self.tdf_exception is not None:
+            raise self.tdf_exception
+        return self.tdf_configured
+
     def setup_sa(self, client: Any, *, test_range: TestRange) -> bool:
+        self.calls.append(("setup_sa", {"test_range": test_range}))
         self.setup_sa_calls.append((client, test_range))
         if self.sa_exception is not None:
             raise self.sa_exception
         return self.sa_configured
 
     def setup_sa_startup_levels(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("setup_sa_startup_levels", params))
         self.startup_level_calls.append((client, params))
         if self.startup_level_exception is not None:
             raise self.startup_level_exception
@@ -118,6 +146,7 @@ def _make_settings(
         connection_waiting_time_sec=5,
         atten_level_db=atten_level_db,
         next_peak_search_level_db=next_peak_search_level_db,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -445,21 +474,39 @@ def test_set_switch_box_does_not_emit_info_on_exception() -> None:
     ]
 
 
-def test_setup_spectrum_analyzer_uses_current_case_test_range() -> None:
+def test_setup_spectrum_analyzer_uses_current_case_settings(tmp_path: Path) -> None:
     commands = _Commands()
     client = object()
     case = _make_case(MeasurementTestType.HARMONIC)
     events = _Events()
+    settings = _make_settings(
+        tmp_path,
+        atten_level_db=2.5,
+        next_peak_search_level_db=-18.5,
+    )
     ctx = _connect_equipment(SessionContext(
         queue=[case],
         commands=commands,
         events=events,  # type: ignore[arg-type]
         client=client,
+        settings=settings,
     ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
 
     assert result is StateResult.OK
+    assert commands.calls == [
+        ("preset_sa", {}),
+        ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
+        (
+            "setup_sa_startup_levels",
+            {
+                "atten_level_db": 2.5,
+                "next_peak_search_level_db": -18.5,
+            },
+        ),
+        ("setup_sa", {"test_range": case.range_definition}),
+    ]
     assert commands.setup_sa_calls == [(client, case.range_definition)]
     test_range = commands.setup_sa_calls[0][1]
     assert test_range.start_freq == 6000.0
@@ -501,6 +548,81 @@ def test_setup_spectrum_analyzer_skips_when_fsv40_is_not_connected() -> None:
     assert events.error.messages
 
 
+def test_setup_spectrum_analyzer_requires_settings() -> None:
+    commands = _Commands()
+    events = _Events()
+    ctx = _connect_equipment(SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    ), "FSV40")
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.calls == []
+    assert events.spectrum_analyzer_info_changed.messages == []
+    assert events.error.messages == [
+        "Spectrum Analyzer 설정 실패: settings is required"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("commands", "expected_calls", "expected_message"),
+    [
+        (
+            _Commands(preset_configured=False),
+            [("preset_sa", {})],
+            "Spectrum Analyzer 설정 실패: preset_sa returned false",
+        ),
+        (
+            _Commands(tdf_configured=False),
+            [
+                ("preset_sa", {}),
+                ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
+            ],
+            "Spectrum Analyzer 설정 실패: set_tdf returned false",
+        ),
+        (
+            _Commands(startup_level_configured=False),
+            [
+                ("preset_sa", {}),
+                ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
+                (
+                    "setup_sa_startup_levels",
+                    {
+                        "atten_level_db": 1.5,
+                        "next_peak_search_level_db": -20.0,
+                    },
+                ),
+            ],
+            "Spectrum Analyzer 설정 실패: setup_sa_startup_levels returned false",
+        ),
+    ],
+)
+def test_setup_spectrum_analyzer_stops_when_preset_sequence_returns_false(
+    tmp_path: Path,
+    commands: _Commands,
+    expected_calls: list[tuple[str, dict[str, Any]]],
+    expected_message: str,
+) -> None:
+    events = _Events()
+    ctx = _connect_equipment(SessionContext(
+        queue=[_make_case(MeasurementTestType.HARMONIC)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
+    ), "FSV40")
+
+    result = SetupSpectrumAnalyzerState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.calls == expected_calls
+    assert commands.setup_sa_calls == []
+    assert events.spectrum_analyzer_info_changed.messages == []
+    assert events.error.messages == [expected_message]
+
+
 def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
     tmp_path: Path,
 ) -> None:
@@ -522,6 +644,18 @@ def test_setup_spectrum_analyzer_returns_fail_when_stopped_during_saturation(
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
+    assert commands.calls == [
+        ("preset_sa", {}),
+        ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
+        (
+            "setup_sa_startup_levels",
+            {
+                "atten_level_db": 1.5,
+                "next_peak_search_level_db": -20.0,
+            },
+        ),
+        ("setup_sa", {"test_range": case.range_definition}),
+    ]
     assert commands.setup_sa_calls == [(client, case.range_definition)]
 
 
@@ -546,16 +680,31 @@ def test_setup_spectrum_analyzer_returns_fail_when_current_case_stop_requested(
 
     assert result is StateResult.FAIL
     assert state.next_state(ctx, result) is None
+    assert commands.calls == [
+        ("preset_sa", {}),
+        ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
+        (
+            "setup_sa_startup_levels",
+            {
+                "atten_level_db": 1.5,
+                "next_peak_search_level_db": -20.0,
+            },
+        ),
+        ("setup_sa", {"test_range": case.range_definition}),
+    ]
     assert commands.setup_sa_calls == [(client, case.range_definition)]
 
 
-def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> None:
+def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 
@@ -568,13 +717,16 @@ def test_setup_spectrum_analyzer_returns_fail_and_stops_on_false_result() -> Non
     ]
 
 
-def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
+def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_configured=False)
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
 
     result = SetupSpectrumAnalyzerState().run(ctx)
@@ -583,13 +735,16 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_false_result() -> None:
     assert events.spectrum_analyzer_info_changed.messages == []
 
 
-def test_setup_spectrum_analyzer_does_not_emit_info_on_exception() -> None:
+def test_setup_spectrum_analyzer_does_not_emit_info_on_exception(
+    tmp_path: Path,
+) -> None:
     commands = _Commands(sa_exception=RuntimeError("instrument timeout"))
     events = _Events()
     ctx = _connect_equipment(SessionContext(
         queue=[_make_case(MeasurementTestType.HARMONIC)],
         commands=commands,
         events=events,  # type: ignore[arg-type]
+        settings=_make_settings(tmp_path),
     ), "FSV40")
     state = SetupSpectrumAnalyzerState()
 

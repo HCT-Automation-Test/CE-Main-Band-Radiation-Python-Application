@@ -108,6 +108,43 @@ def _wait_for_saturation_time(ctx: "SessionContext") -> bool:
         time.sleep(min(_POLL_INTERVAL_SEC, remaining))
 
 
+def _apply_spectrum_analyzer_preset_settings(
+    ctx: "SessionContext",
+    *,
+    failure_context: str,
+) -> StateResult:
+    if ctx.settings is None:
+        _emit_error(ctx, f"{failure_context}: settings is required")
+        return StateResult.FAIL
+
+    settings = ctx.settings
+    try:
+        if not ctx.commands.preset_sa(ctx.client):
+            _emit_error(ctx, f"{failure_context}: preset_sa returned false")
+            return StateResult.FAIL
+        if not ctx.commands.set_tdf(
+            ctx.client,
+            tdf_file_name=settings.active_tdf_file_name,
+        ):
+            _emit_error(ctx, f"{failure_context}: set_tdf returned false")
+            return StateResult.FAIL
+        if not ctx.commands.setup_sa_startup_levels(
+            ctx.client,
+            atten_level_db=settings.atten_level_db,
+            next_peak_search_level_db=settings.next_peak_search_level_db,
+        ):
+            _emit_error(
+                ctx,
+                f"{failure_context}: setup_sa_startup_levels returned false",
+            )
+            return StateResult.FAIL
+    except Exception as exc:
+        _emit_error(ctx, f"{failure_context}: {exc}")
+        return StateResult.FAIL
+
+    return StateResult.OK
+
+
 class SetupSpectrumAnalyzerStartupLevelState(State):
     """시험 시작 전 FSV40 Atten/Next Peak Search Level을 1회 설정한다."""
 
@@ -212,6 +249,13 @@ class SetupSpectrumAnalyzerState(State):
             return StateResult.OK
 
         test_range = ctx.current_case.range_definition
+        prepared = _apply_spectrum_analyzer_preset_settings(
+            ctx,
+            failure_context="Spectrum Analyzer 설정 실패",
+        )
+        if prepared is not StateResult.OK:
+            return prepared
+
         try:
             configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
         except Exception as exc:
@@ -465,13 +509,22 @@ class InitialTurntableZeroState(RotateTurntableState):
     name = "InitialTurntableZero"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        self._target_angle = 0.0
         if not is_equipment_connected(ctx, "CO3000"):
             _emit_error(
                 ctx,
                 "Turntable 초기 0도 정렬 스킵: CO3000가 연결되어 있지 않습니다.",
             )
             return StateResult.OK
+
+        try:
+            current_angle = ctx.commands.get_turntable_angle(ctx.client)
+        except Exception as exc:
+            _emit_error(ctx, f"Turntable 현재 각도 조회 실패: {exc}")
+            return StateResult.FAIL
+
+        ctx.current_angle = current_angle
+        _emit_turntable_info(ctx, {"current_angle": current_angle})
+        self._target_angle = 0.0 if current_angle <= 180.0 else 360.0
 
         try:
             ctx.commands.rotate_turntable(

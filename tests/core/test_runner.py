@@ -101,6 +101,7 @@ def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettin
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=0,
+        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -347,6 +348,7 @@ def test_start_populates_context_and_sets_start_request(
     assert ctx is not None
     assert ctx.queue == [case]
     assert ctx.settings == settings
+    assert ctx.settings.active_tdf_file_name == "NR_Radiated.tdf"
     assert ctx.model_name == "SM-000"
     assert ctx.template_path == tmp_path / "template.xlsx"
     assert ctx.screenshot_root_dir == tmp_path / "screenshots"
@@ -514,6 +516,7 @@ def test_equipment_disconnected_clears_runner_equipment_state(
         ("connection_waiting_time_sec", 1.5),
         ("atten_level_db", -0.1),
         ("next_peak_search_level_db", float("inf")),
+        ("active_tdf_file_name", " "),
     ],
 )
 def test_test_run_settings_rejects_invalid_values(
@@ -533,6 +536,7 @@ def test_test_run_settings_rejects_invalid_values(
         "connection_waiting_time_sec": 5,
         "atten_level_db": 0,
         "next_peak_search_level_db": 0,
+        "active_tdf_file_name": "NR_Radiated.tdf",
     }
     kwargs[field] = value
 
@@ -553,6 +557,7 @@ def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
             connection_waiting_time_sec=5,
             atten_level_db=0,
             next_peak_search_level_db=0,
+            active_tdf_file_name="NR_Radiated.tdf",
         )
 
     template_path.write_bytes(b"template")
@@ -565,6 +570,7 @@ def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
             connection_waiting_time_sec=5,
             atten_level_db=0,
             next_peak_search_level_db=0,
+            active_tdf_file_name="NR_Radiated.tdf",
         )
 
 
@@ -660,9 +666,7 @@ def test_start_rejects_when_runner_is_not_idle(
 
     runner.start(
         [_make_case(antenna_pol=AntennaPol.V)],
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
+        settings=_make_settings(tmp_path),
     )
 
     assert messages == ["시험 시작 실패: Runner is not idle"]
@@ -681,9 +685,7 @@ def test_start_before_equipment_ready_emits_error(tmp_path: Path) -> None:
 
     runner.start(
         [_make_case()],
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
+        settings=_make_settings(tmp_path),
     )
 
     assert messages

@@ -19,9 +19,11 @@ class TestRunSettings:
     connection_waiting_time_sec: int
     atten_level_db: float
     next_peak_search_level_db: float
+    active_tdf_file_name: str
 
     def __post_init__(self) -> None:
         eut_name = self.eut_name.strip()
+        active_tdf_file_name = self.active_tdf_file_name.strip()
         template_path = Path(self.template_path)
         screenshot_root_dir = Path(self.screenshot_root_dir)
         saturation_time_sec = float(self.saturation_time_sec)
@@ -34,6 +36,8 @@ class TestRunSettings:
 
         if not eut_name:
             raise ValueError("eut_name is required")
+        if not active_tdf_file_name:
+            raise ValueError("active_tdf_file_name is required")
         if not template_path.is_file():
             raise ValueError("template_path must be an existing file")
         if not screenshot_root_dir.is_dir():
@@ -48,6 +52,7 @@ class TestRunSettings:
             raise ValueError("next_peak_search_level_db must be a number")
 
         object.__setattr__(self, "eut_name", eut_name)
+        object.__setattr__(self, "active_tdf_file_name", active_tdf_file_name)
         object.__setattr__(self, "template_path", template_path)
         object.__setattr__(self, "screenshot_root_dir", screenshot_root_dir)
         object.__setattr__(self, "saturation_time_sec", saturation_time_sec)

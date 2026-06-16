@@ -282,6 +282,7 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     window.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
     window.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     window.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
+    window._test_manager_panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     start_button = window.findChild(QPushButton, "startButton")
     assert start_button is not None
@@ -1092,6 +1093,7 @@ def test_test_manager_panel_run_setting_properties_and_validators(qtbot) -> None
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
     panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     assert panel.saturation_time_sec == 6.5
     assert panel.connection_waiting_time_sec == 7
@@ -1233,6 +1235,7 @@ def test_main_window_start_resets_test_case_progress(
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
     monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
 
     window.on_start_requested()
@@ -1240,6 +1243,35 @@ def test_main_window_start_resets_test_case_progress(
     table = panel.findChild(QTableWidget, "testCaseTable")
     assert table is not None
     assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_main_window_blocks_start_without_active_tdf(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    panel.add_test_cases([_make_test_case()])
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    warnings: list[str] = []
+    starts: list[bool] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, *, settings: starts.append(True),
+    )
+
+    window.on_start_requested()
+
+    assert starts == []
+    assert warnings == ["활성화된 TDF 파일이 없습니다."]
 
 
 def test_main_window_start_preserves_completed_progress_on_pause_restart(
@@ -1264,6 +1296,7 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
     window._runner._restart_index = 1
     monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
 
@@ -1627,6 +1660,7 @@ def test_main_window_marks_tdf_active_after_set_success(
 
     tdf_list = window.findChild(QListWidget, "tdfListWidget")
     assert tdf_list is not None
+    assert window._test_manager_panel.active_tdf_file_name == "b.tdf"
     assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
     assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
 
@@ -1989,6 +2023,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
     panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     settings = panel.build_test_run_settings()
 
@@ -2000,6 +2035,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
     assert settings.connection_waiting_time_sec == 7
     assert settings.atten_level_db == 1.5
     assert settings.next_peak_search_level_db == -20
+    assert settings.active_tdf_file_name == "NR_Radiated.tdf"
 
 
 def test_nr_select_dialog_can_be_created(qtbot) -> None:

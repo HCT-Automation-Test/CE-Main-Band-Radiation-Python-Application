@@ -331,6 +331,13 @@ def test_tdf_all_off_sends_default_params() -> None:
     assert client.calls == [("FSV40", "TDF All Off", {})]
 
 
+def test_preset_sa_sends_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.preset_sa(client) is True
+    assert client.calls == [("FSV40", "Preset", {})]
+
+
 def test_set_tdf_sends_file_name_param() -> None:
     client = _Client(_default_ok())
 
@@ -343,6 +350,7 @@ def test_set_tdf_sends_file_name_param() -> None:
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
+        (commands.preset_sa, "FSV40", "Preset"),
         (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
@@ -576,6 +584,33 @@ def test_rotate_and_stop_turntable_send_co3000_commands() -> None:
         ),
         ("CO3000", "Stop TurnTable", {}),
     ]
+
+
+def test_get_turntable_angle_sends_co3000_command_and_returns_current_angle() -> None:
+    client = _Client(_ok(**{"Current Angle": 270.5}))
+
+    assert commands.get_turntable_angle(client) == 270.5
+    assert client.calls == [("CO3000", "Get TurnTable Angle", {})]
+
+
+@pytest.mark.parametrize(
+    "result",
+    [
+        {},
+        {"Current Angle": "270"},
+        {"Current Angle": True},
+        {"Current Angle": -0.1},
+        {"Current Angle": 360.1},
+        {"Current Angle": float("inf")},
+    ],
+)
+def test_get_turntable_angle_rejects_invalid_current_angle(
+    result: dict[str, Any],
+) -> None:
+    client = _Client(Response(id="response-id", status="ok", result=result))
+
+    with pytest.raises(commands.CommandError, match="Current Angle"):
+        commands.get_turntable_angle(client)
 
 
 def test_check_call_status_returns_ok_and_connected() -> None:
