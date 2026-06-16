@@ -340,7 +340,9 @@ class MeasureHarmonicsState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "MeasureHarmonicPrecision"
+        if ctx.harmonic_precision_candidates:
+            return "MeasureHarmonicPrecision"
+        return "ResetSwitchBox"
 
 
 class MeasureHarmonicPrecisionState(State):

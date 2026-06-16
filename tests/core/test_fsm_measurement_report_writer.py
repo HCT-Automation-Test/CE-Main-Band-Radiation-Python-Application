@@ -582,7 +582,7 @@ def test_measure_harmonics_skips_when_fsv40_is_not_connected(
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureHarmonicPrecision"
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     assert commands.measure_harmonics_calls == []
     assert events.error.messages
 
@@ -653,9 +653,11 @@ def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
     )
     _prepare_harmonic_measurement(ctx, tmp_path)
 
-    result = MeasureHarmonicsState().run(ctx)
+    state = MeasureHarmonicsState()
+    result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
     measured = report_writer.calls[0][2]
     assert isinstance(measured, HarmonicResult)
     assert measured.harmonic_2nd_peak_level_dbm is None
@@ -683,9 +685,11 @@ def test_measure_harmonics_builds_precision_candidates_after_report(
     )
     _prepare_harmonic_measurement(ctx, tmp_path)
 
-    result = MeasureHarmonicsState().run(ctx)
+    state = MeasureHarmonicsState()
+    result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "MeasureHarmonicPrecision"
     assert report_writer.calls[0][0] == "harmonic"
     assert [
         (candidate.order, candidate.amplitude_dbm, candidate.peak_frequency_mhz)
