@@ -11,6 +11,7 @@ from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
 
 if TYPE_CHECKING:
+    from app.models.measurement_result import HarmonicPrecisionCandidate
     from app.report.report_writer import ReportWriter
 
 
@@ -41,6 +42,9 @@ class SessionContext:
     template_path: Path | None = None
     screenshot_root_dir: Path | None = None
     equipment_state: dict[str, Any] = field(default_factory=dict)
+    harmonic_precision_candidates: list["HarmonicPrecisionCandidate"] = field(
+        default_factory=list
+    )
     equipment_connect_requested: threading.Event = field(
         default_factory=threading.Event
     )

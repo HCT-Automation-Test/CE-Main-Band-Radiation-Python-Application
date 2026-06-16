@@ -462,13 +462,19 @@ def test_measure_fundamental_rejects_non_numeric_frequency() -> None:
 
 
 def test_measure_harmonics_returns_four_levels() -> None:
-    client = _Client(_ok(Amplitude=[-42.1, -48, -51.0, -56.2]))
+    client = _Client(
+        _ok(
+            Amplitude=[-42.1, -48, -51.0, -56.2],
+            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+        )
+    )
 
-    assert commands.measure_harmonics(client, fundamental=3550.25) == [
-        -42.1,
-        -48.0,
-        -51.0,
-        -56.2,
+    markers = commands.measure_harmonics(client, fundamental=3550.25)
+    assert [(marker.order, marker.amplitude_dbm, marker.peak_frequency_mhz) for marker in markers] == [
+        (2, -42.1, 7100.5),
+        (3, -48.0, 10650.75),
+        (4, -51.0, 14201.0),
+        (5, -56.2, 17751.25),
     ]
     assert client.calls == [
         ("FSV40", "Mark Harmonic", {"Fundamental Frequency": 3550.25})
@@ -482,6 +488,30 @@ def test_measure_inband_returns_amplitude() -> None:
     assert client.calls == [
         ("FSV40", "Mark Inband", {"Limit": -30.0})
     ]
+
+
+def test_setup_sa_precision_sends_peak_frequency_and_sweep_time() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_sa_precision(
+        client,
+        peak_frequency=14088.35,
+        sweep_time=100,
+    )
+    assert client.calls == [
+        (
+            "FSV40",
+            "Load SA Precision Setting",
+            {"Peak Frequency": 14088.35, "Sweep Time": 100},
+        )
+    ]
+
+
+def test_measure_harmonic_precision_returns_amplitude() -> None:
+    client = _Client(_ok(Amplitude=-28.7))
+
+    assert commands.measure_harmonic_precision(client) == -28.7
+    assert client.calls == [("FSV40", "Mark Harmonic Precision", {})]
 
 
 def test_measure_inband_rejects_missing_amplitude() -> None:
@@ -716,17 +746,59 @@ def test_none_returning_command_raises_when_status_is_error() -> None:
 
 
 def test_measure_harmonics_rejects_wrong_level_count() -> None:
-    client = _Client(_ok(Amplitude=[-42.0, -43.0, -44.0]))
+    client = _Client(
+        _ok(
+            Amplitude=[-42.0, -43.0, -44.0],
+            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+        )
+    )
 
     with pytest.raises(commands.CommandError, match="must contain 4 values"):
         commands.measure_harmonics(client, fundamental=3550.25)
 
 
 def test_measure_harmonics_rejects_non_list_amplitude() -> None:
-    client = _Client(_ok(Amplitude="-42.0,-43.0,-44.0,-45.0"))
+    client = _Client(
+        _ok(
+            Amplitude="-42.0,-43.0,-44.0,-45.0",
+            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+        )
+    )
 
     with pytest.raises(
         commands.CommandError,
         match=r"Result\.Amplitude must be a list",
     ):
         commands.measure_harmonics(client, fundamental=3550.25)
+
+
+def test_measure_harmonics_rejects_missing_frequency() -> None:
+    client = _Client(_ok(Amplitude=[-42.0, -43.0, -44.0, -45.0]))
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Frequency must be a list",
+    ):
+        commands.measure_harmonics(client, fundamental=3550.25)
+
+
+def test_measure_harmonics_rejects_wrong_frequency_count() -> None:
+    client = _Client(
+        _ok(
+            Amplitude=[-42.0, -43.0, -44.0, -45.0],
+            Frequency=[7100.5, 10650.75, 14201.0],
+        )
+    )
+
+    with pytest.raises(commands.CommandError, match="Frequency must contain 4 values"):
+        commands.measure_harmonics(client, fundamental=3550.25)
+
+
+def test_measure_harmonic_precision_rejects_missing_amplitude() -> None:
+    client = _Client(_ok())
+
+    with pytest.raises(
+        commands.CommandError,
+        match=r"Result\.Amplitude must be a number",
+    ):
+        commands.measure_harmonic_precision(client)

@@ -40,8 +40,10 @@ _COMMAND_CONNECT = "Connect"
 _COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
+_COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MARK_HARMONIC_PRECISION = "Mark Harmonic Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
@@ -108,6 +110,7 @@ class MockLvState:
     preset_count: int = 0
     last_sa_range_params: dict[str, Any] | None = None
     last_sa_level_params: dict[str, Any] | None = None
+    last_sa_precision_params: dict[str, Any] | None = None
     turntable_stop_requested: threading.Event = field(default_factory=threading.Event)
 
 
@@ -226,6 +229,9 @@ class MockLvServer:
         if request.command == _COMMAND_LOAD_SA_RANGE_SETTING:
             self.state.last_sa_range_params = dict(request.params)
             return _ok(request)
+        if request.command == _COMMAND_LOAD_SA_PRECISION_SETTING:
+            self.state.last_sa_precision_params = dict(request.params)
+            return _ok(request)
         if request.command == _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY:
             self._write_png("fundamental.png")
             center_freq = _coerce_float(request.params.get("Center Frequency"), 0.0)
@@ -237,7 +243,23 @@ class MockLvServer:
             self._write_png("harmonic.png")
             if self.scenario == "bad-harmonic-result":
                 return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0]})
-            return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0, -56.2]})
+            return _ok(
+                request,
+                {
+                    "Amplitude": [-42.1, -48.0, -51.0, -56.2],
+                    "Frequency": [7100.5, 10650.75, 14201.0, 17751.25],
+                },
+            )
+        if request.command == _COMMAND_MARK_HARMONIC_PRECISION:
+            self._write_png("precision.png")
+            sweep_time = 100
+            if self.state.last_sa_precision_params is not None:
+                sweep_time = _coerce_int(
+                    self.state.last_sa_precision_params.get("Sweep Time"),
+                    100,
+                )
+            amplitude = -31.0 if sweep_time == 100 else -34.0
+            return _ok(request, {"Amplitude": amplitude})
         if request.command == _COMMAND_MARK_INBAND:
             self._write_png("inband.png")
             limit = _coerce_float(request.params.get("Limit"), -30.0)

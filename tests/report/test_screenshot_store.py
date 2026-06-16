@@ -17,8 +17,10 @@ from app.models.enums import (
 from app.models.test_case import TestCase
 from app.report.screenshot_store import (
     build_fundamental_screenshot_path,
+    build_harmonic_precision_screenshot_path,
     build_sa_screenshot_path,
     finalize_fundamental_screenshot,
+    finalize_harmonic_precision_screenshot,
     finalize_sa_screenshot,
 )
 
@@ -188,6 +190,70 @@ def test_finalize_sa_screenshot_copies_file_and_emits_event(tmp_path: Path) -> N
 
     assert destination.read_bytes() == b"png"
     assert source.read_bytes() == b"png"
+    assert events.screenshot_saved.messages == [str(destination)]
+
+
+def test_build_harmonic_precision_screenshot_path_uses_precision_filename(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N79,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    path = build_harmonic_precision_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=14088.35,
+        sweep_time_ms=100,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n79"
+        / "UPPER"
+        / "SA"
+        / "SM-000_Traffic_5G_SA_n79_UPPER_14088.350MHz_XH_100ms.png"
+    )
+
+
+def test_finalize_harmonic_precision_screenshot_copies_file_and_emits_event(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N79,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+    source = tmp_path / "temp" / "precision.png"
+    source.parent.mkdir()
+    source.write_bytes(b"precision")
+    events = _Events()
+
+    destination = finalize_harmonic_precision_screenshot(
+        source_path=source,
+        root_dir=tmp_path / "out",
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=14088.3,
+        sweep_time_ms=500,
+        events=events,
+    )
+
+    assert destination.name == (
+        "SM-000_Traffic_5G_SA_n79_LOWER_14088.300MHz_XH_500ms.png"
+    )
+    assert destination.read_bytes() == b"precision"
+    assert source.read_bytes() == b"precision"
     assert events.screenshot_saved.messages == [str(destination)]
 
 

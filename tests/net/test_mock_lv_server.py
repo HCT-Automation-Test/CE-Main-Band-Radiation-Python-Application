@@ -78,13 +78,21 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
         assert complete.command == "turntable_complete"
         assert complete.params == {}
 
-        assert commands.measure_harmonics(client, fundamental=3550.25) == [
-            -42.1,
-            -48.0,
-            -51.0,
-            -56.2,
+        markers = commands.measure_harmonics(client, fundamental=3550.25)
+        assert [(marker.order, marker.amplitude_dbm) for marker in markers] == [
+            (2, -42.1),
+            (3, -48.0),
+            (4, -51.0),
+            (5, -56.2),
         ]
         assert (tmp_path / "harmonic.png").is_file()
+        assert commands.setup_sa_precision(
+            client,
+            peak_frequency=markers[0].peak_frequency_mhz,
+            sweep_time=100,
+        )
+        assert commands.measure_harmonic_precision(client) == -31.0
+        assert (tmp_path / "precision.png").is_file()
         assert commands.set_antenna_pol(
             client,
             pol=AntennaPol.V,
@@ -128,7 +136,8 @@ def test_mock_lv_server_copies_random_screenshot_fixture(
         assert commands.measure_fundamental(client, target_freq=3550.0) == 3550.25
         assert (tmp_path / "fundamental.png").read_bytes() in fixture_bytes
 
-        assert commands.measure_harmonics(client, fundamental=3550.25) == [
+        markers = commands.measure_harmonics(client, fundamental=3550.25)
+        assert [marker.amplitude_dbm for marker in markers] == [
             -42.1,
             -48.0,
             -51.0,

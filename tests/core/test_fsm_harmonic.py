@@ -25,6 +25,7 @@ from app.models.enums import (
 from app.models.measurement_result import (
     BilogResult,
     FundamentalResult,
+    HarmonicMarker,
     HarmonicResult,
     InbandResult,
 )
@@ -174,11 +175,37 @@ class _Commands:
         (self.temp_dir / "fundamental.png").write_bytes(b"fundamental")
         return target_freq + 0.25
 
-    def measure_harmonics(self, client: Any, *, fundamental: float) -> list[float]:
+    def measure_harmonics(self, client: Any, *, fundamental: float) -> list[HarmonicMarker]:
         self.calls.append(("measure_harmonics", {"fundamental": fundamental}))
         self.temp_dir.mkdir(exist_ok=True)
         (self.temp_dir / "harmonic.png").write_bytes(b"harmonic")
-        return [-28.0, -45.0, -46.0, -47.0]
+        return [
+            HarmonicMarker(order=2, amplitude_dbm=-28.0, peak_frequency_mhz=7100.5),
+            HarmonicMarker(order=3, amplitude_dbm=-45.0, peak_frequency_mhz=10650.75),
+            HarmonicMarker(order=4, amplitude_dbm=-46.0, peak_frequency_mhz=14201.0),
+            HarmonicMarker(order=5, amplitude_dbm=-47.0, peak_frequency_mhz=17751.25),
+        ]
+
+    def setup_sa_precision(
+        self,
+        client: Any,
+        *,
+        peak_frequency: float,
+        sweep_time: int,
+    ) -> bool:
+        self.calls.append(
+            (
+                "setup_sa_precision",
+                {"peak_frequency": peak_frequency, "sweep_time": sweep_time},
+            )
+        )
+        return True
+
+    def measure_harmonic_precision(self, client: Any) -> float:
+        self.calls.append(("measure_harmonic_precision", {}))
+        self.temp_dir.mkdir(exist_ok=True)
+        (self.temp_dir / "precision.png").write_bytes(b"precision")
+        return -40.0
 
     def measure_inband(self, client: Any, *, limit: float) -> float:
         self.calls.append(("measure_inband", {"limit": limit}))
@@ -374,6 +401,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
         "SetupSpectrumAnalyzer",
         "RotateTurntable",
         "MeasureHarmonics",
+        "MeasureHarmonicPrecision",
         "ResetSwitchBox",
         "CheckNextCase",
         "TestEnd",
