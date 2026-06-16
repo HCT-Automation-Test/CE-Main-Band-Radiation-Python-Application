@@ -6,7 +6,7 @@ import shlex
 import sys
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, is_dataclass
 from typing import Any, TextIO
 
 from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
@@ -492,7 +492,13 @@ def _modulation_arg(args: dict[str, str], name: str) -> Modulation | str:
 
 
 def _json_dumps(value: Any) -> str:
-    return json.dumps(value, ensure_ascii=False)
+    return json.dumps(value, ensure_ascii=False, default=_json_default)
+
+
+def _json_default(value: Any) -> Any:
+    if is_dataclass(value):
+        return asdict(value)
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
 
 
 def main(argv: list[str] | None = None) -> int:

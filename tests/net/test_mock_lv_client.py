@@ -148,6 +148,34 @@ def test_mock_lv_client_measure_inband() -> None:
     assert "RETURN   -42.1" in text
 
 
+def test_mock_lv_client_measure_harmonics_prints_marker_return(
+    qtbot,
+    tmp_path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line("measure-harmonics fundamental=3550.25")
+
+        text = output.getvalue()
+        assert "REQUEST  FSV40 / Mark Harmonic" in text
+        assert '"Amplitude": [-42.1, -48.0, -51.0, -56.2]' in text
+        assert '"Frequency": [7100.5, 10650.75, 14201.0, 17751.25]' in text
+        assert "RETURN   " in text
+        assert '"order": 2' in text
+        assert '"amplitude_dbm": -42.1' in text
+        assert '"peak_frequency_mhz": 7100.5' in text
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
