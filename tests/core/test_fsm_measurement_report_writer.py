@@ -10,6 +10,7 @@ from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.measurement.bilog import MeasureBilogState
 from app.core.fsm.states.measurement.harmonic import (
+    MeasureHarmonicPrecisionState,
     MeasureFundamentalState,
     MeasureHarmonicsState,
 )
@@ -27,6 +28,8 @@ from app.models.enums import (
 from app.models.measurement_result import (
     BilogResult,
     FundamentalResult,
+    HarmonicMarker,
+    HarmonicPrecisionCandidate,
     HarmonicResult,
     InbandResult,
 )
@@ -48,12 +51,15 @@ class _Events:
         self.spectrum_analyzer_info_changed = _SignalRecorder()
 
 
+_DEFAULT_HARMONIC_LEVELS = object()
+
+
 class _Commands:
     def __init__(
         self,
         *,
         fundamental_frequency_mhz: float = 3549.99,
-        harmonic_levels: object = (-41.0, -39.5, -40.0, -37.0),
+        harmonic_levels: object = _DEFAULT_HARMONIC_LEVELS,
         inband_amplitude: float = -39.5,
         bilog_amplitude: float = -45.5,
         fundamental_exception: Exception | None = None,
@@ -72,7 +78,11 @@ class _Commands:
         bilog_screenshot_path: Path | None = None,
     ) -> None:
         self.fundamental_frequency_mhz = fundamental_frequency_mhz
-        self.harmonic_levels = harmonic_levels
+        self.harmonic_levels = (
+            _markers((-41.0, -39.5, -40.0, -37.0))
+            if harmonic_levels is _DEFAULT_HARMONIC_LEVELS
+            else harmonic_levels
+        )
         self.inband_amplitude = inband_amplitude
         self.bilog_amplitude = bilog_amplitude
         self.fundamental_exception = fundamental_exception
@@ -97,6 +107,9 @@ class _Commands:
         self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_inband_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_bilog_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.setup_sa_precision_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_harmonic_precision_calls: list[Any] = []
+        self.precision_amplitudes: list[float] = []
 
     def preset_sa(self, client: Any) -> bool:
         self.calls.append(("preset_sa", {}))
@@ -156,6 +169,32 @@ class _Commands:
             self.bilog_screenshot_path.write_bytes(b"fresh bilog")
         return self.bilog_amplitude
 
+    def setup_sa_precision(
+        self,
+        client: Any,
+        *,
+        peak_frequency: float,
+        sweep_time: int,
+    ) -> bool:
+        self.setup_sa_precision_calls.append(
+            (
+                client,
+                {
+                    "peak_frequency": peak_frequency,
+                    "sweep_time": sweep_time,
+                },
+            )
+        )
+        return True
+
+    def measure_harmonic_precision(self, client: Any) -> float:
+        self.measure_harmonic_precision_calls.append(client)
+        if self.precision_amplitudes:
+            amplitude = self.precision_amplitudes.pop(0)
+        else:
+            amplitude = -40.0
+        return amplitude
+
 
 class _ReportWriter:
     def __init__(
@@ -214,6 +253,26 @@ class _ReportWriter:
         return self.return_value
 
 
+def _markers(
+    amplitudes: tuple[float, float, float, float],
+    frequencies: tuple[float, float, float, float] = (
+        7100.5,
+        10650.75,
+        14201.0,
+        17751.25,
+    ),
+) -> list[HarmonicMarker]:
+    return [
+        HarmonicMarker(order=order, amplitude_dbm=amplitude, peak_frequency_mhz=frequency)
+        for order, amplitude, frequency in zip(
+            (2, 3, 4, 5),
+            amplitudes,
+            frequencies,
+            strict=True,
+        )
+    ]
+
+
 def _make_case(
     test_type: MeasurementTestType,
     *,
@@ -253,6 +312,7 @@ def _make_ctx(
         atten_level_db=0.0,
         next_peak_search_level_db=0.0,
         active_tdf_file_name="NR_Radiated.tdf",
+        saturation_time_sec=0.0,
     )
     ctx = SessionContext(
         queue=[case or _make_case(test_type)],
@@ -475,7 +535,7 @@ def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(
     screenshot_path = tmp_path / "harmonic.png"
     screenshot_path.write_bytes(b"stale")
     commands = _Commands(
-        harmonic_levels=(-41.0, -39.9, -40.0, -37.5),
+        harmonic_levels=_markers((-41.0, -39.9, -40.0, -37.5)),
         harmonic_screenshot_path=screenshot_path,
     )
     ctx = _make_ctx(
@@ -522,7 +582,7 @@ def test_measure_harmonics_skips_when_fsv40_is_not_connected(
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "ResetSwitchBox"
+    assert state.next_state(ctx, result) == "MeasureHarmonicPrecision"
     assert commands.measure_harmonics_calls == []
     assert events.error.messages
 
@@ -582,7 +642,7 @@ def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
     report_writer = _ReportWriter()
     screenshot_path = tmp_path / "harmonic.png"
     commands = _Commands(
-        harmonic_levels=(-45.0, -40.0, -42.0, -50.0),
+        harmonic_levels=_markers((-45.0, -40.0, -42.0, -50.0)),
         harmonic_screenshot_path=screenshot_path,
     )
     ctx = _make_ctx(
@@ -602,6 +662,162 @@ def test_measure_harmonics_writes_report_even_when_no_peak_exceeds_threshold(
     assert measured.harmonic_3rd_peak_level_dbm is None
     assert measured.harmonic_4th_peak_level_dbm is None
     assert measured.harmonic_5th_peak_level_dbm is None
+
+
+def test_measure_harmonics_builds_precision_candidates_after_report(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands(
+        harmonic_levels=_markers(
+            (-32.5, -40.0, 0.0, -33.0),
+            (7088.35, 10632.525, 0.0, 14176.7),
+        ),
+        harmonic_screenshot_path=tmp_path / "harmonic.png",
+    )
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        temp_dir=tmp_path,
+    )
+    _prepare_harmonic_measurement(ctx, tmp_path)
+
+    result = MeasureHarmonicsState().run(ctx)
+
+    assert result is StateResult.OK
+    assert report_writer.calls[0][0] == "harmonic"
+    assert [
+        (candidate.order, candidate.amplitude_dbm, candidate.peak_frequency_mhz)
+        for candidate in ctx.harmonic_precision_candidates
+    ] == [
+        (2, -32.5, 7088.35),
+        (5, -33.0, 14176.7),
+    ]
+
+
+def test_measure_harmonic_precision_skips_without_candidates(tmp_path: Path) -> None:
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        temp_dir=tmp_path,
+    )
+    state = MeasureHarmonicPrecisionState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ResetSwitchBox"
+    assert commands.setup_sa_precision_calls == []
+    assert commands.measure_harmonic_precision_calls == []
+
+
+def test_measure_harmonic_precision_runs_100ms_only_and_saves_screenshot(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    commands.precision_amplitudes = [-40.0]
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        screenshot_root_dir=tmp_path / "screenshots",
+    )
+    ctx.harmonic_precision_candidates = [
+        HarmonicPrecisionCandidate(
+            order=2,
+            amplitude_dbm=-32.5,
+            peak_frequency_mhz=7088.35,
+        )
+    ]
+
+    def write_precision_png(_: Any) -> float:
+        (tmp_path / "precision.png").write_bytes(b"precision")
+        return -40.0
+
+    commands.measure_harmonic_precision = write_precision_png  # type: ignore[method-assign]
+
+    result = MeasureHarmonicPrecisionState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.setup_sa_precision_calls == [
+        (None, {"peak_frequency": 7088.35, "sweep_time": 100})
+    ]
+    assert len(events.screenshot_saved.messages) == 1
+    assert events.screenshot_saved.messages[0].endswith(
+        "SM-000_Traffic_5G_SA_n78_UPPER_7088.350MHz_XH_100ms.png"
+    )
+
+
+def test_measure_harmonic_precision_runs_500ms_when_100ms_is_near_limit(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+        screenshot_root_dir=tmp_path / "screenshots",
+    )
+    ctx.harmonic_precision_candidates = [
+        HarmonicPrecisionCandidate(
+            order=5,
+            amplitude_dbm=-31.0,
+            peak_frequency_mhz=14176.7,
+        )
+    ]
+    amplitudes = [-31.0, -34.0]
+
+    def write_precision_png(_: Any) -> float:
+        (tmp_path / "precision.png").write_bytes(b"precision")
+        return amplitudes.pop(0)
+
+    commands.measure_harmonic_precision = write_precision_png  # type: ignore[method-assign]
+
+    result = MeasureHarmonicPrecisionState().run(ctx)
+
+    assert result is StateResult.OK
+    assert [call[1]["sweep_time"] for call in commands.setup_sa_precision_calls] == [
+        100,
+        500,
+    ]
+    assert len(events.screenshot_saved.messages) == 2
+    assert events.screenshot_saved.messages[1].endswith(
+        "SM-000_Traffic_5G_SA_n78_UPPER_14176.700MHz_XH_500ms.png"
+    )
+
+
+def test_measure_harmonic_precision_returns_fail_when_screenshot_is_missing(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    commands = _Commands()
+    commands.precision_amplitudes = [-40.0]
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    ctx.harmonic_precision_candidates = [
+        HarmonicPrecisionCandidate(
+            order=2,
+            amplitude_dbm=-32.5,
+            peak_frequency_mhz=7088.35,
+        )
+    ]
+
+    result = MeasureHarmonicPrecisionState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert events.error.messages[-1] == (
+        f"Harmonic Precision 스크린샷 저장 실패: {tmp_path / 'precision.png'} does not exist"
+    )
 
 
 def test_measure_fundamental_returns_fail_without_temp_dir() -> None:
@@ -858,15 +1074,15 @@ def test_measure_harmonics_returns_fail_when_command_raises(
     [
         (
             (-41.0, -39.0, -38.0),
-            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 peak levels, got 3",
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 harmonic markers, got 3",
         ),
         (
             ("bad", -39.0, -38.0, -37.0),
-            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels",
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected numeric amplitude/frequency",
         ),
         (
             None,
-            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 numeric peak levels",
+            "Harmonic 측정 실패: Harmonic 측정 응답 형식 오류: expected 4 harmonic markers",
         ),
     ],
 )

@@ -6,6 +6,24 @@ from pathlib import Path
 from typing import TypeAlias
 
 
+@dataclass(frozen=True)
+class HarmonicMarker:
+    """Harmonic marker 측정값."""
+
+    order: int
+    amplitude_dbm: float
+    peak_frequency_mhz: float
+
+
+@dataclass(frozen=True)
+class HarmonicPrecisionCandidate:
+    """정밀측정 대상 harmonic marker."""
+
+    order: int
+    amplitude_dbm: float
+    peak_frequency_mhz: float
+
+
 @dataclass
 class FundamentalResult:
     """MeasureFundamental 상태의 측정 결과."""

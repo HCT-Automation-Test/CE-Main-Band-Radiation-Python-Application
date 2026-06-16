@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
+from app.models.measurement_result import HarmonicMarker
 from app.models.test_range import TestRange
 
 _TARGET_FSV40 = "FSV40"
@@ -23,8 +24,10 @@ _COMMAND_CONNECT = "Connect"
 _COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
+_COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MARK_HARMONIC_PRECISION = "Mark Harmonic Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
@@ -436,7 +439,7 @@ def measure_harmonics(
     client: Any,
     *,
     fundamental: float,
-) -> list[float]:
+) -> list[HarmonicMarker]:
     """2nd~5th harmonic amplitude(dBm) 4개를 순서대로 반환한다. §4.7.
 
     외부 프로그램은 측정 중 `temp_dir/harmonic.png` 경로에 SA 스크린샷을
@@ -449,20 +452,64 @@ def measure_harmonics(
         {"Fundamental Frequency": float(fundamental)},
     )
     result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_HARMONIC)
-    levels = result.get("Amplitude")
-    if isinstance(levels, str | bytes) or not isinstance(levels, Sequence):
-        raise CommandError("FSV40 / Mark Harmonic Result.Amplitude must be a list")
-
-    normalized = [
-        _coerce_number(level, _TARGET_FSV40, _COMMAND_MARK_HARMONIC, "Amplitude")
-        for level in levels
-    ]
-    if len(normalized) != 4:
-        raise CommandError(
-            "FSV40 / Mark Harmonic Result.Amplitude must contain "
-            f"4 values, got {len(normalized)}"
+    amplitudes = _number_list(
+        result,
+        "Amplitude",
+        _TARGET_FSV40,
+        _COMMAND_MARK_HARMONIC,
+        expected_count=4,
+    )
+    frequencies = _number_list(
+        result,
+        "Frequency",
+        _TARGET_FSV40,
+        _COMMAND_MARK_HARMONIC,
+        expected_count=4,
+    )
+    return [
+        HarmonicMarker(
+            order=order,
+            amplitude_dbm=amplitude,
+            peak_frequency_mhz=frequency,
         )
-    return normalized
+        for order, amplitude, frequency in zip(
+            (2, 3, 4, 5),
+            amplitudes,
+            frequencies,
+            strict=True,
+        )
+    ]
+
+
+def setup_sa_precision(
+    client: Any,
+    *,
+    peak_frequency: float,
+    sweep_time: int,
+) -> bool:
+    """FSV40 정밀측정 SA 설정."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_LOAD_SA_PRECISION_SETTING,
+        {
+            "Peak Frequency": float(peak_frequency),
+            "Sweep Time": int(sweep_time),
+        },
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_PRECISION_SETTING)
+
+
+def measure_harmonic_precision(client: Any) -> float:
+    """Harmonic 정밀측정 amplitude(dBm)를 반환한다."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_MARK_HARMONIC_PRECISION,
+        {},
+    )
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_HARMONIC_PRECISION)
+    return _number(result, "Amplitude", _TARGET_FSV40, _COMMAND_MARK_HARMONIC_PRECISION)
 
 
 def measure_inband(client: Any, *, limit: float) -> float:
@@ -557,6 +604,27 @@ def _number(
     command: str,
 ) -> float:
     return _coerce_number(result.get(key), target, command, key)
+
+
+def _number_list(
+    result: dict[str, Any],
+    key: str,
+    target: str,
+    command: str,
+    *,
+    expected_count: int,
+) -> list[float]:
+    values = result.get(key)
+    if isinstance(values, str | bytes) or not isinstance(values, Sequence):
+        raise CommandError(f"{target} / {command} Result.{key} must be a list")
+
+    normalized = [_coerce_number(value, target, command, key) for value in values]
+    if len(normalized) != expected_count:
+        raise CommandError(
+            f"{target} / {command} Result.{key} must contain "
+            f"{expected_count} values, got {len(normalized)}"
+        )
+    return normalized
 
 
 def _coerce_number(value: Any, target: str, command: str, key: str) -> float:

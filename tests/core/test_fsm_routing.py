@@ -19,6 +19,7 @@ from app.core.fsm.states.measurement.common import (
 )
 from app.core.fsm.states.measurement.bilog import MeasureBilogState
 from app.core.fsm.states.measurement.harmonic import (
+    MeasureHarmonicPrecisionState,
     MeasureFundamentalState,
     MeasureHarmonicsState,
 )
@@ -119,18 +120,19 @@ def test_idle_starts_with_turntable_zero_before_ant_pol_change() -> None:
 
 
 @pytest.mark.parametrize(
-    ("state_factory", "test_type"),
+    ("state_factory", "test_type", "expected"),
     [
-        (MeasureHarmonicsState, TestType.HARMONIC),
-        (MeasureInBandState, TestType.INBAND),
-        (MeasureBilogState, TestType.BILOG),
+        (MeasureHarmonicsState, TestType.HARMONIC, "MeasureHarmonicPrecision"),
+        (MeasureHarmonicPrecisionState, TestType.HARMONIC, "ResetSwitchBox"),
+        (MeasureInBandState, TestType.INBAND, "ResetSwitchBox"),
+        (MeasureBilogState, TestType.BILOG, "ResetSwitchBox"),
     ],
 )
-def test_measurement_states_return_to_reset_switch_box(
-    state_factory: type, test_type: TestType
+def test_measurement_states_route_to_expected_next_state(
+    state_factory: type, test_type: TestType, expected: str
 ) -> None:
     ctx = _make_ctx(test_type)
-    assert state_factory().next_state(ctx, StateResult.OK) == "ResetSwitchBox"
+    assert state_factory().next_state(ctx, StateResult.OK) == expected
 
 
 def test_measurement_start_state_for_helper() -> None:
@@ -176,6 +178,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "ResetSwitchBox",
         "MeasureFundamental",
         "MeasureHarmonics",
+        "MeasureHarmonicPrecision",
         "MeasureInBand",
         "MeasureBilog",
     }

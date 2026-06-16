@@ -127,6 +127,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         SetupSpectrumAnalyzerStartupLevelState,
     )
     from app.core.fsm.states.measurement.harmonic import (
+        MeasureHarmonicPrecisionState,
         MeasureFundamentalState,
         MeasureHarmonicsState,
     )
@@ -179,6 +180,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     # Harmonic 전용 측정 상태
     engine.register(MeasureFundamentalState())
     engine.register(MeasureHarmonicsState())
+    engine.register(MeasureHarmonicPrecisionState())
 
     # InBand / Bilog 측정 상태 (스켈레톤)
     engine.register(MeasureInBandState())

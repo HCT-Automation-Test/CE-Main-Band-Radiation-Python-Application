@@ -41,6 +41,10 @@ def _format_target_frequency(value_mhz: float) -> str:
     return f"{value_mhz:.3f}MHz"
 
 
+def _format_precision_frequency(value_mhz: float) -> str:
+    return f"{value_mhz:.3f}MHz"
+
+
 def build_sa_screenshot_path(
     *,
     root_dir: Path,
@@ -65,6 +69,39 @@ def build_sa_screenshot_path(
         f"{_SA_DIR}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_format_range_frequency(test_range.start_freq)}_"
         f"{_format_range_frequency(test_range.stop_freq)}_{axis_pol}.png"
+    )
+
+    return (
+        Path(root_dir)
+        / model
+        / _TRAFFIC_DIR
+        / _RAT_DIR
+        / band
+        / dut_ant_position
+        / _SA_DIR
+        / filename
+    )
+
+
+def build_harmonic_precision_screenshot_path(
+    *,
+    root_dir: Path,
+    model_name: str,
+    test_case: TestCase,
+    peak_frequency_mhz: float,
+    sweep_time_ms: int,
+) -> Path:
+    """Harmonic 정밀측정 스크린샷 최종 저장 경로를 만든다."""
+
+    model = _sanitize_path_part(model_name, field_name="model_name")
+    band = test_case.band.value
+    dut_ant_position = test_case.dut_ant_position.name
+    axis_pol = f"{test_case.dut_axis.value}{test_case.antenna_pol.value}"
+
+    filename = (
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{_SA_DIR}_{band}_"
+        f"{dut_ant_position}_{_format_precision_frequency(peak_frequency_mhz)}_"
+        f"{axis_pol}_{int(sweep_time_ms)}ms.png"
     )
 
     return (
@@ -133,6 +170,38 @@ def finalize_sa_screenshot(
         root_dir=root_dir,
         model_name=model_name,
         test_case=test_case,
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source_path, destination)
+
+    if events is not None and hasattr(events, "screenshot_saved"):
+        events.screenshot_saved.emit(str(destination))
+    return destination
+
+
+def finalize_harmonic_precision_screenshot(
+    *,
+    source_path: Path,
+    root_dir: Path | None,
+    model_name: str,
+    test_case: TestCase,
+    peak_frequency_mhz: float,
+    sweep_time_ms: int,
+    events: Any | None = None,
+) -> Path:
+    """정밀측정 임시 스크린샷을 최종 파일명으로 복사한다."""
+
+    if root_dir is None:
+        raise ValueError("screenshot_root_dir is required")
+    if not source_path.is_file():
+        raise FileNotFoundError(f"{source_path} does not exist")
+
+    destination = build_harmonic_precision_screenshot_path(
+        root_dir=root_dir,
+        model_name=model_name,
+        test_case=test_case,
+        peak_frequency_mhz=peak_frequency_mhz,
+        sweep_time_ms=sweep_time_ms,
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source_path, destination)
