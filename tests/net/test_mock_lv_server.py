@@ -98,6 +98,12 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
             sweep_time=100,
         )
         assert commands.measure_harmonic_precision(client) == -31.0
+        assert commands.setup_sa_precision(
+            client,
+            peak_frequency=markers[0].peak_frequency_mhz,
+            sweep_time=500,
+        )
+        assert commands.measure_harmonic_precision(client) == -34.0
         assert (tmp_path / "precision.png").is_file()
         assert commands.set_antenna_pol(
             client,

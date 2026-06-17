@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import random
 import shutil
 import signal
@@ -250,13 +251,13 @@ class MockLvServer:
             )
         if request.command == _COMMAND_MARK_HARMONIC_PRECISION:
             self._write_png("precision.png")
-            sweep_time = 0.1
+            sweep_time_sec = 0.1
             if self.state.last_sa_precision_params is not None:
-                sweep_time = _coerce_float(
+                sweep_time_sec = _coerce_float(
                     self.state.last_sa_precision_params.get("Sweep Time"),
                     0.1,
                 )
-            amplitude = -31.0 if sweep_time == 0.1 else -34.0
+            amplitude = -31.0 if math.isclose(sweep_time_sec, 0.1) else -34.0
             return _ok(request, {"Amplitude": amplitude})
         if request.command == _COMMAND_MARK_INBAND:
             self._write_png("inband.png")
