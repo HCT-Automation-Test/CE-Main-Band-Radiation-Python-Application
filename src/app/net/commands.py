@@ -482,7 +482,10 @@ def setup_sa_precision(
     peak_frequency: float,
     sweep_time: int,
 ) -> bool:
-    """FSV40 정밀측정 SA 설정."""
+    """FSV40 정밀측정 SA 설정.
+
+    Python 내부 sweep_time 인자는 ms 기준이고, LV 프로토콜에는 s 기준으로 전송한다.
+    """
     response = _send_request(
         client,
         _TARGET_FSV40,
