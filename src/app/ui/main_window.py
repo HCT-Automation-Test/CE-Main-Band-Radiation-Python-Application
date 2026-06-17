@@ -34,7 +34,7 @@ from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.instrument_set_progress_dialog import InstrumentSetProgressDialog
 from app.ui.manual_test_panel import ManualTestPanel
-from app.ui.rf_filter_box_panel import RFFilterBoxPanel
+from app.ui.rf_filter_box_panel import RFFilterBoxPanel, RFSwitchBoxService
 from app.ui.test_manager_panel import TestManagerPanel
 from app.ui.test_plot_screenshot_panel import TestPlotScreenshotPanel
 
@@ -76,6 +76,11 @@ class MainWindow(QMainWindow):
         self._pending_tdf_file_name: str | None = None
         self._tdf_progress_dialog: InstrumentSetProgressDialog | None = None
         self._tdf_service = TdfService(
+            self,
+            client=self._runner.client,
+            commands=self._runner.commands,
+        )
+        self._rf_switch_box_service = RFSwitchBoxService(
             self,
             client=self._runner.client,
             commands=self._runner.commands,
@@ -123,6 +128,9 @@ class MainWindow(QMainWindow):
         self._runner.events.switch_box_info_changed.connect(
             self._test_manager_panel.set_switch_box_info,
         )
+        self._runner.events.switch_box_info_changed.connect(
+            self._rf_filter_box_panel.set_switch_box_info,
+        )
         self._runner.events.turntable_info_changed.connect(
             self._test_manager_panel.update_turntable_info,
         )
@@ -144,6 +152,9 @@ class MainWindow(QMainWindow):
         self._runner.instrument_connection_service.connection_finished.connect(
             self._test_manager_panel.set_connection_state,
         )
+        self._runner.instrument_connection_service.connection_finished.connect(
+            self._rf_filter_box_panel.set_connection_state,
+        )
         self._runner.instrument_connection_service.error_occurred.connect(
             self._test_manager_panel.set_connection_failed,
         )
@@ -161,6 +172,7 @@ class MainWindow(QMainWindow):
         )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
         self._test_manager_panel.set_connection_state(self._runner.equipment_state)
+        self._rf_filter_box_panel.set_connection_state(self._runner.equipment_state)
 
     def _setup_main_layout(self) -> None:
         """좌측 서브 윈도우 선택 버튼과 우측 화면 스택을 구성한다."""
@@ -197,6 +209,10 @@ class MainWindow(QMainWindow):
         )
         self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
+        self._rf_filter_box_panel = RFFilterBoxPanel(
+            self._page_stack,
+            service=self._rf_switch_box_service,
+        )
 
         self._add_navigation_page(
             navigation_layout,
@@ -217,7 +233,7 @@ class MainWindow(QMainWindow):
             index=2,
             button_text="RF Filter\nBox",
             object_name="rfFilterBox",
-            page_widget=RFFilterBoxPanel(self._page_stack),
+            page_widget=self._rf_filter_box_panel,
         )
         self._add_navigation_page(
             navigation_layout,
@@ -440,6 +456,7 @@ class MainWindow(QMainWindow):
         """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
 
         self._test_manager_panel.set_connection_state(states)
+        self._rf_filter_box_panel.set_connection_state(states)
         self._instrument_check_panel.mark_all_equipment_disconnected()
 
     def _update_instrument_operation_lock(self) -> None:
@@ -457,6 +474,7 @@ class MainWindow(QMainWindow):
             or self._instrument_set_active
             or self._tdf_operation_active
         )
+        self._rf_filter_box_panel.set_operation_locked(block_reason is not None)
         self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
 
     def _ensure_tdf_operation_allowed(self) -> bool:

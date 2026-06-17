@@ -567,6 +567,24 @@ def test_set_switch_box_sends_input_then_filter() -> None:
     ]
 
 
+def test_set_switch_input_sends_input_only() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.set_switch_input(client, input_path=InputPath.INPUT2) is True
+    assert client.calls == [
+        ("Switch Box", "Set Input", {"Input Path": 2}),
+    ]
+
+
+def test_set_switch_filter_sends_filter_only() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.set_switch_filter(client, filter_path=FilterPath.PORT_14) is True
+    assert client.calls == [
+        ("Switch Box", "Set Filter", {"Filter Path": 20}),
+    ]
+
+
 def test_set_switch_box_raises_when_set_input_returns_error() -> None:
     client = _Client(
         Response(
