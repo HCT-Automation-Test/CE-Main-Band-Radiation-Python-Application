@@ -1910,6 +1910,10 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
     service = window._runner.instrument_connection_service
 
     service.connection_started.emit()
+    window.findChild(RFFilterBoxPanel).set_connection_state({"Switch Box": True})
+    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+
+    service.connection_started.emit()
     service.error_occurred.emit("boom")
 
     for index in range(1, 6):
@@ -1917,6 +1921,12 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
         assert indicator is not None
         assert indicator.property("connectionStatus") == "failed"
         assert indicator.property("connected") is False
+    assert not window.findChild(QPushButton, "inputButton1").isEnabled()
+    assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    assert (
+        window.findChild(QLabel, "operationStatusLabel").text()
+        == "Switch Box not connected"
+    )
 
 
 def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:

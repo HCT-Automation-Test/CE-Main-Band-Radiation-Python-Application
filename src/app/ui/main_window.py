@@ -156,7 +156,7 @@ class MainWindow(QMainWindow):
             self._rf_filter_box_panel.set_connection_state,
         )
         self._runner.instrument_connection_service.error_occurred.connect(
-            self._test_manager_panel.set_connection_failed,
+            self.on_instrument_connection_error,
         )
         self._runner.instrument_connection_service.set_started.connect(
             self.on_instrument_set_started,
@@ -458,6 +458,13 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.set_connection_state(states)
         self._rf_filter_box_panel.set_connection_state(states)
         self._instrument_check_panel.mark_all_equipment_disconnected()
+
+    def on_instrument_connection_error(self, message: str) -> None:
+        """장비 연결 실패 상태를 각 패널에 반영한다."""
+
+        _ = message
+        self._test_manager_panel.set_connection_failed()
+        self._rf_filter_box_panel.set_connection_state({})
 
     def _update_instrument_operation_lock(self) -> None:
         block_reason = None
