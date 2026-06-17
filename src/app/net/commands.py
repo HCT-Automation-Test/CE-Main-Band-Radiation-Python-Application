@@ -26,7 +26,7 @@ _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
-_COMMAND_MARK_HARMONIC_PRECISION = "Mark Harmonic Precision"
+_COMMAND_MARK_HARMONIC_PRECISION = "Mark Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
@@ -433,10 +433,11 @@ def measure_harmonics(
     *,
     fundamental: float,
 ) -> list[HarmonicMarker]:
-    """2nd~5th harmonic amplitude(dBm) 4개를 순서대로 반환한다. §4.7.
+    """2nd~5th harmonic amplitude(dBm)와 peak frequency(MHz)를 순서대로 반환한다. §4.7.
 
     외부 프로그램은 측정 중 `temp_dir/harmonic.png` 경로에 SA 스크린샷을
-    남긴다고 가정한다.
+    남긴다고 가정한다. LV 응답의 Frequency는 Hz로 수신하고, Python 내부에서는
+    MHz 기준을 유지한다.
     """
     response = _send_request(
         client,
@@ -452,13 +453,14 @@ def measure_harmonics(
         _COMMAND_MARK_HARMONIC,
         expected_count=4,
     )
-    frequencies = _number_list(
+    frequencies_hz = _number_list(
         result,
         "Frequency",
         _TARGET_FSV40,
         _COMMAND_MARK_HARMONIC,
         expected_count=4,
     )
+    frequencies_mhz = [frequency_hz / _HZ_PER_MHZ for frequency_hz in frequencies_hz]
     return [
         HarmonicMarker(
             order=order,
@@ -468,7 +470,7 @@ def measure_harmonics(
         for order, amplitude, frequency in zip(
             (2, 3, 4, 5),
             amplitudes,
-            frequencies,
+            frequencies_mhz,
             strict=True,
         )
     ]
@@ -487,7 +489,7 @@ def setup_sa_precision(
         _COMMAND_LOAD_SA_PRECISION_SETTING,
         {
             "Peak Frequency": float(peak_frequency),
-            "Sweep Time": int(sweep_time),
+            "Sweep Time": float(sweep_time / 1000),
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_PRECISION_SETTING)

@@ -85,6 +85,12 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
             (4, -51.0),
             (5, -56.2),
         ]
+        assert [marker.peak_frequency_mhz for marker in markers] == [
+            7100.5,
+            10650.75,
+            14201.0,
+            17751.25,
+        ]
         assert (tmp_path / "harmonic.png").is_file()
         assert commands.setup_sa_precision(
             client,
