@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -66,12 +65,6 @@ class _Commands:
         harmonics_exception: Exception | None = None,
         inband_exception: Exception | None = None,
         bilog_exception: Exception | None = None,
-        preset_configured: bool = True,
-        preset_exception: Exception | None = None,
-        tdf_configured: bool = True,
-        tdf_exception: Exception | None = None,
-        startup_level_configured: bool = True,
-        startup_level_exception: Exception | None = None,
         fundamental_screenshot_path: Path | None = None,
         harmonic_screenshot_path: Path | None = None,
         inband_screenshot_path: Path | None = None,
@@ -89,20 +82,11 @@ class _Commands:
         self.harmonics_exception = harmonics_exception
         self.inband_exception = inband_exception
         self.bilog_exception = bilog_exception
-        self.preset_configured = preset_configured
-        self.preset_exception = preset_exception
-        self.tdf_configured = tdf_configured
-        self.tdf_exception = tdf_exception
-        self.startup_level_configured = startup_level_configured
-        self.startup_level_exception = startup_level_exception
         self.fundamental_screenshot_path = fundamental_screenshot_path
         self.harmonic_screenshot_path = harmonic_screenshot_path
         self.inband_screenshot_path = inband_screenshot_path
         self.bilog_screenshot_path = bilog_screenshot_path
         self.calls: list[tuple[str, dict[str, Any]]] = []
-        self.preset_calls: list[Any] = []
-        self.set_tdf_calls: list[tuple[Any, dict[str, Any]]] = []
-        self.setup_sa_startup_level_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_inband_calls: list[tuple[Any, dict[str, Any]]] = []
@@ -110,27 +94,6 @@ class _Commands:
         self.setup_sa_precision_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_harmonic_precision_calls: list[Any] = []
         self.precision_amplitudes: list[float] = []
-
-    def preset_sa(self, client: Any) -> bool:
-        self.calls.append(("preset_sa", {}))
-        self.preset_calls.append(client)
-        if self.preset_exception is not None:
-            raise self.preset_exception
-        return self.preset_configured
-
-    def set_tdf(self, client: Any, **params: Any) -> bool:
-        self.calls.append(("set_tdf", params))
-        self.set_tdf_calls.append((client, params))
-        if self.tdf_exception is not None:
-            raise self.tdf_exception
-        return self.tdf_configured
-
-    def setup_sa_startup_levels(self, client: Any, **params: Any) -> bool:
-        self.calls.append(("setup_sa_startup_levels", params))
-        self.setup_sa_startup_level_calls.append((client, params))
-        if self.startup_level_exception is not None:
-            raise self.startup_level_exception
-        return self.startup_level_configured
 
     def measure_fundamental(self, client: Any, *, target_freq: float) -> float:
         self.calls.append(("measure_fundamental", {"target_freq": target_freq}))
@@ -308,12 +271,6 @@ def _make_ctx(
     model_name: str = "SM-000",
     screenshot_root_dir: Path | None = None,
 ) -> SessionContext:
-    settings = SimpleNamespace(
-        atten_level_db=0.0,
-        next_peak_search_level_db=0.0,
-        active_tdf_file_name="NR_Radiated.tdf",
-        saturation_time_sec=0.0,
-    )
     ctx = SessionContext(
         queue=[case or _make_case(test_type)],
         commands=commands or _Commands(),
@@ -321,7 +278,6 @@ def _make_ctx(
         report_writer=report_writer,
         temp_dir=temp_dir,
         fundamental_frequency_mhz=fundamental_frequency_mhz,
-        settings=settings,
         model_name=model_name,
         screenshot_root_dir=screenshot_root_dir or temp_dir,
     )
@@ -364,18 +320,7 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
     result = MeasureFundamentalState().run(ctx)
 
     assert result is StateResult.OK
-    assert commands.calls == [
-        ("preset_sa", {}),
-        ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
-        (
-            "setup_sa_startup_levels",
-            {
-                "atten_level_db": 0.0,
-                "next_peak_search_level_db": 0.0,
-            },
-        ),
-        ("measure_fundamental", {"target_freq": 3549.99}),
-    ]
+    assert commands.calls == [("measure_fundamental", {"target_freq": 3549.99})]
     assert commands.measure_fundamental_calls == [
         (None, {"target_freq": 3549.99})
     ]
@@ -449,83 +394,6 @@ def test_measure_fundamental_skips_when_fsv40_is_not_connected() -> None:
     assert commands.calls == []
     assert commands.measure_fundamental_calls == []
     assert events.error.messages
-
-
-def test_measure_fundamental_requires_settings(tmp_path: Path) -> None:
-    events = _Events()
-    commands = _Commands(fundamental_screenshot_path=tmp_path / "fundamental.png")
-    ctx = _make_ctx(
-        MeasurementTestType.HARMONIC,
-        commands=commands,
-        events=events,
-        temp_dir=tmp_path,
-    )
-    ctx.settings = None
-
-    result = MeasureFundamentalState().run(ctx)
-
-    assert result is StateResult.FAIL
-    assert commands.calls == []
-    assert commands.measure_fundamental_calls == []
-    assert events.error.messages == [
-        "Fundamental 측정 실패: settings is required"
-    ]
-
-
-@pytest.mark.parametrize(
-    ("commands", "expected_calls", "expected_message"),
-    [
-        (
-            _Commands(preset_configured=False),
-            [("preset_sa", {})],
-            "Fundamental 측정 실패: preset_sa returned false",
-        ),
-        (
-            _Commands(tdf_configured=False),
-            [
-                ("preset_sa", {}),
-                ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
-            ],
-            "Fundamental 측정 실패: set_tdf returned false",
-        ),
-        (
-            _Commands(startup_level_configured=False),
-            [
-                ("preset_sa", {}),
-                ("set_tdf", {"tdf_file_name": "NR_Radiated.tdf"}),
-                (
-                    "setup_sa_startup_levels",
-                    {
-                        "atten_level_db": 0.0,
-                        "next_peak_search_level_db": 0.0,
-                    },
-                ),
-            ],
-            "Fundamental 측정 실패: setup_sa_startup_levels returned false",
-        ),
-    ],
-)
-def test_measure_fundamental_stops_when_preset_sequence_returns_false(
-    tmp_path: Path,
-    commands: _Commands,
-    expected_calls: list[tuple[str, dict[str, Any]]],
-    expected_message: str,
-) -> None:
-    events = _Events()
-    ctx = _make_ctx(
-        MeasurementTestType.HARMONIC,
-        commands=commands,
-        events=events,
-        temp_dir=tmp_path,
-    )
-
-    result = MeasureFundamentalState().run(ctx)
-
-    assert result is StateResult.FAIL
-    assert commands.calls == expected_calls
-    assert commands.measure_fundamental_calls == []
-    assert events.spectrum_analyzer_info_changed.messages == []
-    assert events.error.messages == [expected_message]
 
 
 def test_measure_harmonics_uses_fundamental_threshold_and_screenshot(

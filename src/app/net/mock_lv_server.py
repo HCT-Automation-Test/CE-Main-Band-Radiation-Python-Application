@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import math
 import random
 import shutil
 import signal
@@ -37,13 +38,12 @@ _TARGET_SWITCH_BOX = "Switch Box"
 _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
-_COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
-_COMMAND_MARK_HARMONIC_PRECISION = "Mark Harmonic Precision"
+_COMMAND_MARK_HARMONIC_PRECISION = "Mark Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
@@ -106,8 +106,6 @@ class MockLvState:
     switch_input_path: int | None = None
     switch_filter_path: int | None = None
     antenna_pol: str | None = None
-    last_preset_params: dict[str, Any] | None = None
-    preset_count: int = 0
     last_sa_range_params: dict[str, Any] | None = None
     last_sa_level_params: dict[str, Any] | None = None
     last_sa_precision_params: dict[str, Any] | None = None
@@ -219,10 +217,6 @@ class MockLvServer:
         return _error(request, "unsupported command")
 
     def _handle_fsv40(self, request: Request) -> Response:
-        if request.command == _COMMAND_PRESET:
-            self.state.last_preset_params = dict(request.params)
-            self.state.preset_count += 1
-            return _ok(request)
         if request.command == _COMMAND_LOAD_SA_LEVEL_SETTING:
             self.state.last_sa_level_params = dict(request.params)
             return _ok(request)
@@ -247,18 +241,23 @@ class MockLvServer:
                 request,
                 {
                     "Amplitude": [-42.1, -48.0, -51.0, -56.2],
-                    "Frequency": [7100.5, 10650.75, 14201.0, 17751.25],
+                    "Frequency": [
+                        7100500000.0,
+                        10650750000.0,
+                        14201000000.0,
+                        17751250000.0,
+                    ],
                 },
             )
         if request.command == _COMMAND_MARK_HARMONIC_PRECISION:
             self._write_png("precision.png")
-            sweep_time = 100
+            sweep_time_sec = 0.1
             if self.state.last_sa_precision_params is not None:
-                sweep_time = _coerce_int(
+                sweep_time_sec = _coerce_float(
                     self.state.last_sa_precision_params.get("Sweep Time"),
-                    100,
+                    0.1,
                 )
-            amplitude = -31.0 if sweep_time == 100 else -34.0
+            amplitude = -31.0 if math.isclose(sweep_time_sec, 0.1) else -34.0
             return _ok(request, {"Amplitude": amplitude})
         if request.command == _COMMAND_MARK_INBAND:
             self._write_png("inband.png")

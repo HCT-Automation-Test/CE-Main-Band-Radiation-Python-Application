@@ -166,7 +166,7 @@ def test_mock_lv_client_measure_harmonics_prints_marker_return(
         text = output.getvalue()
         assert "REQUEST  FSV40 / Mark Harmonic" in text
         assert '"Amplitude": [-42.1, -48.0, -51.0, -56.2]' in text
-        assert '"Frequency": [7100.5, 10650.75, 14201.0, 17751.25]' in text
+        assert '"Frequency": [7100500000.0, 10650750000.0, 14201000000.0, 17751250000.0]' in text
         assert "RETURN   " in text
         assert '"order": 2' in text
         assert '"amplitude_dbm": -42.1' in text

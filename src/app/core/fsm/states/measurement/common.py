@@ -108,43 +108,6 @@ def _wait_for_saturation_time(ctx: "SessionContext") -> bool:
         time.sleep(min(_POLL_INTERVAL_SEC, remaining))
 
 
-def _apply_spectrum_analyzer_preset_settings(
-    ctx: "SessionContext",
-    *,
-    failure_context: str,
-) -> StateResult:
-    if ctx.settings is None:
-        _emit_error(ctx, f"{failure_context}: settings is required")
-        return StateResult.FAIL
-
-    settings = ctx.settings
-    try:
-        if not ctx.commands.preset_sa(ctx.client):
-            _emit_error(ctx, f"{failure_context}: preset_sa returned false")
-            return StateResult.FAIL
-        if not ctx.commands.set_tdf(
-            ctx.client,
-            tdf_file_name=settings.active_tdf_file_name,
-        ):
-            _emit_error(ctx, f"{failure_context}: set_tdf returned false")
-            return StateResult.FAIL
-        if not ctx.commands.setup_sa_startup_levels(
-            ctx.client,
-            atten_level_db=settings.atten_level_db,
-            next_peak_search_level_db=settings.next_peak_search_level_db,
-        ):
-            _emit_error(
-                ctx,
-                f"{failure_context}: setup_sa_startup_levels returned false",
-            )
-            return StateResult.FAIL
-    except Exception as exc:
-        _emit_error(ctx, f"{failure_context}: {exc}")
-        return StateResult.FAIL
-
-    return StateResult.OK
-
-
 class SetupSpectrumAnalyzerStartupLevelState(State):
     """시험 시작 전 FSV40 Atten/Next Peak Search Level을 1회 설정한다."""
 
@@ -249,13 +212,6 @@ class SetupSpectrumAnalyzerState(State):
             return StateResult.OK
 
         test_range = ctx.current_case.range_definition
-        prepared = _apply_spectrum_analyzer_preset_settings(
-            ctx,
-            failure_context="Spectrum Analyzer 설정 실패",
-        )
-        if prepared is not StateResult.OK:
-            return prepared
-
         try:
             configured = ctx.commands.setup_sa(ctx.client, test_range=test_range)
         except Exception as exc:

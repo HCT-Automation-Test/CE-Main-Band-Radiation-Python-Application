@@ -331,13 +331,6 @@ def test_tdf_all_off_sends_default_params() -> None:
     assert client.calls == [("FSV40", "TDF All Off", {})]
 
 
-def test_preset_sa_sends_default_params() -> None:
-    client = _Client(_default_ok())
-
-    assert commands.preset_sa(client) is True
-    assert client.calls == [("FSV40", "Preset", {})]
-
-
 def test_set_tdf_sends_file_name_param() -> None:
     client = _Client(_default_ok())
 
@@ -350,7 +343,6 @@ def test_set_tdf_sends_file_name_param() -> None:
     [
         (commands.set_reference_co3000, "CO3000", "Set Reference"),
         (commands.self_align_fsv40, "FSV40", "Self Alignment"),
-        (commands.preset_sa, "FSV40", "Preset"),
         (commands.tdf_all_off, "FSV40", "TDF All Off"),
     ],
 )
@@ -465,7 +457,7 @@ def test_measure_harmonics_returns_four_levels() -> None:
     client = _Client(
         _ok(
             Amplitude=[-42.1, -48, -51.0, -56.2],
-            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+            Frequency=[7100500000.0, 10650750000.0, 14201000000.0, 17751250000.0],
         )
     )
 
@@ -502,7 +494,7 @@ def test_setup_sa_precision_sends_peak_frequency_and_sweep_time() -> None:
         (
             "FSV40",
             "Load SA Precision Setting",
-            {"Peak Frequency": 14088.35, "Sweep Time": 100},
+            {"Peak Frequency": 14088.35, "Sweep Time": 0.1},
         )
     ]
 
@@ -511,7 +503,7 @@ def test_measure_harmonic_precision_returns_amplitude() -> None:
     client = _Client(_ok(Amplitude=-28.7))
 
     assert commands.measure_harmonic_precision(client) == -28.7
-    assert client.calls == [("FSV40", "Mark Harmonic Precision", {})]
+    assert client.calls == [("FSV40", "Mark Precision", {})]
 
 
 def test_measure_inband_rejects_missing_amplitude() -> None:
@@ -749,7 +741,7 @@ def test_measure_harmonics_rejects_wrong_level_count() -> None:
     client = _Client(
         _ok(
             Amplitude=[-42.0, -43.0, -44.0],
-            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+            Frequency=[7100500000.0, 10650750000.0, 14201000000.0, 17751250000.0],
         )
     )
 
@@ -761,7 +753,7 @@ def test_measure_harmonics_rejects_non_list_amplitude() -> None:
     client = _Client(
         _ok(
             Amplitude="-42.0,-43.0,-44.0,-45.0",
-            Frequency=[7100.5, 10650.75, 14201.0, 17751.25],
+            Frequency=[7100500000.0, 10650750000.0, 14201000000.0, 17751250000.0],
         )
     )
 
@@ -786,7 +778,7 @@ def test_measure_harmonics_rejects_wrong_frequency_count() -> None:
     client = _Client(
         _ok(
             Amplitude=[-42.0, -43.0, -44.0, -45.0],
-            Frequency=[7100.5, 10650.75, 14201.0],
+            Frequency=[7100500000.0, 10650750000.0, 14201000000.0],
         )
     )
 

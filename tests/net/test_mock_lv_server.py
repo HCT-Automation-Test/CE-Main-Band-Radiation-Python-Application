@@ -85,6 +85,12 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
             (4, -51.0),
             (5, -56.2),
         ]
+        assert [marker.peak_frequency_mhz for marker in markers] == [
+            7100.5,
+            10650.75,
+            14201.0,
+            17751.25,
+        ]
         assert (tmp_path / "harmonic.png").is_file()
         assert commands.setup_sa_precision(
             client,
@@ -92,6 +98,12 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
             sweep_time=100,
         )
         assert commands.measure_harmonic_precision(client) == -31.0
+        assert commands.setup_sa_precision(
+            client,
+            peak_frequency=markers[0].peak_frequency_mhz,
+            sweep_time=500,
+        )
+        assert commands.measure_harmonic_precision(client) == -34.0
         assert (tmp_path / "precision.png").is_file()
         assert commands.set_antenna_pol(
             client,
@@ -663,29 +675,6 @@ def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
             ("FSV40", "TDF All Off", {}),
             ("FSV40", "Set TDF", {"TDF File Name": "NR_Radiated.tdf"}),
         ]
-    finally:
-        client.disconnect_from_host()
-        server.stop()
-
-
-def test_mock_lv_server_handles_preset(qtbot, tmp_path) -> None:
-    server = MockLvServer(port=0, temp_dir=tmp_path)
-    server.start()
-    client = TcpClient()
-
-    try:
-        _connect(client, server, qtbot)
-
-        assert commands.preset_sa(client)
-
-        request = server.received_requests[-1]
-        assert (request.target, request.command, request.params) == (
-            "FSV40",
-            "Preset",
-            {},
-        )
-        assert server.state.last_preset_params == {}
-        assert server.state.preset_count == 1
     finally:
         client.disconnect_from_host()
         server.stop()

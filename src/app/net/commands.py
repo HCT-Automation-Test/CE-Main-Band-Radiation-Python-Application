@@ -21,13 +21,12 @@ _TARGET_SWITCH_BOX = "Switch Box"
 _TARGET_3D_CONTROLLER = "3D Controller"
 
 _COMMAND_CONNECT = "Connect"
-_COMMAND_PRESET = "Preset"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
-_COMMAND_MARK_HARMONIC_PRECISION = "Mark Harmonic Precision"
+_COMMAND_MARK_HARMONIC_PRECISION = "Mark Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
@@ -254,12 +253,6 @@ def self_align_fsv40(client: Any) -> bool:
     return _action_ok(response, _TARGET_FSV40, _COMMAND_SELF_ALIGNMENT)
 
 
-def preset_sa(client: Any) -> bool:
-    """FSV40 Spectrum Analyzer preset을 수행한다."""
-    response = _send_request(client, _TARGET_FSV40, _COMMAND_PRESET, {})
-    return _action_ok(response, _TARGET_FSV40, _COMMAND_PRESET)
-
-
 def get_tdf_list(client: Any) -> list[str]:
     """FSV40에 저장된 TDF 파일 목록을 조회한다."""
 
@@ -440,10 +433,11 @@ def measure_harmonics(
     *,
     fundamental: float,
 ) -> list[HarmonicMarker]:
-    """2nd~5th harmonic amplitude(dBm) 4개를 순서대로 반환한다. §4.7.
+    """2nd~5th harmonic amplitude(dBm)와 peak frequency(MHz)를 순서대로 반환한다. §4.7.
 
     외부 프로그램은 측정 중 `temp_dir/harmonic.png` 경로에 SA 스크린샷을
-    남긴다고 가정한다.
+    남긴다고 가정한다. LV 응답의 Frequency는 Hz로 수신하고, Python 내부에서는
+    MHz 기준을 유지한다.
     """
     response = _send_request(
         client,
@@ -459,13 +453,14 @@ def measure_harmonics(
         _COMMAND_MARK_HARMONIC,
         expected_count=4,
     )
-    frequencies = _number_list(
+    frequencies_hz = _number_list(
         result,
         "Frequency",
         _TARGET_FSV40,
         _COMMAND_MARK_HARMONIC,
         expected_count=4,
     )
+    frequencies_mhz = [frequency_hz / _HZ_PER_MHZ for frequency_hz in frequencies_hz]
     return [
         HarmonicMarker(
             order=order,
@@ -475,7 +470,7 @@ def measure_harmonics(
         for order, amplitude, frequency in zip(
             (2, 3, 4, 5),
             amplitudes,
-            frequencies,
+            frequencies_mhz,
             strict=True,
         )
     ]
@@ -487,14 +482,17 @@ def setup_sa_precision(
     peak_frequency: float,
     sweep_time: int,
 ) -> bool:
-    """FSV40 정밀측정 SA 설정."""
+    """FSV40 정밀측정 SA 설정.
+
+    Python 내부 sweep_time 인자는 ms 기준이고, LV 프로토콜에는 s 기준으로 전송한다.
+    """
     response = _send_request(
         client,
         _TARGET_FSV40,
         _COMMAND_LOAD_SA_PRECISION_SETTING,
         {
             "Peak Frequency": float(peak_frequency),
-            "Sweep Time": int(sweep_time),
+            "Sweep Time": float(sweep_time / 1000),
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_PRECISION_SETTING)
