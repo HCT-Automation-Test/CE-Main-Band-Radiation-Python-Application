@@ -2021,6 +2021,67 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
         service._connection_thread = None
 
 
+def test_main_window_applies_initial_switch_box_101_after_connection(
+    qtbot,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert window.findChild(QPushButton, "inputButton1").isChecked()
+    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
+
+
+@pytest.mark.parametrize(
+    "states",
+    [
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": False,
+        },
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+        },
+    ],
+)
+def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
+    qtbot,
+    states,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(states)
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
+    assert not window.findChild(QPushButton, "inputButton1").isChecked()
+    assert not window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == ""
+    assert window.findChild(QLineEdit, "filterEdit").text() == ""
+
+
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(
     qtbot,
     monkeypatch,

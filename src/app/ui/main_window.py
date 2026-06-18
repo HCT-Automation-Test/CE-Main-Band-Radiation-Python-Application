@@ -30,6 +30,7 @@ from app.core.runner import (
     Runner,
 )
 from app.core.tdf_service import TDF_OPERATION_IN_PROGRESS_MESSAGE, TdfService
+from app.models.enums import FilterPath, InputPath
 from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
@@ -52,6 +53,12 @@ _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
 RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE = "RF Switch Box 작업이 진행 중입니다."
+_SWITCH_BOX_INITIAL_PATH_INFO = {
+    "mast": "Bilog",
+    "filter": "Thru",
+    "input_path": InputPath.INPUT1,
+    "filter_path": FilterPath.THRU,
+}
 
 
 @dataclass(frozen=True)
@@ -493,6 +500,9 @@ class MainWindow(QMainWindow):
 
         self._test_manager_panel.set_connection_state(states)
         self._rf_filter_box_panel.set_connection_state(states)
+        if states.get("Switch Box") is True:
+            self._test_manager_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
+            self._rf_filter_box_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
         self._update_instrument_operation_lock(include_connecting=False)
 
     def _update_instrument_operation_lock(
