@@ -51,6 +51,7 @@ _SWP_NOSIZE = 0x0001
 _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
+RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE = "RF Switch Box 작업이 진행 중입니다."
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,9 @@ class MainWindow(QMainWindow):
             self,
             client=self._runner.client,
             commands=self._runner.commands,
+        )
+        self._runner.add_instrument_connection_blocker(
+            self._rf_switch_box_operation_block_reason,
         )
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._lock_default_window_size()
@@ -344,6 +348,10 @@ class MainWindow(QMainWindow):
     def on_start_requested(self) -> None:
         """Test Manager의 시작 요청을 Runner에 전달한다."""
 
+        block_reason = self._rf_switch_box_operation_block_reason()
+        if block_reason:
+            self._show_warning("RF Switch Box", block_reason)
+            return
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
@@ -467,7 +475,9 @@ class MainWindow(QMainWindow):
     def on_instrument_connection_error(self, message: str) -> None:
         """장비 연결 실패 상태를 각 패널에 반영한다."""
 
-        _ = message
+        if message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE:
+            self._update_instrument_operation_lock()
+            return
         self._test_manager_panel.set_connection_failed()
         self._rf_filter_box_panel.set_connection_state({})
         self._update_instrument_operation_lock()
@@ -555,8 +565,16 @@ class MainWindow(QMainWindow):
             return TDF_OPERATION_IN_PROGRESS_MESSAGE
         if self._runner.instrument_connection_service.is_connecting:
             return "장비 연결 요청이 진행 중입니다."
+        rf_block_reason = self._rf_switch_box_operation_block_reason()
+        if rf_block_reason:
+            return rf_block_reason
         if self._runner.equipment_state.get("FSV40") is not True:
             return _FSV40_NOT_CONNECTED_MESSAGE
+        return None
+
+    def _rf_switch_box_operation_block_reason(self) -> str | None:
+        if self._rf_switch_box_service.is_running:
+            return RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
         return None
 
     def _show_tdf_progress_dialog(self, initial_step: str) -> None:

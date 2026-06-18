@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 EngineFactory = Callable[[SessionContext], FSMEngine]
 ReportWriterFactory = Callable[[Path, Path, str, RunnerEvents], ReportWriter]
+InstrumentConnectionBlocker = Callable[[], str | None]
 
 _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
@@ -119,6 +120,7 @@ class Runner(QObject):
         self._measurement_active = False
         self._restart_index: int | None = None
         self._shutting_down = False
+        self._instrument_connection_blockers: list[InstrumentConnectionBlocker] = []
         self._instrument_connection_service = (
             instrument_connection_service
             if instrument_connection_service is not None
@@ -205,6 +207,14 @@ class Runner(QObject):
         """Instrument Set 작업이 진행 중인지 반환한다."""
 
         return bool(getattr(self._instrument_connection_service, "is_setting", False))
+
+    def add_instrument_connection_blocker(
+        self,
+        provider: InstrumentConnectionBlocker,
+    ) -> None:
+        """Instrument Check/Set 요청 직전 추가 차단 사유를 등록한다."""
+
+        self._instrument_connection_blockers.append(provider)
 
     def initialize(self) -> None:
         """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
@@ -389,6 +399,10 @@ class Runner(QObject):
     def _instrument_connection_block_reason(self) -> str | None:
         if self.is_measurement_active:
             return INSTRUMENT_CONNECTION_BLOCK_MESSAGE
+        for provider in self._instrument_connection_blockers:
+            reason = provider()
+            if reason:
+                return reason
         return None
 
     def _set_measurement_active(self, active: bool) -> None:
@@ -427,9 +441,10 @@ class Runner(QObject):
 
     @Slot(str)
     def _on_instrument_connection_error(self, message: str) -> None:
+        block_reason = self._instrument_connection_block_reason()
         if not should_preserve_equipment_state_on_connection_error(
             message,
-            block_reason=INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
+            block_reason=block_reason,
         ):
             self._equipment_state = {}
         self._emit_error(f"장비 연결 실패: {message}")
