@@ -26,6 +26,7 @@ from app.net import commands as default_commands
 
 logger = logging.getLogger(__name__)
 
+_DETACHED_THREADS: list[QThread] = []
 _BACKGROUND_PATH = (
     Path(__file__).resolve().parents[3] / "resources" / "images" / "rf_switch_box_bd.png"
 )
@@ -35,6 +36,24 @@ _BUTTON_WIDTH = 80
 _BUTTON_HEIGHT = 20
 _OUTPUT_WIDTH = 80
 _OUTPUT_HEIGHT = 21
+
+
+def _disconnect_safely(signal: Any, slot: Any) -> None:
+    try:
+        signal.disconnect(slot)
+    except (RuntimeError, TypeError):
+        pass
+
+
+def _forget_detached_thread(thread: QThread) -> None:
+    if thread in _DETACHED_THREADS:
+        _DETACHED_THREADS.remove(thread)
+
+
+def _delete_detached_thread(thread: QThread) -> None:
+    _forget_detached_thread(thread)
+    thread.deleteLater()
+
 
 _INPUT_BUTTONS: tuple[tuple[str, InputPath, tuple[int, int]], ...] = (
     ("Bilog", InputPath.INPUT1, (50, 369)),
@@ -266,10 +285,14 @@ class RFSwitchBoxService(QObject):
             self._worker.cancel()
         if self._thread is not None:
             thread = self._thread
+            _disconnect_safely(thread.finished, self._on_thread_finished)
+            _disconnect_safely(thread.finished, thread.deleteLater)
             thread.quit()
             if not thread.wait(1000):
                 logger.error("RF Switch Box worker thread did not stop cleanly")
-            thread.deleteLater()
+                self._detach_running_thread(thread)
+            else:
+                thread.deleteLater()
         self._thread = None
         self._worker = None
 
@@ -321,6 +344,13 @@ class RFSwitchBoxService(QObject):
     def _on_thread_finished(self) -> None:
         self._thread = None
         self._worker = None
+
+    def _detach_running_thread(self, thread: QThread) -> None:
+        thread.setParent(None)
+        _DETACHED_THREADS.append(thread)
+        thread.finished.connect(
+            lambda thread=thread: _delete_detached_thread(thread),
+        )
 
 
 class _CircuitCanvas(QWidget):

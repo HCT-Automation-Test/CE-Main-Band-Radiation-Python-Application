@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import threading
+from typing import Any
+
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QLabel, QPushButton
 
 from app.models.enums import FilterPath, InputPath
-from app.ui.rf_filter_box_panel import RFFilterBoxPanel
+from app.ui.rf_filter_box_panel import (
+    RFFilterBoxPanel,
+    RFSwitchBoxService,
+    _DETACHED_THREADS,
+)
 
 
 class _Service(QObject):
@@ -42,6 +49,31 @@ class _Service(QObject):
 
     def shutdown(self) -> None:
         return
+
+
+class _BlockingCommands:
+    def __init__(self, *, release_timeout_s: float = 5.0) -> None:
+        self.started = threading.Event()
+        self.release = threading.Event()
+        self.release_timeout_s = release_timeout_s
+
+    def set_switch_box(
+        self,
+        client: Any,
+        *,
+        input_path: InputPath,
+        filter_path: FilterPath,
+    ) -> bool:
+        _ = client, input_path, filter_path
+        self.started.set()
+        self.release.wait(self.release_timeout_s)
+        return True
+
+    def set_switch_filter(self, client: Any, *, filter_path: FilterPath) -> bool:
+        _ = client, filter_path
+        self.started.set()
+        self.release.wait(self.release_timeout_s)
+        return True
 
 
 def _connected_panel(qtbot) -> tuple[RFFilterBoxPanel, _Service]:
@@ -133,3 +165,20 @@ def test_panel_disables_controls_when_locked_or_disconnected(qtbot) -> None:
 
     assert not panel.findChild(QPushButton, "inputButton1").isEnabled()
     assert not panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+
+
+def test_rf_switch_box_service_shutdown_detaches_blocked_worker(qtbot) -> None:
+    commands = _BlockingCommands()
+    service = RFSwitchBoxService(client=object(), commands=commands)
+    detached_count = len(_DETACHED_THREADS)
+
+    service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
+    qtbot.waitUntil(commands.started.is_set, timeout=1000)
+
+    service.shutdown()
+
+    assert len(_DETACHED_THREADS) == detached_count + 1
+    assert not service.is_running
+
+    commands.release.set()
+    qtbot.waitUntil(lambda: len(_DETACHED_THREADS) == detached_count, timeout=1000)
