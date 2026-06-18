@@ -321,6 +321,30 @@ def measure_fundamental(client: Any, *, target_freq: float) -> float:
     return frequency_hz / _HZ_PER_MHZ
 
 
+def set_switch_input(client: Any, *, input_path: InputPath) -> bool:
+    """Switch Box 입력 경로만 설정한다."""
+
+    response = _send_request(
+        client,
+        _TARGET_SWITCH_BOX,
+        _COMMAND_SET_INPUT,
+        {"Input Path": int(input_path)},
+    )
+    return _action_ok(response, _TARGET_SWITCH_BOX, _COMMAND_SET_INPUT)
+
+
+def set_switch_filter(client: Any, *, filter_path: FilterPath) -> bool:
+    """Switch Box 필터 경로만 설정한다."""
+
+    response = _send_request(
+        client,
+        _TARGET_SWITCH_BOX,
+        _COMMAND_SET_FILTER,
+        {"Filter Path": int(filter_path)},
+    )
+    return _action_ok(response, _TARGET_SWITCH_BOX, _COMMAND_SET_FILTER)
+
+
 def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> bool:
     """Switch Box 경로 설정. §4.4 / §4.8."""
     input_response = _send_request(

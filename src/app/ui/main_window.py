@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import ctypes
+from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QCloseEvent, QShowEvent
@@ -34,7 +35,7 @@ from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.instrument_set_progress_dialog import InstrumentSetProgressDialog
 from app.ui.manual_test_panel import ManualTestPanel
-from app.ui.rf_filter_box_panel import RFFilterBoxPanel
+from app.ui.rf_filter_box_panel import RFFilterBoxPanel, RFSwitchBoxService
 from app.ui.test_manager_panel import TestManagerPanel
 from app.ui.test_plot_screenshot_panel import TestPlotScreenshotPanel
 
@@ -50,6 +51,14 @@ _SWP_NOSIZE = 0x0001
 _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
+RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE = "RF Switch Box 작업이 진행 중입니다."
+
+
+@dataclass(frozen=True)
+class _InstrumentOperationLockState:
+    instrument_block_reason: str | None
+    run_settings_locked: bool
+    rf_operation_locked: bool
 
 
 class _UserActionDialog(QDialog):
@@ -79,6 +88,14 @@ class MainWindow(QMainWindow):
             self,
             client=self._runner.client,
             commands=self._runner.commands,
+        )
+        self._rf_switch_box_service = RFSwitchBoxService(
+            self,
+            client=self._runner.client,
+            commands=self._runner.commands,
+        )
+        self._runner.add_instrument_connection_blocker(
+            self._rf_switch_box_operation_block_reason,
         )
         self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self._lock_default_window_size()
@@ -123,6 +140,9 @@ class MainWindow(QMainWindow):
         self._runner.events.switch_box_info_changed.connect(
             self._test_manager_panel.set_switch_box_info,
         )
+        self._runner.events.switch_box_info_changed.connect(
+            self._rf_filter_box_panel.set_switch_box_info,
+        )
         self._runner.events.turntable_info_changed.connect(
             self._test_manager_panel.update_turntable_info,
         )
@@ -139,13 +159,13 @@ class MainWindow(QMainWindow):
             self.on_session_finished,
         )
         self._runner.instrument_connection_service.connection_started.connect(
-            self._test_manager_panel.set_connection_connecting,
+            self.on_instrument_connection_started,
         )
         self._runner.instrument_connection_service.connection_finished.connect(
-            self._test_manager_panel.set_connection_state,
+            self.on_instrument_connection_finished,
         )
         self._runner.instrument_connection_service.error_occurred.connect(
-            self._test_manager_panel.set_connection_failed,
+            self.on_instrument_connection_error,
         )
         self._runner.instrument_connection_service.set_started.connect(
             self.on_instrument_set_started,
@@ -161,6 +181,7 @@ class MainWindow(QMainWindow):
         )
         self.on_measurement_active_changed(self._runner.is_measurement_active)
         self._test_manager_panel.set_connection_state(self._runner.equipment_state)
+        self._rf_filter_box_panel.set_connection_state(self._runner.equipment_state)
 
     def _setup_main_layout(self) -> None:
         """좌측 서브 윈도우 선택 버튼과 우측 화면 스택을 구성한다."""
@@ -197,6 +218,10 @@ class MainWindow(QMainWindow):
         )
         self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
+        self._rf_filter_box_panel = RFFilterBoxPanel(
+            self._page_stack,
+            service=self._rf_switch_box_service,
+        )
 
         self._add_navigation_page(
             navigation_layout,
@@ -217,7 +242,7 @@ class MainWindow(QMainWindow):
             index=2,
             button_text="RF Filter\nBox",
             object_name="rfFilterBox",
-            page_widget=RFFilterBoxPanel(self._page_stack),
+            page_widget=self._rf_filter_box_panel,
         )
         self._add_navigation_page(
             navigation_layout,
@@ -323,6 +348,10 @@ class MainWindow(QMainWindow):
     def on_start_requested(self) -> None:
         """Test Manager의 시작 요청을 Runner에 전달한다."""
 
+        block_reason = self._rf_switch_box_operation_block_reason()
+        if block_reason:
+            self._show_warning("RF Switch Box", block_reason)
+            return
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
@@ -440,24 +469,78 @@ class MainWindow(QMainWindow):
         """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
 
         self._test_manager_panel.set_connection_state(states)
+        self._rf_filter_box_panel.set_connection_state(states)
         self._instrument_check_panel.mark_all_equipment_disconnected()
 
-    def _update_instrument_operation_lock(self) -> None:
+    def on_instrument_connection_error(self, message: str) -> None:
+        """장비 연결 실패 상태를 각 패널에 반영한다."""
+
+        if message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE:
+            self._update_instrument_operation_lock()
+            return
+        self._test_manager_panel.set_connection_failed()
+        self._rf_filter_box_panel.set_connection_state({})
+        self._update_instrument_operation_lock()
+
+    def on_instrument_connection_started(self) -> None:
+        """장비 연결 진행 상태를 각 패널에 반영한다."""
+
+        self._test_manager_panel.set_connection_connecting()
+        self._update_instrument_operation_lock()
+
+    def on_instrument_connection_finished(self, states: dict[str, bool]) -> None:
+        """장비 연결 완료 상태를 각 패널에 반영한다."""
+
+        self._test_manager_panel.set_connection_state(states)
+        self._rf_filter_box_panel.set_connection_state(states)
+        self._update_instrument_operation_lock(include_connecting=False)
+
+    def _update_instrument_operation_lock(
+        self,
+        *,
+        include_connecting: bool = True,
+    ) -> None:
+        state = self._build_instrument_operation_lock_state(
+            measurement_active=self._runner.is_measurement_active,
+            instrument_set_active=self._instrument_set_active,
+            tdf_operation_active=self._tdf_operation_active,
+            connection_in_progress=(
+                include_connecting
+                and self._runner.instrument_connection_service.is_connecting
+            ),
+        )
+
+        self._instrument_check_panel.set_connection_block_reason(
+            state.instrument_block_reason,
+        )
+        self._test_manager_panel.set_run_settings_locked(state.run_settings_locked)
+        self._rf_filter_box_panel.set_operation_locked(state.rf_operation_locked)
+        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+
+    def _build_instrument_operation_lock_state(
+        self,
+        *,
+        measurement_active: bool,
+        instrument_set_active: bool,
+        tdf_operation_active: bool,
+        connection_in_progress: bool,
+    ) -> _InstrumentOperationLockState:
         block_reason = None
-        if self._runner.is_measurement_active:
+        if measurement_active:
             block_reason = INSTRUMENT_CONNECTION_BLOCK_MESSAGE
-        elif self._instrument_set_active:
+        elif instrument_set_active:
             block_reason = INSTRUMENT_SET_BLOCK_MESSAGE
-        elif self._tdf_operation_active:
+        elif tdf_operation_active:
             block_reason = TDF_OPERATION_IN_PROGRESS_MESSAGE
 
-        self._instrument_check_panel.set_connection_block_reason(block_reason)
-        self._test_manager_panel.set_run_settings_locked(
-            self._runner.is_measurement_active
-            or self._instrument_set_active
-            or self._tdf_operation_active
+        run_settings_locked = (
+            measurement_active or instrument_set_active or tdf_operation_active
         )
-        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+        return _InstrumentOperationLockState(
+            instrument_block_reason=block_reason,
+            run_settings_locked=run_settings_locked,
+            rf_operation_locked=run_settings_locked or connection_in_progress,
+        )
 
     def _ensure_tdf_operation_allowed(self) -> bool:
         block_reason = self._tdf_operation_block_reason()
@@ -482,8 +565,16 @@ class MainWindow(QMainWindow):
             return TDF_OPERATION_IN_PROGRESS_MESSAGE
         if self._runner.instrument_connection_service.is_connecting:
             return "장비 연결 요청이 진행 중입니다."
+        rf_block_reason = self._rf_switch_box_operation_block_reason()
+        if rf_block_reason:
+            return rf_block_reason
         if self._runner.equipment_state.get("FSV40") is not True:
             return _FSV40_NOT_CONNECTED_MESSAGE
+        return None
+
+    def _rf_switch_box_operation_block_reason(self) -> str | None:
+        if self._rf_switch_box_service.is_running:
+            return RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
         return None
 
     def _show_tdf_progress_dialog(self, initial_step: str) -> None:

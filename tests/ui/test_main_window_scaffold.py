@@ -44,7 +44,7 @@ from app.models.enums import (
 from app.models.test_case import TestCase
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
-from app.ui.main_window import MainWindow
+from app.ui.main_window import MainWindow, RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.nr_select import NRSelectDialog
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel
@@ -303,22 +303,25 @@ def test_main_window_pause_button_requests_runner_pause(qtbot) -> None:
         user_action_completed=threading.Event(),
     )
     window._runner._ctx = ctx
-    window._runner._set_measurement_active(True)
+    try:
+        window._runner._set_measurement_active(True)
 
-    pause_button = window.findChild(QPushButton, "pauseButton")
-    assert pause_button is not None
-    assert pause_button.isEnabled()
+        pause_button = window.findChild(QPushButton, "pauseButton")
+        assert pause_button is not None
+        assert pause_button.isEnabled()
 
-    pause_button.click()
+        pause_button.click()
 
-    assert ctx.current_case_stop_requested
-    assert not ctx.paused
-    assert not ctx.test_start_requested.is_set()
-    assert ctx.user_action_completed.is_set()
+        assert ctx.current_case_stop_requested
+        assert not ctx.paused
+        assert not ctx.test_start_requested.is_set()
+        assert ctx.user_action_completed.is_set()
 
-    window._runner._set_measurement_active(False)
+        window._runner._set_measurement_active(False)
 
-    assert not pause_button.isEnabled()
+        assert not pause_button.isEnabled()
+    finally:
+        window._runner._ctx = None
 
 
 def test_main_window_blocks_instrument_connect_while_measurement_active(
@@ -1245,6 +1248,39 @@ def test_main_window_start_resets_test_case_progress(
     assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
 
 
+def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    warnings: list[tuple[str, str]] = []
+    starts: list[bool] = []
+    monkeypatch.setattr(
+        window,
+        "_show_warning",
+        lambda title, message: warnings.append((title, message)),
+    )
+    monkeypatch.setattr(
+        window._test_manager_panel,
+        "build_test_run_settings",
+        lambda: pytest.fail("settings should not be built while RF command is running"),
+    )
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, *, settings: starts.append(True),
+    )
+
+    window._rf_switch_box_service._thread = object()
+    try:
+        window.on_start_requested()
+
+        assert starts == []
+        assert warnings == [
+            ("RF Switch Box", RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE),
+        ]
+    finally:
+        window._rf_switch_box_service._thread = None
+
+
 def test_main_window_blocks_start_without_active_tdf(
     qtbot,
     monkeypatch,
@@ -1569,6 +1605,49 @@ def test_main_window_locks_instrument_operations_while_set_active(
     assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
 
 
+def test_main_window_blocks_instrument_connect_while_rf_switch_running(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    rf_panel = window.findChild(RFFilterBoxPanel)
+    assert instrument_panel is not None
+    assert rf_panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    rf_panel.set_connection_state({"Switch Box": True})
+    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    config = build_equipment_connection_config(
+        mt8000a_visa_resource="MT",
+        fsv40_visa_resource="FS",
+        co3000_visa_resource="CO",
+        controller_3d_visa_resource="3D",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+    connected_state = {
+        "MT8000A": True,
+        "FSV40": True,
+        "3D Controller": True,
+        "CO3000": True,
+        "Switch Box": True,
+    }
+    window._runner._equipment_state = dict(connected_state)
+
+    window._rf_switch_box_service._thread = object()
+    try:
+        with qtbot.waitSignal(service.error_occurred, timeout=1000) as blocker:
+            service.connect_equipment(config)
+
+        assert blocker.args == [RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE]
+        assert window._runner.equipment_state == connected_state
+        assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    finally:
+        window._rf_switch_box_service._thread = None
+
+
 def test_main_window_blocks_tdf_when_fsv40_is_not_connected(
     qtbot,
     monkeypatch,
@@ -1584,6 +1663,31 @@ def test_main_window_blocks_tdf_when_fsv40_is_not_connected(
 
     assert calls == []
     assert warnings == [("TDF", "FSV40 연결을 먼저 완료하세요.")]
+
+
+def test_main_window_blocks_tdf_while_rf_switch_running(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    warnings: list[tuple[str, str]] = []
+    calls: list[bool] = []
+    window._runner._equipment_state = {"FSV40": True}
+    monkeypatch.setattr(
+        window,
+        "_show_warning",
+        lambda title, message: warnings.append((title, message)),
+    )
+    monkeypatch.setattr(window._tdf_service, "get_tdf_list", lambda: calls.append(True))
+
+    window._rf_switch_box_service._thread = object()
+    try:
+        window.on_get_tdf_list_requested()
+
+        assert calls == []
+        assert warnings == [
+            ("TDF", RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE),
+        ]
+    finally:
+        window._rf_switch_box_service._thread = None
 
 
 def test_main_window_updates_tdf_list_from_service_signal(qtbot) -> None:
@@ -1863,37 +1967,56 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
     window = MainWindow()
     qtbot.addWidget(window)
     service = window._runner.instrument_connection_service
+    rf_panel = window.findChild(RFFilterBoxPanel)
+    assert rf_panel is not None
+    rf_panel.set_connection_state({"Switch Box": True})
+    window.findChild(QPushButton, "inputButton3").click()
+    window.findChild(QPushButton, "filterButton06").click()
 
-    service.connection_started.emit()
+    assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
-    for index in range(1, 6):
-        indicator = window.findChild(QWidget, f"connectionStatus{index}")
-        assert indicator is not None
-        assert indicator.property("connectionStatus") == "connecting"
-        assert indicator.property("connected") is False
+    service._connection_thread = object()
+    try:
+        service.connection_started.emit()
 
-    service.connection_finished.emit(
-        {
-            "MT8000A": True,
-            "FSV40": False,
-            "3D Controller": True,
-            "CO3000": True,
-            "Switch Box": True,
-        }
-    )
+        for index in range(1, 6):
+            indicator = window.findChild(QWidget, f"connectionStatus{index}")
+            assert indicator is not None
+            assert indicator.property("connectionStatus") == "connecting"
+            assert indicator.property("connected") is False
+        assert not window.findChild(QPushButton, "inputButton1").isEnabled()
+        assert not window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
-    expected_statuses = [
-        "connected",
-        "failed",
-        "connected",
-        "connected",
-        "connected",
-    ]
-    for index, expected_status in enumerate(expected_statuses, start=1):
-        indicator = window.findChild(QWidget, f"connectionStatus{index}")
-        assert indicator is not None
-        assert indicator.property("connectionStatus") == expected_status
-        assert indicator.property("connected") is (expected_status == "connected")
+        service.connection_finished.emit(
+            {
+                "MT8000A": True,
+                "FSV40": False,
+                "3D Controller": True,
+                "CO3000": True,
+                "Switch Box": True,
+            }
+        )
+
+        assert window.findChild(QPushButton, "inputButton1").isEnabled()
+        assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+
+        expected_statuses = [
+            "connected",
+            "failed",
+            "connected",
+            "connected",
+            "connected",
+        ]
+        for index, expected_status in enumerate(expected_statuses, start=1):
+            indicator = window.findChild(QWidget, f"connectionStatus{index}")
+            assert indicator is not None
+            assert indicator.property("connectionStatus") == expected_status
+            assert indicator.property("connected") is (expected_status == "connected")
+    finally:
+        service._connection_thread = None
 
 
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(
@@ -1910,6 +2033,10 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
     service = window._runner.instrument_connection_service
 
     service.connection_started.emit()
+    window.findChild(RFFilterBoxPanel).set_connection_state({"Switch Box": True})
+    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+
+    service.connection_started.emit()
     service.error_occurred.emit("boom")
 
     for index in range(1, 6):
@@ -1917,6 +2044,12 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
         assert indicator is not None
         assert indicator.property("connectionStatus") == "failed"
         assert indicator.property("connected") is False
+    assert not window.findChild(QPushButton, "inputButton1").isEnabled()
+    assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    assert (
+        window.findChild(QLabel, "operationStatusLabel").text()
+        == "Switch Box not connected"
+    )
 
 
 def test_test_manager_panel_set_connection_state_supports_aliases(qtbot) -> None:
