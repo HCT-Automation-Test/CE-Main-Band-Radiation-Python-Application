@@ -642,6 +642,16 @@ class RFFilterBoxPanel(QWidget):
         self._update_status()
         self._set_message("FSM 상태 반영 완료")
 
+    def clear_switch_box_info(self) -> None:
+        self._current_input = None
+        self._current_filter = None
+        self._selected_input = None
+        self._selected_filter = None
+        self._canvas.set_current_path(None, None)
+        self._canvas.set_selected_path(None, None)
+        self._update_status()
+        self._update_button_state()
+
     def _build_ui(self) -> None:
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)

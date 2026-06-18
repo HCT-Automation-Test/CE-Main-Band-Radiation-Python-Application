@@ -2072,6 +2072,15 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
     qtbot.addWidget(window)
     service = window._runner.instrument_connection_service
 
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
     service.connection_finished.emit(states)
 
     assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"

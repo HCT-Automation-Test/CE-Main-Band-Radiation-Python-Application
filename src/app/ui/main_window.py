@@ -476,7 +476,9 @@ class MainWindow(QMainWindow):
         """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
 
         self._test_manager_panel.set_connection_state(states)
+        self._test_manager_panel.set_switch_box_info({})
         self._rf_filter_box_panel.set_connection_state(states)
+        self._rf_filter_box_panel.clear_switch_box_info()
         self._instrument_check_panel.mark_all_equipment_disconnected()
 
     def on_instrument_connection_error(self, message: str) -> None:
@@ -486,7 +488,9 @@ class MainWindow(QMainWindow):
             self._update_instrument_operation_lock()
             return
         self._test_manager_panel.set_connection_failed()
+        self._test_manager_panel.set_switch_box_info({})
         self._rf_filter_box_panel.set_connection_state({})
+        self._rf_filter_box_panel.clear_switch_box_info()
         self._update_instrument_operation_lock()
 
     def on_instrument_connection_started(self) -> None:
@@ -503,6 +507,9 @@ class MainWindow(QMainWindow):
         if states.get("Switch Box") is True:
             self._test_manager_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
             self._rf_filter_box_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
+        else:
+            self._test_manager_panel.set_switch_box_info({})
+            self._rf_filter_box_panel.clear_switch_box_info()
         self._update_instrument_operation_lock(include_connecting=False)
 
     def _update_instrument_operation_lock(

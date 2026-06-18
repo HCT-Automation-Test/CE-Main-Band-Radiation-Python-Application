@@ -174,6 +174,21 @@ def test_failed_operation_keeps_current_state(qtbot) -> None:
     assert "failed" in panel.findChild(QLabel, "operationStatusLabel").text()
 
 
+def test_clear_switch_box_info_resets_current_and_selected_path(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.set_switch_box_info(
+        {"input_path": InputPath.INPUT1, "filter_path": FilterPath.THRU}
+    )
+
+    panel.clear_switch_box_info()
+
+    assert panel.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
+    assert panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
+    assert not panel.findChild(QPushButton, "inputButton1").isChecked()
+    assert not panel.findChild(QPushButton, "filterButton01").isChecked()
+    assert not panel.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+
+
 def test_panel_disables_controls_when_locked_or_disconnected(qtbot) -> None:
     panel, _service = _connected_panel(qtbot)
 
