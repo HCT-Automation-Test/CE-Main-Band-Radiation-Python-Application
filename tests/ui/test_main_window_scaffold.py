@@ -1835,7 +1835,9 @@ def test_main_window_locks_instrument_operations_while_tdf_active(
     assert not connect_button.isEnabled()
     assert not get_tdf_button.isEnabled()
     assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
-    assert window.findChild(QDialog, "tdfProgressDialog") is not None
+    dialog = window.findChild(QDialog, "tdfProgressDialog")
+    assert dialog is not None
+    assert dialog.property("progressDialog") is True
 
     window.on_tdf_operation_finished("done")
 
