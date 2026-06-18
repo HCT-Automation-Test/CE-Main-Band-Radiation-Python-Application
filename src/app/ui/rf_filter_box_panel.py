@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRectF, QSize, QThread, Qt, Signal, Slot
 from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -30,8 +30,8 @@ _DETACHED_THREADS: list[QThread] = []
 _BACKGROUND_PATH = (
     Path(__file__).resolve().parents[3] / "resources" / "images" / "rf_switch_box_bd.png"
 )
-_CANVAS_WIDTH = 1104
-_CANVAS_HEIGHT = 748
+_CANVAS_WIDTH = 1098
+_CANVAS_HEIGHT = 747
 _BUTTON_WIDTH = 80
 _BUTTON_HEIGHT = 20
 _OUTPUT_WIDTH = 80
@@ -357,8 +357,16 @@ class _CircuitCanvas(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setObjectName("rfSwitchBoxCanvas")
-        self.setFixedSize(_CANVAS_WIDTH, _CANVAS_HEIGHT)
         self._background = QPixmap(str(_BACKGROUND_PATH))
+        self._base_size = self._background.size()
+        if self._background.isNull():
+            self._base_size = QSize(_CANVAS_WIDTH, _CANVAS_HEIGHT)
+        self._content_rect = QRectF(0, 0, self._base_size.width(), self._base_size.height())
+        self.setMinimumSize(0, 0)
+        self.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Expanding,
+        )
         self._current_input: InputPath | None = None
         self._current_filter: FilterPath | None = None
         self._input_group = QButtonGroup(self)
@@ -367,12 +375,21 @@ class _CircuitCanvas(QWidget):
         self._filter_group.setExclusive(True)
         self.input_selected: dict[QPushButton, InputPath] = {}
         self.filter_selected: dict[QPushButton, FilterPath] = {}
+        self._button_centers: dict[QPushButton, tuple[int, int]] = {}
         self._create_buttons()
         output = QLabel("Output", self)
         output.setObjectName("rfSwitchOutputLabel")
         output.setAlignment(Qt.AlignmentFlag.AlignCenter)
         output.setFrameShape(QFrame.Shape.Box)
-        output.setGeometry(1008, 371, _OUTPUT_WIDTH, _OUTPUT_HEIGHT)
+        self._output_label = output
+        self._layout_overlay_widgets()
+
+    def sizeHint(self) -> QSize:
+        return self._base_size
+
+    def resizeEvent(self, event: object) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._layout_overlay_widgets()
 
     def set_current_path(
         self,
@@ -400,6 +417,7 @@ class _CircuitCanvas(QWidget):
             button.setGeometry(x, y, _BUTTON_WIDTH, _BUTTON_HEIGHT)
             self._input_group.addButton(button, int(input_path))
             self.input_selected[button] = input_path
+            self._button_centers[button] = center
 
         for label, filter_path, center in _FILTER_BUTTONS:
             button = QPushButton(label, self)
@@ -409,6 +427,7 @@ class _CircuitCanvas(QWidget):
             button.setGeometry(x, y, _BUTTON_WIDTH, _BUTTON_HEIGHT)
             self._filter_group.addButton(button, int(filter_path))
             self.filter_selected[button] = filter_path
+            self._button_centers[button] = center
 
     def _set_group_checked(
         self,
@@ -429,11 +448,70 @@ class _CircuitCanvas(QWidget):
     def paintEvent(self, event: object) -> None:  # noqa: N802
         super().paintEvent(event)
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._content_rect = self._scaled_content_rect()
         if not self._background.isNull():
-            painter.drawPixmap(0, 0, self._background)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            painter.drawPixmap(self._content_rect, self._background, self._background.rect())
         if self._current_input is not None and self._current_filter is not None:
+            painter.save()
+            painter.translate(self._content_rect.left(), self._content_rect.top())
+            painter.scale(self._scale_factor(), self._scale_factor())
             self._draw_active_path(painter)
+            painter.restore()
         painter.end()
+
+    def _layout_overlay_widgets(self) -> None:
+        self._content_rect = self._scaled_content_rect()
+        for button, _input_path in self.input_selected.items():
+            center = self._button_centers[button]
+            self._set_scaled_geometry(button, center, _BUTTON_WIDTH, _BUTTON_HEIGHT)
+        for button, _filter_path in self.filter_selected.items():
+            center = self._button_centers[button]
+            self._set_scaled_geometry(button, center, _BUTTON_WIDTH, _BUTTON_HEIGHT)
+        self._set_scaled_geometry(
+            self._output_label,
+            (1008 + _OUTPUT_WIDTH // 2, 371 + _OUTPUT_HEIGHT // 2),
+            _OUTPUT_WIDTH,
+            _OUTPUT_HEIGHT,
+        )
+
+    def _set_scaled_geometry(
+        self,
+        widget: QWidget,
+        center: tuple[int, int],
+        width: int,
+        height: int,
+    ) -> None:
+        scale = self._scale_factor()
+        x = round(self._content_rect.left() + (center[0] - width / 2) * scale)
+        y = round(self._content_rect.top() + (center[1] - height / 2) * scale)
+        widget.setGeometry(
+            x,
+            y,
+            max(1, round(width * scale)),
+            max(1, round(height * scale)),
+        )
+
+    def _scaled_content_rect(self) -> QRectF:
+        base_width = self._base_size.width()
+        base_height = self._base_size.height()
+        if base_width <= 0 or base_height <= 0:
+            return QRectF(self.rect())
+        scale = min(self.width() / base_width, self.height() / base_height)
+        width = base_width * scale
+        height = base_height * scale
+        return QRectF(
+            (self.width() - width) / 2,
+            (self.height() - height) / 2,
+            width,
+            height,
+        )
+
+    def _scale_factor(self) -> float:
+        if self._base_size.width() <= 0:
+            return 1.0
+        return self._content_rect.width() / self._base_size.width()
 
     def _draw_active_path(self, painter: QPainter) -> None:
         if self._current_input is None or self._current_filter is None:
@@ -600,8 +678,8 @@ class RFFilterBoxPanel(QWidget):
 
         scroll_area = QScrollArea(self)
         scroll_area.setObjectName("rfSwitchScrollArea")
-        scroll_area.setWidgetResizable(False)
-        scroll_area.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._canvas = _CircuitCanvas(scroll_area)
         scroll_area.setWidget(self._canvas)
         root_layout.addWidget(scroll_area, 1)

@@ -4,7 +4,7 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea, QWidget
 
 from app.models.enums import FilterPath, InputPath
 from app.ui.rf_filter_box_panel import (
@@ -97,6 +97,24 @@ def test_rf_filter_box_panel_exposes_expected_buttons(qtbot) -> None:
     assert panel.findChild(QPushButton, "filterButton20").text() == "BAND 78"
     assert panel.findChild(QPushButton, "filterButton23").text() == "DCS1800"
     assert panel.findChild(QPushButton, "filterButton24").text() == "Port 18"
+
+
+def test_rf_filter_box_canvas_follows_visible_panel_size(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.resize(1500, 820)
+    panel.show()
+    qtbot.wait(0)
+
+    scroll_area = panel.findChild(QScrollArea, "rfSwitchScrollArea")
+    canvas = panel.findChild(QWidget, "rfSwitchBoxCanvas")
+
+    assert scroll_area is not None
+    assert canvas is not None
+    assert scroll_area.widgetResizable()
+    assert canvas.width() == scroll_area.viewport().width()
+    assert canvas.height() == scroll_area.viewport().height()
+    assert canvas.width() > 1098
+    assert canvas.height() > 747
 
 
 def test_select_buttons_do_not_send_until_set(qtbot) -> None:
