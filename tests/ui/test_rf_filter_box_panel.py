@@ -7,6 +7,9 @@ from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea, QWidget
 
 from app.models.enums import FilterPath, InputPath
+from app.net.mock_lv_server import MockLvServer
+from app.net.tcp_client import TcpClient
+from app.net import commands
 from app.ui.rf_filter_box_panel import (
     RFFilterBoxPanel,
     RFSwitchBoxService,
@@ -200,3 +203,43 @@ def test_rf_switch_box_service_shutdown_detaches_blocked_worker(qtbot) -> None:
 
     commands.release.set()
     qtbot.waitUntil(lambda: len(_DETACHED_THREADS) == detached_count, timeout=1000)
+
+
+def test_rf_switch_box_service_releases_worker_when_operation_finishes(qtbot) -> None:
+    commands = _BlockingCommands(release_timeout_s=0.0)
+    service = RFSwitchBoxService(client=object(), commands=commands)
+
+    service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
+
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert service._worker is None
+
+
+def test_rf_switch_box_service_repeated_operations_with_tcp_client(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    service = RFSwitchBoxService(client=client, commands=commands)
+    finished: list[str] = []
+    failed: list[str] = []
+    service.operation_finished.connect(finished.append)
+    service.operation_failed.connect(failed.append)
+
+    try:
+        with qtbot.waitSignal(client.connected_changed, timeout=1000):
+            client.connect_to(server.host, server.port, timeout=1.0)
+
+        for index in range(10):
+            if index % 2:
+                service.set_thru()
+            else:
+                service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
+            qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+        assert len(finished) == 10
+        assert failed == []
+    finally:
+        service.shutdown()
+        client.disconnect_from_host()
+        server.stop()
