@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 import ctypes
+from dataclasses import dataclass
 
 from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QCloseEvent, QShowEvent
@@ -50,6 +51,13 @@ _SWP_NOSIZE = 0x0001
 _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
+
+
+@dataclass(frozen=True)
+class _InstrumentOperationLockState:
+    instrument_block_reason: str | None
+    run_settings_locked: bool
+    rf_operation_locked: bool
 
 
 class _UserActionDialog(QDialog):
@@ -147,13 +155,10 @@ class MainWindow(QMainWindow):
             self.on_session_finished,
         )
         self._runner.instrument_connection_service.connection_started.connect(
-            self._test_manager_panel.set_connection_connecting,
+            self.on_instrument_connection_started,
         )
         self._runner.instrument_connection_service.connection_finished.connect(
-            self._test_manager_panel.set_connection_state,
-        )
-        self._runner.instrument_connection_service.connection_finished.connect(
-            self._rf_filter_box_panel.set_connection_state,
+            self.on_instrument_connection_finished,
         )
         self._runner.instrument_connection_service.error_occurred.connect(
             self.on_instrument_connection_error,
@@ -465,24 +470,67 @@ class MainWindow(QMainWindow):
         _ = message
         self._test_manager_panel.set_connection_failed()
         self._rf_filter_box_panel.set_connection_state({})
+        self._update_instrument_operation_lock()
 
-    def _update_instrument_operation_lock(self) -> None:
+    def on_instrument_connection_started(self) -> None:
+        """장비 연결 진행 상태를 각 패널에 반영한다."""
+
+        self._test_manager_panel.set_connection_connecting()
+        self._update_instrument_operation_lock()
+
+    def on_instrument_connection_finished(self, states: dict[str, bool]) -> None:
+        """장비 연결 완료 상태를 각 패널에 반영한다."""
+
+        self._test_manager_panel.set_connection_state(states)
+        self._rf_filter_box_panel.set_connection_state(states)
+        self._update_instrument_operation_lock(include_connecting=False)
+
+    def _update_instrument_operation_lock(
+        self,
+        *,
+        include_connecting: bool = True,
+    ) -> None:
+        state = self._build_instrument_operation_lock_state(
+            measurement_active=self._runner.is_measurement_active,
+            instrument_set_active=self._instrument_set_active,
+            tdf_operation_active=self._tdf_operation_active,
+            connection_in_progress=(
+                include_connecting
+                and self._runner.instrument_connection_service.is_connecting
+            ),
+        )
+
+        self._instrument_check_panel.set_connection_block_reason(
+            state.instrument_block_reason,
+        )
+        self._test_manager_panel.set_run_settings_locked(state.run_settings_locked)
+        self._rf_filter_box_panel.set_operation_locked(state.rf_operation_locked)
+        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+
+    def _build_instrument_operation_lock_state(
+        self,
+        *,
+        measurement_active: bool,
+        instrument_set_active: bool,
+        tdf_operation_active: bool,
+        connection_in_progress: bool,
+    ) -> _InstrumentOperationLockState:
         block_reason = None
-        if self._runner.is_measurement_active:
+        if measurement_active:
             block_reason = INSTRUMENT_CONNECTION_BLOCK_MESSAGE
-        elif self._instrument_set_active:
+        elif instrument_set_active:
             block_reason = INSTRUMENT_SET_BLOCK_MESSAGE
-        elif self._tdf_operation_active:
+        elif tdf_operation_active:
             block_reason = TDF_OPERATION_IN_PROGRESS_MESSAGE
 
-        self._instrument_check_panel.set_connection_block_reason(block_reason)
-        self._test_manager_panel.set_run_settings_locked(
-            self._runner.is_measurement_active
-            or self._instrument_set_active
-            or self._tdf_operation_active
+        run_settings_locked = (
+            measurement_active or instrument_set_active or tdf_operation_active
         )
-        self._rf_filter_box_panel.set_operation_locked(block_reason is not None)
-        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+        return _InstrumentOperationLockState(
+            instrument_block_reason=block_reason,
+            run_settings_locked=run_settings_locked,
+            rf_operation_locked=run_settings_locked or connection_in_progress,
+        )
 
     def _ensure_tdf_operation_allowed(self) -> bool:
         block_reason = self._tdf_operation_block_reason()

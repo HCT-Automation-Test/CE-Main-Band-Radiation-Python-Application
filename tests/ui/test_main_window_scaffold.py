@@ -1863,37 +1863,56 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
     window = MainWindow()
     qtbot.addWidget(window)
     service = window._runner.instrument_connection_service
+    rf_panel = window.findChild(RFFilterBoxPanel)
+    assert rf_panel is not None
+    rf_panel.set_connection_state({"Switch Box": True})
+    window.findChild(QPushButton, "inputButton3").click()
+    window.findChild(QPushButton, "filterButton06").click()
 
-    service.connection_started.emit()
+    assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
-    for index in range(1, 6):
-        indicator = window.findChild(QWidget, f"connectionStatus{index}")
-        assert indicator is not None
-        assert indicator.property("connectionStatus") == "connecting"
-        assert indicator.property("connected") is False
+    service._connection_thread = object()
+    try:
+        service.connection_started.emit()
 
-    service.connection_finished.emit(
-        {
-            "MT8000A": True,
-            "FSV40": False,
-            "3D Controller": True,
-            "CO3000": True,
-            "Switch Box": True,
-        }
-    )
+        for index in range(1, 6):
+            indicator = window.findChild(QWidget, f"connectionStatus{index}")
+            assert indicator is not None
+            assert indicator.property("connectionStatus") == "connecting"
+            assert indicator.property("connected") is False
+        assert not window.findChild(QPushButton, "inputButton1").isEnabled()
+        assert not window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
-    expected_statuses = [
-        "connected",
-        "failed",
-        "connected",
-        "connected",
-        "connected",
-    ]
-    for index, expected_status in enumerate(expected_statuses, start=1):
-        indicator = window.findChild(QWidget, f"connectionStatus{index}")
-        assert indicator is not None
-        assert indicator.property("connectionStatus") == expected_status
-        assert indicator.property("connected") is (expected_status == "connected")
+        service.connection_finished.emit(
+            {
+                "MT8000A": True,
+                "FSV40": False,
+                "3D Controller": True,
+                "CO3000": True,
+                "Switch Box": True,
+            }
+        )
+
+        assert window.findChild(QPushButton, "inputButton1").isEnabled()
+        assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+
+        expected_statuses = [
+            "connected",
+            "failed",
+            "connected",
+            "connected",
+            "connected",
+        ]
+        for index, expected_status in enumerate(expected_statuses, start=1):
+            indicator = window.findChild(QWidget, f"connectionStatus{index}")
+            assert indicator is not None
+            assert indicator.property("connectionStatus") == expected_status
+            assert indicator.property("connected") is (expected_status == "connected")
+    finally:
+        service._connection_thread = None
 
 
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(
