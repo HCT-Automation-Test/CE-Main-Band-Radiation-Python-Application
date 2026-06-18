@@ -1080,7 +1080,7 @@ def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
     assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "5"
     assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "5"
     assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "0"
-    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "6"
     assert panel.findChild(QLineEdit, "turnTableSpeedEdit") is None
     assert any(
         label.text() == "Connection Waiting Time"

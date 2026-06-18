@@ -96,7 +96,7 @@ _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "saturationTimeEdit": "5",
     "connectionWaitingTimeEdit": "5",
     "attenLevelEdit": "0",
-    "nextPeakSearchLevelEdit": "0",
+    "nextPeakSearchLevelEdit": "6",
 }
 _RUN_SETTING_FIELD_NAMES = frozenset(_RUN_SETTING_FIELD_DEFAULTS)
 _CONNECTION_CANONICAL_KEYS: tuple[str, ...] = (
