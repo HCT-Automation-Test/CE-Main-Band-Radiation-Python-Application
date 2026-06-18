@@ -286,6 +286,7 @@ class RFSwitchBoxService(QObject):
         if self._thread is not None:
             thread = self._thread
             _disconnect_safely(thread.finished, self._on_thread_finished)
+            _disconnect_safely(thread.finished, self._on_worker_done)
             _disconnect_safely(thread.finished, thread.deleteLater)
             thread.quit()
             if not thread.wait(1000):
@@ -316,9 +317,9 @@ class RFSwitchBoxService(QObject):
         worker.filter_finished.connect(self._on_filter_finished)
         worker.failed.connect(self._on_failed)
         worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
-        worker.done.connect(self._on_worker_done, Qt.ConnectionType.DirectConnection)
         worker.done.connect(worker.deleteLater)
         thread.finished.connect(self._on_thread_finished)
+        thread.finished.connect(self._on_worker_done)
         thread.finished.connect(thread.deleteLater)
         self._thread = thread
         self._worker = worker
