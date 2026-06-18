@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.instrument_connection import (
+    CONNECTION_IN_PROGRESS_MESSAGE,
+    INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
     build_equipment_connection_config,
     disconnected_equipment_state,
 )
@@ -2089,6 +2091,45 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
     assert not window.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == ""
     assert window.findChild(QLineEdit, "filterEdit").text() == ""
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        CONNECTION_IN_PROGRESS_MESSAGE,
+        INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
+    ],
+)
+def test_main_window_preserves_switch_box_path_on_guard_connection_error(
+    qtbot,
+    monkeypatch,
+    message,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    assert instrument_panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    service.error_occurred.emit(message)
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert window.findChild(QPushButton, "inputButton1").isChecked()
+    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
 
 
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(

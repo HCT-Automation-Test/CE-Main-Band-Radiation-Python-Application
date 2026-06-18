@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.instrument_connection import (
+    should_preserve_equipment_state_on_connection_error,
+)
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
 from app.core.runner import (
@@ -484,7 +487,14 @@ class MainWindow(QMainWindow):
     def on_instrument_connection_error(self, message: str) -> None:
         """장비 연결 실패 상태를 각 패널에 반영한다."""
 
-        if message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE:
+        preserve_state = (
+            message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
+            or should_preserve_equipment_state_on_connection_error(
+                message,
+                block_reason=self._instrument_check_panel.connection_block_reason,
+            )
+        )
+        if preserve_state:
             self._update_instrument_operation_lock()
             return
         self._test_manager_panel.set_connection_failed()
