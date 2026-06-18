@@ -4,9 +4,12 @@ import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QLabel, QPushButton, QScrollArea, QWidget
 
 from app.models.enums import FilterPath, InputPath
+from app.net.mock_lv_server import MockLvServer
+from app.net.tcp_client import TcpClient
+from app.net import commands
 from app.ui.rf_filter_box_panel import (
     RFFilterBoxPanel,
     RFSwitchBoxService,
@@ -99,6 +102,24 @@ def test_rf_filter_box_panel_exposes_expected_buttons(qtbot) -> None:
     assert panel.findChild(QPushButton, "filterButton24").text() == "Port 18"
 
 
+def test_rf_filter_box_canvas_follows_visible_panel_size(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.resize(1500, 820)
+    panel.show()
+    qtbot.wait(0)
+
+    scroll_area = panel.findChild(QScrollArea, "rfSwitchScrollArea")
+    canvas = panel.findChild(QWidget, "rfSwitchBoxCanvas")
+
+    assert scroll_area is not None
+    assert canvas is not None
+    assert scroll_area.widgetResizable()
+    assert canvas.width() == scroll_area.viewport().width()
+    assert canvas.height() == scroll_area.viewport().height()
+    assert canvas.width() > 1098
+    assert canvas.height() > 747
+
+
 def test_select_buttons_do_not_send_until_set(qtbot) -> None:
     panel, service = _connected_panel(qtbot)
 
@@ -153,6 +174,21 @@ def test_failed_operation_keeps_current_state(qtbot) -> None:
     assert "failed" in panel.findChild(QLabel, "operationStatusLabel").text()
 
 
+def test_clear_switch_box_info_resets_current_and_selected_path(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.set_switch_box_info(
+        {"input_path": InputPath.INPUT1, "filter_path": FilterPath.THRU}
+    )
+
+    panel.clear_switch_box_info()
+
+    assert panel.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
+    assert panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
+    assert not panel.findChild(QPushButton, "inputButton1").isChecked()
+    assert not panel.findChild(QPushButton, "filterButton01").isChecked()
+    assert not panel.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+
+
 def test_panel_disables_controls_when_locked_or_disconnected(qtbot) -> None:
     panel, _service = _connected_panel(qtbot)
 
@@ -182,3 +218,43 @@ def test_rf_switch_box_service_shutdown_detaches_blocked_worker(qtbot) -> None:
 
     commands.release.set()
     qtbot.waitUntil(lambda: len(_DETACHED_THREADS) == detached_count, timeout=1000)
+
+
+def test_rf_switch_box_service_releases_worker_when_operation_finishes(qtbot) -> None:
+    commands = _BlockingCommands(release_timeout_s=0.0)
+    service = RFSwitchBoxService(client=object(), commands=commands)
+
+    service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
+
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert service._worker is None
+
+
+def test_rf_switch_box_service_repeated_operations_with_tcp_client(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    service = RFSwitchBoxService(client=client, commands=commands)
+    finished: list[str] = []
+    failed: list[str] = []
+    service.operation_finished.connect(finished.append)
+    service.operation_failed.connect(failed.append)
+
+    try:
+        with qtbot.waitSignal(client.connected_changed, timeout=1000):
+            client.connect_to(server.host, server.port, timeout=1.0)
+
+        for index in range(10):
+            if index % 2:
+                service.set_thru()
+            else:
+                service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
+            qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+        assert len(finished) == 10
+        assert failed == []
+    finally:
+        service.shutdown()
+        client.disconnect_from_host()
+        server.stop()

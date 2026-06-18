@@ -311,6 +311,12 @@ class InstrumentCheckPanel(QWidget):
 
         return self._connection_in_progress
 
+    @property
+    def connection_block_reason(self) -> str | None:
+        """상위 실행 상태에 따른 연결 차단 사유를 반환한다."""
+
+        return self._connection_block_reason
+
     def set_connection_block_reason(self, reason: str | None) -> None:
         """상위 실행 상태에 따라 연결 버튼 차단 사유를 설정한다."""
 

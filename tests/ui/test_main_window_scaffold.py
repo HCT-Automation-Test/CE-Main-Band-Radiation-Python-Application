@@ -24,6 +24,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.instrument_connection import (
+    CONNECTION_IN_PROGRESS_MESSAGE,
+    INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
     build_equipment_connection_config,
     disconnected_equipment_state,
 )
@@ -1078,7 +1080,7 @@ def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
     assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "5"
     assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "5"
     assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "0"
-    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "0"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "6"
     assert panel.findChild(QLineEdit, "turnTableSpeedEdit") is None
     assert any(
         label.text() == "Connection Waiting Time"
@@ -1835,7 +1837,9 @@ def test_main_window_locks_instrument_operations_while_tdf_active(
     assert not connect_button.isEnabled()
     assert not get_tdf_button.isEnabled()
     assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
-    assert window.findChild(QDialog, "tdfProgressDialog") is not None
+    dialog = window.findChild(QDialog, "tdfProgressDialog")
+    assert dialog is not None
+    assert dialog.property("progressDialog") is True
 
     window.on_tdf_operation_finished("done")
 
@@ -2017,6 +2021,115 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
             assert indicator.property("connected") is (expected_status == "connected")
     finally:
         service._connection_thread = None
+
+
+def test_main_window_applies_initial_switch_box_101_after_connection(
+    qtbot,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert window.findChild(QPushButton, "inputButton1").isChecked()
+    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
+
+
+@pytest.mark.parametrize(
+    "states",
+    [
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": False,
+        },
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+        },
+    ],
+)
+def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
+    qtbot,
+    states,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+    service.connection_finished.emit(states)
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
+    assert not window.findChild(QPushButton, "inputButton1").isChecked()
+    assert not window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == ""
+    assert window.findChild(QLineEdit, "filterEdit").text() == ""
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        CONNECTION_IN_PROGRESS_MESSAGE,
+        INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
+    ],
+)
+def test_main_window_preserves_switch_box_path_on_guard_connection_error(
+    qtbot,
+    monkeypatch,
+    message,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    instrument_panel = window.findChild(InstrumentCheckPanel)
+    assert instrument_panel is not None
+    monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
+    service = window._runner.instrument_connection_service
+
+    service.connection_finished.emit(
+        {
+            "MT8000A": True,
+            "FSV40": True,
+            "3D Controller": True,
+            "CO3000": True,
+            "Switch Box": True,
+        }
+    )
+
+    service.error_occurred.emit(message)
+
+    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert window.findChild(QPushButton, "inputButton1").isChecked()
+    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
+    assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
 
 
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(

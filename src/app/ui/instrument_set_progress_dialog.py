@@ -35,6 +35,7 @@ class InstrumentSetProgressDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.setObjectName("instrumentSetProgressDialog")
+        self.setProperty("progressDialog", True)
         self.setWindowTitle("장비 Set 진행 중")
         self.setModal(False)
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
@@ -137,7 +138,7 @@ class InstrumentSetProgressDialog(QDialog):
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
-            QDialog#instrumentSetProgressDialog {
+            QDialog[progressDialog="true"] {
                 background: #ffffff;
                 color: #111111;
             }

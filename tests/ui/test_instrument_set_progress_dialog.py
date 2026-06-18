@@ -22,6 +22,7 @@ def test_instrument_set_progress_dialog_is_modeless_and_has_no_cancel(qtbot) -> 
     dialog.start()
 
     assert dialog.isVisible()
+    assert dialog.property("progressDialog") is True
     assert not dialog.isModal()
     step_label = dialog.findChild(QLabel, "instrumentSetProgressStepLabel")
     elapsed_label = dialog.findChild(QLabel, "instrumentSetProgressElapsedLabel")
@@ -74,3 +75,13 @@ def test_instrument_set_progress_dialog_updates_step_and_elapsed(qtbot) -> None:
     assert elapsed_label is not None
     assert step_label.text() == "FSV40 Self Alignment 진행 중"
     assert elapsed_label.text() == "00:01:05"
+
+
+def test_progress_dialog_style_survives_object_name_change(qtbot) -> None:
+    dialog = InstrumentSetProgressDialog()
+    qtbot.addWidget(dialog)
+
+    dialog.setObjectName("tdfProgressDialog")
+
+    assert dialog.property("progressDialog") is True
+    assert 'QDialog[progressDialog="true"]' in dialog.styleSheet()

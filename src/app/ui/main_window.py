@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.core.instrument_connection import (
+    should_preserve_equipment_state_on_connection_error,
+)
 # 먼저 `uv run pyside6-uic resources/main_window.ui -o src/app/ui/generated/main_window_ui.py`
 # 실행해야 아래 임포트가 성공한다.
 from app.core.runner import (
@@ -30,6 +33,7 @@ from app.core.runner import (
     Runner,
 )
 from app.core.tdf_service import TDF_OPERATION_IN_PROGRESS_MESSAGE, TdfService
+from app.models.enums import FilterPath, InputPath
 from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
@@ -52,6 +56,12 @@ _SWP_NOMOVE = 0x0002
 _SWP_NOZORDER = 0x0004
 _SWP_FRAMECHANGED = 0x0020
 RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE = "RF Switch Box 작업이 진행 중입니다."
+_SWITCH_BOX_INITIAL_PATH_INFO = {
+    "mast": "Bilog",
+    "filter": "Thru",
+    "input_path": InputPath.INPUT1,
+    "filter_path": FilterPath.THRU,
+}
 
 
 @dataclass(frozen=True)
@@ -469,17 +479,28 @@ class MainWindow(QMainWindow):
         """Set 실패/timeout으로 장비가 disconnected로 전환되면 UI에 반영한다."""
 
         self._test_manager_panel.set_connection_state(states)
+        self._test_manager_panel.set_switch_box_info({})
         self._rf_filter_box_panel.set_connection_state(states)
+        self._rf_filter_box_panel.clear_switch_box_info()
         self._instrument_check_panel.mark_all_equipment_disconnected()
 
     def on_instrument_connection_error(self, message: str) -> None:
         """장비 연결 실패 상태를 각 패널에 반영한다."""
 
-        if message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE:
+        preserve_state = (
+            message == RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
+            or should_preserve_equipment_state_on_connection_error(
+                message,
+                block_reason=self._instrument_check_panel.connection_block_reason,
+            )
+        )
+        if preserve_state:
             self._update_instrument_operation_lock()
             return
         self._test_manager_panel.set_connection_failed()
+        self._test_manager_panel.set_switch_box_info({})
         self._rf_filter_box_panel.set_connection_state({})
+        self._rf_filter_box_panel.clear_switch_box_info()
         self._update_instrument_operation_lock()
 
     def on_instrument_connection_started(self) -> None:
@@ -493,6 +514,12 @@ class MainWindow(QMainWindow):
 
         self._test_manager_panel.set_connection_state(states)
         self._rf_filter_box_panel.set_connection_state(states)
+        if states.get("Switch Box") is True:
+            self._test_manager_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
+            self._rf_filter_box_panel.set_switch_box_info(_SWITCH_BOX_INITIAL_PATH_INFO)
+        else:
+            self._test_manager_panel.set_switch_box_info({})
+            self._rf_filter_box_panel.clear_switch_box_info()
         self._update_instrument_operation_lock(include_connecting=False)
 
     def _update_instrument_operation_lock(
