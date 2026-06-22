@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Literal
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtGui import (
     QBrush,
@@ -15,6 +15,7 @@ from PySide6.QtGui import (
     QPalette,
     QPixmap,
     QResizeEvent,
+    QShowEvent,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -124,6 +125,15 @@ _CONNECTION_STATUS_NOT_CONNECTED = "not_connected"
 _CONNECTION_STATUS_CONNECTING = "connecting"
 _CONNECTION_STATUS_CONNECTED = "connected"
 _CONNECTION_STATUS_FAILED = "failed"
+_SCREENSHOT_PREVIEW_SOURCE_WIDTH = 1600
+_SCREENSHOT_PREVIEW_SOURCE_HEIGHT = 1200
+_SCREENSHOT_PREVIEW_PADDED_HEIGHT = 1244
+_SCREENSHOT_PREVIEW_ASPECT_RATIO = (
+    _SCREENSHOT_PREVIEW_SOURCE_WIDTH / _SCREENSHOT_PREVIEW_SOURCE_HEIGHT
+)
+_SCREENSHOT_PREVIEW_PADDED_ASPECT_RATIO = (
+    _SCREENSHOT_PREVIEW_SOURCE_WIDTH / _SCREENSHOT_PREVIEW_PADDED_HEIGHT
+)
 
 _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
@@ -995,16 +1005,20 @@ class TestManagerPanel(QWidget):
         """?? ???? ?? ??? ???."""
 
         panel = QWidget(self)
+        self._screenshot_group_panel = panel
+        panel.installEventFilter(self)
         layout = QVBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
         layout.addWidget(QLabel("Screenshot", panel))
 
         frame = QFrame(panel)
+        self._manager_screenshot_frame = frame
+        frame.installEventFilter(self)
         frame.setObjectName("managerScreenshotFrame")
         frame.setFrameShape(QFrame.Shape.StyledPanel)
         frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(8, 8, 8, 8)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
         self._screenshot_image_label = QLabel("", frame)
         self._screenshot_image_label.setObjectName("managerScreenshotImageLabel")
         self._screenshot_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1013,6 +1027,7 @@ class TestManagerPanel(QWidget):
             QSizePolicy.Policy.Ignored,
             QSizePolicy.Policy.Ignored,
         )
+        self._screenshot_image_label.installEventFilter(self)
         frame_layout.addWidget(self._screenshot_image_label, 1)
         layout.addWidget(frame, 1)
         self._manager_screenshot_pixmap: QPixmap | None = None
@@ -1178,6 +1193,23 @@ class TestManagerPanel(QWidget):
             and event.type() == QEvent.Type.Resize
         ):
             self._apply_test_case_column_widths()
+        if event.type() == QEvent.Type.Resize and (
+            (
+                hasattr(self, "_screenshot_group_panel")
+                and watched is self._screenshot_group_panel
+            )
+            or (
+                hasattr(self, "_manager_screenshot_frame")
+                and watched is self._manager_screenshot_frame
+            )
+        ):
+            self._refresh_manager_screenshot_preview()
+        if (
+            hasattr(self, "_screenshot_image_label")
+            and watched is self._screenshot_image_label
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._update_manager_screenshot_pixmap()
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
@@ -1185,7 +1217,14 @@ class TestManagerPanel(QWidget):
 
         super().resizeEvent(event)
         self._apply_test_case_column_widths()
-        self._update_manager_screenshot_pixmap()
+        self._refresh_manager_screenshot_preview()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        """패널 표시 후 확정된 크기에 맞춰 스크린샷을 다시 맞춘다."""
+
+        super().showEvent(event)
+        self._refresh_manager_screenshot_preview()
+        QTimer.singleShot(0, self._refresh_manager_screenshot_preview)
 
     def on_screenshot_saved(self, path: str) -> None:
         screenshot_path = Path(path)
@@ -1193,7 +1232,67 @@ class TestManagerPanel(QWidget):
         if pixmap.isNull():
             return
         self._manager_screenshot_pixmap = pixmap
+        self._refresh_manager_screenshot_preview()
+        QTimer.singleShot(0, self._refresh_manager_screenshot_preview)
+
+    def _refresh_manager_screenshot_preview(self) -> None:
+        self._apply_manager_screenshot_aspect_ratio()
         self._update_manager_screenshot_pixmap()
+
+    def _apply_manager_screenshot_aspect_ratio(self) -> None:
+        if not hasattr(self, "_manager_screenshot_frame"):
+            return
+        if not hasattr(self, "_screenshot_group_panel"):
+            return
+        if not hasattr(self, "_screenshot_image_label"):
+            return
+
+        frame_height = self._manager_screenshot_frame.height()
+        if frame_height <= 0:
+            return
+
+        frame_layout = self._manager_screenshot_frame.layout()
+        if frame_layout is None:
+            return
+        margins = frame_layout.contentsMargins()
+        image_height = max(
+            frame_height - margins.top() - margins.bottom(),
+            self._screenshot_image_label.minimumHeight(),
+        )
+        target_frame_width = int(
+            image_height * _SCREENSHOT_PREVIEW_ASPECT_RATIO,
+        )
+        target_frame_width += margins.left() + margins.right()
+        min_frame_width = (
+            self._screenshot_image_label.minimumWidth()
+            + margins.left()
+            + margins.right()
+        )
+        target_frame_width = max(target_frame_width, min_frame_width)
+
+        if self._manager_screenshot_frame.maximumWidth() != target_frame_width:
+            self._manager_screenshot_frame.setMaximumWidth(target_frame_width)
+        if self._screenshot_group_panel.maximumWidth() != target_frame_width:
+            self._screenshot_group_panel.setMaximumWidth(target_frame_width)
+
+    def _manager_screenshot_display_pixmap(self) -> QPixmap:
+        assert self._manager_screenshot_pixmap is not None
+        pixmap = self._manager_screenshot_pixmap
+        if pixmap.width() <= 0 or pixmap.height() <= 0:
+            return pixmap
+
+        current_aspect_ratio = pixmap.width() / pixmap.height()
+        if abs(current_aspect_ratio - _SCREENSHOT_PREVIEW_PADDED_ASPECT_RATIO) > 0.02:
+            return pixmap
+
+        crop_height = int(
+            pixmap.width()
+            * _SCREENSHOT_PREVIEW_SOURCE_HEIGHT
+            / _SCREENSHOT_PREVIEW_SOURCE_WIDTH,
+        )
+        if crop_height <= 0 or crop_height >= pixmap.height():
+            return pixmap
+        return pixmap.copy(0, 0, pixmap.width(), crop_height)
 
     def _update_manager_screenshot_pixmap(self) -> None:
         if not hasattr(self, "_screenshot_image_label"):
@@ -1203,11 +1302,13 @@ class TestManagerPanel(QWidget):
         target_size = self._screenshot_image_label.size()
         if target_size.width() <= 0 or target_size.height() <= 0:
             return
-        scaled = self._manager_screenshot_pixmap.scaled(
+        display_pixmap = self._manager_screenshot_display_pixmap()
+        scaled = display_pixmap.scaled(
             target_size,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         )
+        self._screenshot_image_label.setText("")
         self._screenshot_image_label.setPixmap(scaled)
 
     def on_excel_template_browse_clicked(self) -> None:
