@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 from typing import Any, Literal
 
-from PySide6.QtCore import QEvent, QObject, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor
 from PySide6.QtGui import (
     QBrush,
@@ -13,10 +13,13 @@ from PySide6.QtGui import (
     QDoubleValidator,
     QIntValidator,
     QPalette,
+    QPixmap,
     QResizeEvent,
+    QShowEvent,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QDialog,
     QFileDialog,
     QFrame,
@@ -50,6 +53,7 @@ from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRCaseParameters, NRGroupSettings, NRSelectDialog
 
 _TABLE_HEADERS: tuple[str, ...] = (
+    "Index",
     "Generation",
     "Band",
     "EUT ANT",
@@ -97,6 +101,7 @@ _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "connectionWaitingTimeEdit": "5",
     "attenLevelEdit": "0",
     "nextPeakSearchLevelEdit": "6",
+    "customTurnTableSpeedEdit": "5",
 }
 _RUN_SETTING_FIELD_NAMES = frozenset(_RUN_SETTING_FIELD_DEFAULTS)
 _CONNECTION_CANONICAL_KEYS: tuple[str, ...] = (
@@ -120,6 +125,15 @@ _CONNECTION_STATUS_NOT_CONNECTED = "not_connected"
 _CONNECTION_STATUS_CONNECTING = "connecting"
 _CONNECTION_STATUS_CONNECTED = "connected"
 _CONNECTION_STATUS_FAILED = "failed"
+_SCREENSHOT_PREVIEW_SOURCE_WIDTH = 1600
+_SCREENSHOT_PREVIEW_SOURCE_HEIGHT = 1200
+_SCREENSHOT_PREVIEW_PADDED_HEIGHT = 1244
+_SCREENSHOT_PREVIEW_ASPECT_RATIO = (
+    _SCREENSHOT_PREVIEW_SOURCE_WIDTH / _SCREENSHOT_PREVIEW_SOURCE_HEIGHT
+)
+_SCREENSHOT_PREVIEW_PADDED_ASPECT_RATIO = (
+    _SCREENSHOT_PREVIEW_SOURCE_WIDTH / _SCREENSHOT_PREVIEW_PADDED_HEIGHT
+)
 
 _TECHNOLOGY_BUTTON_WIDTH = 120
 _TECHNOLOGY_BUTTON_MIN_HEIGHT = 38
@@ -131,6 +145,7 @@ _TEST_CASE_RUNNING_BACKGROUND = QColor("#fff3bf")
 _TEST_CASE_COMPLETED_BACKGROUND = QColor("#ced4da")
 _TestCaseProgress = Literal["pending", "running", "completed"]
 _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
+    44,  # Index
     82,  # Generation
     50,  # Band
     70,  # EUT ANT
@@ -288,6 +303,9 @@ class TestManagerPanel(QWidget):
         """현재 실행/표시 대상 TestCase 정보를 표시 필드에 반영한다."""
 
         test_range = case.range_definition
+        current_index = self._find_test_case_index(case)
+        if current_index is not None:
+            self._set_line_edit_text("indexEdit", current_index + 1)
         self._set_line_edit_text("currentTestBandEdit", self._format_band_label(case))
         self._set_line_edit_text("currentTestFreqEdit", self._format_test_range_label(test_range))
         self._set_line_edit_text("currentFactorEdit", self._format_current_factor(case))
@@ -636,15 +654,16 @@ class TestManagerPanel(QWidget):
 
         self._test_case_table = self._create_test_case_table()
         content_layout.addWidget(self._test_case_table, 1)
+        content_layout.addWidget(self._create_operation_bar())
 
         bottom_layout = QHBoxLayout()
         bottom_layout.setContentsMargins(0, 0, 0, 0)
         bottom_layout.setSpacing(10)
-        content_layout.addLayout(bottom_layout)
-
-        bottom_layout.addWidget(self._create_left_panel(), 3)
-        bottom_layout.addWidget(self._create_tdf_group(), 1)
-        bottom_layout.addWidget(self._create_center_panel(), 4)
+        bottom_layout.addWidget(self._create_screenshot_group(), 3)
+        bottom_layout.addWidget(self._create_tdf_group(), 2)
+        bottom_layout.addWidget(self._create_custom_option_panel())
+        bottom_layout.addWidget(self._create_technology_panel())
+        content_layout.addLayout(bottom_layout, 1)
 
         self._log_panel = LogPanel(self)
         self._log_panel.setObjectName("testManagerLogPanel")
@@ -665,7 +684,7 @@ class TestManagerPanel(QWidget):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setMinimumHeight(260)
+        table.setMinimumHeight(410)
         table.setSizePolicy(
             QSizePolicy.Policy.Expanding,
             QSizePolicy.Policy.Expanding,
@@ -751,221 +770,71 @@ class TestManagerPanel(QWidget):
         self._tdf_all_off_button.clicked.connect(self.tdf_all_off_requested.emit)
         self._set_tdf_button.clicked.connect(self.on_set_tdf_button_clicked)
 
-    def _create_left_panel(self) -> QWidget:
-        """EUT 입력과 좌측 하단 제어 영역을 만든다."""
+    def _create_operation_bar(self) -> QWidget:
+        """Test Case ?? ??/?? ?? ?? ???."""
 
         panel = QWidget(self)
-        layout = QVBoxLayout(panel)
+        layout = QHBoxLayout(panel)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(10)
 
-        layout.addWidget(self._create_summary_inputs())
+        self._create_hidden_monitoring_fields(panel)
+        self._create_hidden_screenshot_path_inputs(panel)
 
-        controls_layout = QHBoxLayout()
-        controls_layout.setContentsMargins(0, 0, 0, 0)
-        controls_layout.setSpacing(8)
-        controls_layout.addWidget(self._create_connection_group(), 1)
-        controls_layout.addWidget(self._create_turn_table_group(), 1)
-        controls_layout.addWidget(self._create_polarization_group(), 1)
-        layout.addLayout(controls_layout)
+        input_panel = QWidget(panel)
+        input_layout = QGridLayout(input_panel)
+        input_layout.setContentsMargins(0, 0, 0, 0)
+        input_layout.setHorizontalSpacing(8)
+        input_layout.setVerticalSpacing(3)
+        input_layout.addWidget(QLabel("EUT Name", input_panel), 0, 0)
+        input_layout.addWidget(QLabel("Excel", input_panel), 0, 1)
 
-        current_factor_layout = QHBoxLayout()
-        current_factor_layout.setContentsMargins(0, 0, 0, 0)
-        current_factor_layout.setSpacing(8)
-        current_factor_label = QLabel("Current Factor", panel)
-        self._current_factor_edit = QLineEdit(panel)
-        self._current_factor_edit.setObjectName("currentFactorEdit")
-        self._current_factor_edit.setReadOnly(True)
-        current_factor_layout.addWidget(current_factor_label)
-        current_factor_layout.addWidget(self._current_factor_edit, 1)
-        layout.addLayout(current_factor_layout)
+        self._eut_name_edit = QLineEdit(input_panel)
+        self._eut_name_edit.setObjectName("eutNameEdit")
+        input_layout.addWidget(self._eut_name_edit, 1, 0)
 
-        layout.addWidget(self._create_path_inputs())
-        return panel
-
-    def _create_summary_inputs(self) -> QWidget:
-        """표 바로 아래 요약 입력 행을 만든다."""
-
-        panel = QWidget(self)
-        layout = QGridLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(12)
-        layout.setVerticalSpacing(3)
-
-        inputs = (
-            ("EUT Name", "eutNameEdit"),
-            ("Current Test Band", "currentTestBandEdit"),
-            ("Current Test Freq", "currentTestFreqEdit"),
-        )
-        for column, (label_text, object_name) in enumerate(inputs):
-            label = QLabel(label_text, panel)
-            if object_name != "eutNameEdit":
-                label.setProperty("summaryLabel", True)
-            edit = QLineEdit(panel)
-            edit.setObjectName(object_name)
-            if object_name == "eutNameEdit":
-                self._eut_name_edit = edit
-            else:
-                edit.setReadOnly(True)
-            layout.addWidget(label, 0, column)
-            layout.addWidget(edit, 1, column)
-            layout.setColumnStretch(column, 1)
-
-        return panel
-
-    def _create_path_inputs(self) -> QWidget:
-        """리포트 양식과 스크린샷 루트 입력 행을 만든다."""
-
-        panel = QWidget(self)
-        layout = QGridLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setHorizontalSpacing(6)
-        layout.setVerticalSpacing(4)
-
-        self._excel_template_path_edit = QLineEdit(panel)
+        excel_row = QWidget(input_panel)
+        excel_row_layout = QHBoxLayout(excel_row)
+        excel_row_layout.setContentsMargins(0, 0, 0, 0)
+        excel_row_layout.setSpacing(8)
+        self._excel_template_path_edit = QLineEdit(excel_row)
         self._excel_template_path_edit.setObjectName("excelTemplatePathEdit")
         self._excel_template_path_edit.setReadOnly(True)
-        self._excel_template_browse_button = QPushButton("찾기", panel)
+        self._excel_template_browse_button = QPushButton("\uCC3E\uAE30", excel_row)
         self._excel_template_browse_button.setObjectName("excelTemplateBrowseButton")
+        excel_row_layout.addWidget(self._excel_template_path_edit, 1)
+        excel_row_layout.addWidget(self._excel_template_browse_button)
+        input_layout.addWidget(excel_row, 1, 1)
+        input_layout.setColumnStretch(0, 1)
+        input_layout.setColumnStretch(1, 2)
+        layout.addWidget(input_panel, 3)
 
-        self._screenshot_root_edit = QLineEdit(panel)
-        self._screenshot_root_edit.setObjectName("screenshotRootEdit")
-        self._screenshot_root_edit.setReadOnly(True)
-        self._screenshot_root_browse_button = QPushButton("찾기", panel)
-        self._screenshot_root_browse_button.setObjectName("screenshotRootBrowseButton")
-
-        layout.addWidget(QLabel("Excel Template", panel), 0, 0)
-        layout.addWidget(self._excel_template_path_edit, 0, 1)
-        layout.addWidget(self._excel_template_browse_button, 0, 2)
-        layout.addWidget(QLabel("Screenshot Root", panel), 1, 0)
-        layout.addWidget(self._screenshot_root_edit, 1, 1)
-        layout.addWidget(self._screenshot_root_browse_button, 1, 2)
-        layout.setColumnStretch(1, 1)
-        return panel
-
-    def _create_connection_group(self) -> QGroupBox:
-        """장비 연결 상태 표시 영역을 만든다."""
-
-        group = QGroupBox("Connection", self)
-        group.setObjectName("connectionGroupBox")
-        layout = QGridLayout(group)
-        layout.setContentsMargins(10, 16, 10, 8)
-        layout.setHorizontalSpacing(8)
-        layout.setVerticalSpacing(7)
-
-        for row, label_text in enumerate(_CONNECTION_ITEMS):
-            label = QLabel(label_text, group)
-            status = QFrame(group)
-            status.setObjectName(f"connectionStatus{row + 1}")
-            status.setProperty("statusIndicator", True)
-            status.setFixedSize(18, 18)
-            self._set_connection_indicator_status(
-                status,
-                _CONNECTION_STATUS_NOT_CONNECTED,
-            )
-            self._connection_indicators[_CONNECTION_CANONICAL_KEYS[row]] = status
-            layout.addWidget(label, row, 0)
-            layout.addWidget(status, row, 1, alignment=Qt.AlignmentFlag.AlignRight)
-
-        layout.setColumnStretch(0, 1)
-        return group
-
-    def _create_turn_table_group(self) -> QGroupBox:
-        """턴테이블 입력 영역을 만든다."""
-
-        group = QGroupBox("Turn Table", self)
-        group.setObjectName("turnTableGroupBox")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 16, 10, 8)
-        layout.setSpacing(5)
-
-        for label_text, object_name in (
-            ("Target Angle", "targetAngleEdit"),
-            ("Current Angle", "currentAngleEdit"),
-            ("Setting Speed", "settingSpeedEdit"),
-        ):
-            layout.addWidget(self._create_labeled_edit(label_text, object_name, group))
-
-        return group
-
-    def _create_polarization_group(self) -> QGroupBox:
-        """편파별 측정 입력 영역을 만든다."""
-
-        group = QGroupBox("Polarization", self)
-        group.setObjectName("polarizationGroupBox")
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 16, 10, 8)
-        layout.setSpacing(5)
-
-        for label_text, object_name in (
-            ("3m", "polarization3mEdit"),
-            ("Bilog", "polarizationBilogEdit"),
-            ("1m", "polarization1mEdit"),
-        ):
-            layout.addWidget(self._create_labeled_edit(label_text, object_name, group))
-
-        return group
-
-    def _create_tdf_group(self) -> QGroupBox:
-        """TDF 파일 목록과 조작 버튼 영역을 만든다."""
-
-        group = QGroupBox("TDF", self)
-        group.setObjectName("tdfGroupBox")
-        group.setMinimumWidth(170)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(10, 16, 10, 8)
-        layout.setSpacing(6)
-
-        self._tdf_list_widget = QListWidget(group)
-        self._tdf_list_widget.setObjectName("tdfListWidget")
-        self._tdf_list_widget.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection,
-        )
-        self._tdf_list_widget.setEditTriggers(
-            QAbstractItemView.EditTrigger.NoEditTriggers,
-        )
-        self._tdf_list_widget.setMinimumHeight(88)
-        layout.addWidget(self._tdf_list_widget, 1)
+        index_panel = QWidget(panel)
+        index_layout = QVBoxLayout(index_panel)
+        index_layout.setContentsMargins(0, 0, 0, 0)
+        index_layout.setSpacing(3)
+        index_layout.addWidget(QLabel("Index", index_panel))
+        self._index_edit = QLineEdit(index_panel)
+        self._index_edit.setObjectName("indexEdit")
+        self._index_edit.setValidator(QIntValidator(1, 2147483647, self._index_edit))
+        self._index_edit.setFixedWidth(46)
+        index_layout.addWidget(self._index_edit)
+        layout.addWidget(index_panel)
 
         for text, object_name in (
-            ("Get List", "getTdfListButton"),
-            ("All Off", "tdfAllOffButton"),
-            ("Set TDF", "setTdfButton"),
-        ):
-            button = QPushButton(text, group)
-            button.setObjectName(object_name)
-            if object_name == "getTdfListButton":
-                self._get_tdf_list_button = button
-            elif object_name == "tdfAllOffButton":
-                self._tdf_all_off_button = button
-            elif object_name == "setTdfButton":
-                self._set_tdf_button = button
-            layout.addWidget(button)
-
-        return group
-
-    def _create_center_panel(self) -> QWidget:
-        """실행 버튼과 Info 영역을 만든다."""
-
-        panel = QWidget(self)
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(_ACTION_BODY_SPACING)
-
-        action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(0, 0, 0, 0)
-        action_layout.setSpacing(6)
-        for text, object_name in (
-            ("시작", "startButton"),
-            ("일시정지", "pauseButton"),
-            ("삭제", "deleteButton"),
-            ("초기화", "clearButton"),
-            ("불러오기", "loadItemButton"),
-            ("저장", "saveItemButton"),
+            ("\uB2E8\uC77C\uC2DC\uC791", "singleStartButton"),
+            ("\uC2DC\uC791", "startButton"),
+            ("\uC77C\uC2DC\uC815\uC9C0", "pauseButton"),
+            ("\uC0AD\uC81C", "deleteButton"),
+            ("\uCD08\uAE30\uD654", "clearButton"),
+            ("\uBD88\uB7EC\uC624\uAE30", "loadItemButton"),
+            ("\uC800\uC7A5", "saveItemButton"),
         ):
             button = QPushButton(text, panel)
             button.setObjectName(object_name)
-            if object_name == "startButton":
+            if object_name == "singleStartButton":
+                self._single_start_button = button
+            elif object_name == "startButton":
                 self._start_button = button
             elif object_name == "pauseButton":
                 self._pause_button = button
@@ -978,38 +847,191 @@ class TestManagerPanel(QWidget):
                 self._load_item_button = button
             elif object_name == "saveItemButton":
                 self._save_item_button = button
-            action_layout.addWidget(button)
-        layout.addLayout(action_layout)
-
-        body_layout = QHBoxLayout()
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(10)
-        body_layout.addWidget(self._create_info_group(), 1)
-        body_layout.addWidget(self._create_technology_panel())
-        layout.addLayout(body_layout, 1)
+            layout.addWidget(button)
         return panel
 
-    def _create_info_group(self) -> QGroupBox:
-        """선택 Test Case의 측정 조건 표시 영역을 만든다."""
+    def _create_hidden_screenshot_path_inputs(self, parent: QWidget) -> None:
+        """?? ?? ?? ??? ???? ?? ??? ?? ??."""
 
-        group = QGroupBox("Info", self)
-        group.setObjectName("infoGroupBox")
-        layout = QGridLayout(group)
-        layout.setContentsMargins(12, 18, 12, 10)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(6)
+        self._screenshot_root_edit = QLineEdit(parent)
+        self._screenshot_root_edit.setObjectName("screenshotRootEdit")
+        self._screenshot_root_edit.setReadOnly(True)
+        self._screenshot_root_edit.hide()
+        self._screenshot_root_browse_button = QPushButton("\uCC3E\uAE30", parent)
+        self._screenshot_root_browse_button.setObjectName("screenshotRootBrowseButton")
+        self._screenshot_root_browse_button.hide()
 
-        for index, (label_text, object_name) in enumerate(_INFO_FIELDS):
-            row = index % 4
-            column = index // 4
-            layout.addWidget(
-                self._create_labeled_edit(label_text, object_name, group),
-                row,
-                column,
-            )
-            layout.setColumnStretch(column, 1)
+    def _create_hidden_monitoring_fields(self, parent: QWidget) -> None:
+        """?? setter/tests ??? ???? ??? ?? ?? ????."""
+
+        for object_name in (
+            "currentTestBandEdit",
+            "currentTestFreqEdit",
+            "currentFactorEdit",
+            "startFreqEdit",
+            "stopFreqEdit",
+            "traceModeEdit",
+            "mastEdit",
+            "rbwEdit",
+            "vbwEdit",
+            "sweepPointEdit",
+            "filterEdit",
+            "targetAngleEdit",
+            "currentAngleEdit",
+            "settingSpeedEdit",
+            "polarization3mEdit",
+            "polarizationBilogEdit",
+            "polarization1mEdit",
+        ):
+            edit = QLineEdit(parent)
+            edit.setObjectName(object_name)
+            edit.setReadOnly(True)
+            edit.hide()
+
+    def _create_tdf_group(self) -> QGroupBox:
+        """FSV Factor ??? ?? TDF ?? ??? ????."""
+
+        group = QGroupBox("FSV Factor List", self)
+        group.setObjectName("tdfGroupBox")
+        group.setMinimumWidth(220)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 16, 10, 8)
+        layout.setSpacing(6)
+
+        self._tdf_list_widget = QListWidget(group)
+        self._tdf_list_widget.setObjectName("tdfListWidget")
+        self._tdf_list_widget.setSelectionMode(
+            QAbstractItemView.SelectionMode.SingleSelection,
+        )
+        self._tdf_list_widget.setEditTriggers(
+            QAbstractItemView.EditTrigger.NoEditTriggers,
+        )
+        self._tdf_list_widget.setMinimumHeight(165)
+        layout.addWidget(self._tdf_list_widget, 1)
+
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(6)
+        for text, object_name in (
+            ("Select", "setTdfButton"),
+            ("All Off", "tdfAllOffButton"),
+            ("List Update", "getTdfListButton"),
+        ):
+            button = QPushButton(text, group)
+            button.setObjectName(object_name)
+            if object_name == "getTdfListButton":
+                self._get_tdf_list_button = button
+            elif object_name == "tdfAllOffButton":
+                self._tdf_all_off_button = button
+            elif object_name == "setTdfButton":
+                self._set_tdf_button = button
+            button_layout.addWidget(button)
+        layout.addLayout(button_layout)
 
         return group
+
+    def _create_custom_option_panel(self) -> QWidget:
+        """Custom Option ?? ??? ?? ??? ????."""
+
+        panel = QWidget(self)
+        panel.setObjectName("customOptionPanel")
+        panel.setFixedWidth(220)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        title_label = QLabel("Custom Option", panel)
+        layout.addWidget(title_label)
+        self._custom_option_check_box = QCheckBox(
+            "\uCCB4\uD06C \uBC15\uC2A4 \uD574\uC81C \uC2DC \uAE30\uBCF8 \uAC12 \uC0AC\uC6A9",
+            panel,
+        )
+        self._custom_option_check_box.setObjectName("customOptionCheckBox")
+        self._custom_option_check_box.setChecked(True)
+        layout.addWidget(self._custom_option_check_box)
+        layout.addWidget(self._create_custom_option_group(), 1)
+        return panel
+
+    def _create_custom_option_group(self) -> QGroupBox:
+        """Custom Option ?? ??? ? ???? ?? ????."""
+
+        group = QGroupBox("", self)
+        group.setObjectName("infoGroupBox")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
+
+        fields = (
+            ("Saturation\nTime(s)", "saturationTimeEdit", 0, 0),
+            ("Connection\nWaiting Time(s)", "connectionWaitingTimeEdit", 0, 1),
+            ("Atten Level", "attenLevelEdit", 2, 0),
+            ("Turn Table\nSpeed", "customTurnTableSpeedEdit", 2, 1),
+            ("Next Peak\nSearch Level", "nextPeakSearchLevelEdit", 4, 0),
+        )
+        for label_text, object_name, row, column in fields:
+            label = QLabel(label_text, group)
+            label.setWordWrap(True)
+            label.setFixedWidth(78)
+            edit = self._create_custom_option_edit(object_name, group)
+            layout.addWidget(label, row, column)
+            layout.addWidget(edit, row + 1, column)
+
+        marker = QCheckBox("Marker", group)
+        marker.setObjectName("markerCheckBox")
+        layout.addWidget(marker, 5, 1)
+        layout.setColumnStretch(0, 1)
+        layout.setColumnStretch(1, 1)
+        layout.setRowStretch(6, 1)
+
+        return group
+
+    def _create_custom_option_edit(
+        self,
+        object_name: str,
+        parent: QWidget,
+    ) -> QLineEdit:
+        edit = QLineEdit(parent)
+        edit.setObjectName(object_name)
+        edit.setFixedWidth(78)
+        edit.setReadOnly(object_name not in _RUN_SETTING_FIELD_NAMES)
+        self._apply_run_setting_validator(edit, object_name)
+        default_value = _RUN_SETTING_FIELD_DEFAULTS.get(object_name)
+        if default_value is not None:
+            edit.setText(default_value)
+        return edit
+
+    def _create_screenshot_group(self) -> QWidget:
+        """?? ???? ?? ??? ???."""
+
+        panel = QWidget(self)
+        self._screenshot_group_panel = panel
+        panel.installEventFilter(self)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.addWidget(QLabel("Screenshot", panel))
+
+        frame = QFrame(panel)
+        self._manager_screenshot_frame = frame
+        frame.installEventFilter(self)
+        frame.setObjectName("managerScreenshotFrame")
+        frame.setFrameShape(QFrame.Shape.StyledPanel)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(0, 0, 0, 0)
+        self._screenshot_image_label = QLabel("", frame)
+        self._screenshot_image_label.setObjectName("managerScreenshotImageLabel")
+        self._screenshot_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._screenshot_image_label.setMinimumSize(360, 220)
+        self._screenshot_image_label.setSizePolicy(
+            QSizePolicy.Policy.Ignored,
+            QSizePolicy.Policy.Ignored,
+        )
+        self._screenshot_image_label.installEventFilter(self)
+        frame_layout.addWidget(self._screenshot_image_label, 1)
+        layout.addWidget(frame, 1)
+        self._manager_screenshot_pixmap: QPixmap | None = None
+        return panel
 
     def _create_technology_panel(self) -> QWidget:
         """우측 RAT 선택 버튼 영역을 만든다."""
@@ -1113,6 +1135,17 @@ class TestManagerPanel(QWidget):
                 color: #111111;
             }
 
+            QFrame#managerScreenshotFrame {
+                border: 1px solid #3f73a8;
+                background: #ffffff;
+            }
+
+            QLabel#managerScreenshotImageLabel {
+                border: 0;
+                background: #ffffff;
+                color: #666666;
+            }
+
             QPushButton {
                 border: 1px solid #3f73a8;
                 background: #f8f8f8;
@@ -1160,13 +1193,123 @@ class TestManagerPanel(QWidget):
             and event.type() == QEvent.Type.Resize
         ):
             self._apply_test_case_column_widths()
+        if event.type() == QEvent.Type.Resize and (
+            (
+                hasattr(self, "_screenshot_group_panel")
+                and watched is self._screenshot_group_panel
+            )
+            or (
+                hasattr(self, "_manager_screenshot_frame")
+                and watched is self._manager_screenshot_frame
+            )
+        ):
+            self._refresh_manager_screenshot_preview()
+        if (
+            hasattr(self, "_screenshot_image_label")
+            and watched is self._screenshot_image_label
+            and event.type() == QEvent.Type.Resize
+        ):
+            self._update_manager_screenshot_pixmap()
         return super().eventFilter(watched, event)
 
     def resizeEvent(self, event: QResizeEvent) -> None:  # noqa: N802
-        """패널 폭 변경 시 TestCase 표 컬럼 폭을 다시 배분한다."""
+        """?? ?? ?? ? ???? ???? ??? ?? ???."""
 
         super().resizeEvent(event)
         self._apply_test_case_column_widths()
+        self._refresh_manager_screenshot_preview()
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        """패널 표시 후 확정된 크기에 맞춰 스크린샷을 다시 맞춘다."""
+
+        super().showEvent(event)
+        self._refresh_manager_screenshot_preview()
+        QTimer.singleShot(0, self._refresh_manager_screenshot_preview)
+
+    def on_screenshot_saved(self, path: str) -> None:
+        screenshot_path = Path(path)
+        pixmap = QPixmap(str(screenshot_path))
+        if pixmap.isNull():
+            return
+        self._manager_screenshot_pixmap = pixmap
+        self._refresh_manager_screenshot_preview()
+        QTimer.singleShot(0, self._refresh_manager_screenshot_preview)
+
+    def _refresh_manager_screenshot_preview(self) -> None:
+        self._apply_manager_screenshot_aspect_ratio()
+        self._update_manager_screenshot_pixmap()
+
+    def _apply_manager_screenshot_aspect_ratio(self) -> None:
+        if not hasattr(self, "_manager_screenshot_frame"):
+            return
+        if not hasattr(self, "_screenshot_group_panel"):
+            return
+        if not hasattr(self, "_screenshot_image_label"):
+            return
+
+        frame_height = self._manager_screenshot_frame.height()
+        if frame_height <= 0:
+            return
+
+        frame_layout = self._manager_screenshot_frame.layout()
+        if frame_layout is None:
+            return
+        margins = frame_layout.contentsMargins()
+        image_height = max(
+            frame_height - margins.top() - margins.bottom(),
+            self._screenshot_image_label.minimumHeight(),
+        )
+        target_frame_width = int(
+            image_height * _SCREENSHOT_PREVIEW_ASPECT_RATIO,
+        )
+        target_frame_width += margins.left() + margins.right()
+        min_frame_width = (
+            self._screenshot_image_label.minimumWidth()
+            + margins.left()
+            + margins.right()
+        )
+        target_frame_width = max(target_frame_width, min_frame_width)
+
+        if self._manager_screenshot_frame.maximumWidth() != target_frame_width:
+            self._manager_screenshot_frame.setMaximumWidth(target_frame_width)
+        if self._screenshot_group_panel.maximumWidth() != target_frame_width:
+            self._screenshot_group_panel.setMaximumWidth(target_frame_width)
+
+    def _manager_screenshot_display_pixmap(self) -> QPixmap:
+        assert self._manager_screenshot_pixmap is not None
+        pixmap = self._manager_screenshot_pixmap
+        if pixmap.width() <= 0 or pixmap.height() <= 0:
+            return pixmap
+
+        current_aspect_ratio = pixmap.width() / pixmap.height()
+        if abs(current_aspect_ratio - _SCREENSHOT_PREVIEW_PADDED_ASPECT_RATIO) > 0.02:
+            return pixmap
+
+        crop_height = int(
+            pixmap.width()
+            * _SCREENSHOT_PREVIEW_SOURCE_HEIGHT
+            / _SCREENSHOT_PREVIEW_SOURCE_WIDTH,
+        )
+        if crop_height <= 0 or crop_height >= pixmap.height():
+            return pixmap
+        return pixmap.copy(0, 0, pixmap.width(), crop_height)
+
+    def _update_manager_screenshot_pixmap(self) -> None:
+        if not hasattr(self, "_screenshot_image_label"):
+            return
+        if self._manager_screenshot_pixmap is None:
+            return
+        target_size = self._screenshot_image_label.size()
+        if target_size.width() <= 0 or target_size.height() <= 0:
+            return
+        display_pixmap = self._manager_screenshot_display_pixmap()
+        scaled = display_pixmap.scaled(
+            target_size,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        self._screenshot_image_label.setText("")
+        self._screenshot_image_label.setPixmap(scaled)
 
     def on_excel_template_browse_clicked(self) -> None:
         """Excel 양식 파일을 선택해 입력칸에 반영한다."""
@@ -1245,6 +1388,12 @@ class TestManagerPanel(QWidget):
             item = self._test_case_table.item(row, column)
             if item is not None:
                 item.setBackground(background)
+
+    def _refresh_test_case_indexes(self) -> None:
+        for row in range(self._test_case_table.rowCount()):
+            item = self._test_case_table.item(row, 0)
+            if item is not None:
+                item.setText(str(row + 1))
 
     def _background_for_progress(self, status: _TestCaseProgress) -> QBrush:
         if status == "running":
@@ -1353,6 +1502,7 @@ class TestManagerPanel(QWidget):
         self._test_cases.pop(row)
         self._test_case_progress.pop(row)
         self._test_case_table.removeRow(row)
+        self._refresh_test_case_indexes()
         self._refresh_test_case_progress_marks()
 
     def on_clear_button_clicked(self) -> None:
@@ -1364,6 +1514,7 @@ class TestManagerPanel(QWidget):
         self._test_cases.clear()
         self._test_case_progress.clear()
         self._test_case_table.setRowCount(0)
+        self._index_edit.clear()
 
     def on_load_item_button_clicked(self) -> None:
         """CSV 파일에서 TestCase를 읽어 기존 목록 뒤에 추가한다."""
@@ -1616,7 +1767,7 @@ class TestManagerPanel(QWidget):
 
         row = self._test_case_table.rowCount()
         self._test_case_table.insertRow(row)
-        for column, value in enumerate(self._row_values_for_case(case)):
+        for column, value in enumerate((str(row + 1), *self._row_values_for_case(case))):
             item = QTableWidgetItem(value)
             item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item.setForeground(QBrush(_TABLE_TEXT_COLOR))
