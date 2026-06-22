@@ -162,6 +162,9 @@ class MainWindow(QMainWindow):
         self._runner.events.screenshot_saved.connect(
             self._test_plot_screenshot_panel.on_screenshot_saved,
         )
+        self._runner.events.screenshot_saved.connect(
+            self._test_manager_panel.on_screenshot_saved,
+        )
         self._runner.events.user_action_required.connect(
             self.on_user_action_required,
         )
