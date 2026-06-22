@@ -147,7 +147,7 @@ def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.HARMONIC, "PrepareFundamentalSwitchBox"),
         (NRTestType.INBAND, "SetSwitchBox"),
         (NRTestType.BILOG, "SetSwitchBox"),
     ],
@@ -416,7 +416,7 @@ def test_handover_calls_command_with_current_case_params() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "PrepareFundamentalSwitchBox"
     assert commands.handover_calls == [
         (
             client,
@@ -437,7 +437,7 @@ def test_handover_calls_command_with_current_case_params() -> None:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.HARMONIC, "PrepareFundamentalSwitchBox"),
         (NRTestType.INBAND, "SetSwitchBox"),
         (NRTestType.BILOG, "SetSwitchBox"),
     ],
@@ -605,7 +605,7 @@ def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
+        (NRTestType.HARMONIC, "PrepareFundamentalSwitchBox"),
         (NRTestType.INBAND, "SetSwitchBox"),
         (NRTestType.BILOG, "SetSwitchBox"),
     ],

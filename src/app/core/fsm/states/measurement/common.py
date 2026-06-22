@@ -41,6 +41,8 @@ _COMMAND_TURNTABLE_PROGRESS = "turntable_progress"
 _COMMAND_TURNTABLE_COMPLETE = "turntable_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"
 _TRACE_MODE_LOAD_SA_RANGE_SETTING = "Max Hold"
+SAFE_SWITCH_BOX_INPUT_PATH = InputPath.INPUT2
+SAFE_SWITCH_BOX_FILTER_PATH = FilterPath.THRU
 
 
 def _emit_error(ctx: "SessionContext", message: str) -> None:
@@ -76,6 +78,42 @@ def _emit_switch_box_info(
                 "filter": display_filter_path(filter_path),
             }
         )
+
+
+def restore_switch_box_safe_path(
+    ctx: "SessionContext",
+    *,
+    action_label: str,
+) -> StateResult:
+    """Switch Box를 시험 외 안전 경로로 복원한다."""
+
+    if not is_equipment_connected(ctx, "Switch Box"):
+        _emit_error(
+            ctx,
+            f"Switch Box {action_label} 스킵: Switch Box가 연결되어 있지 않습니다.",
+        )
+        return StateResult.OK
+
+    try:
+        configured = ctx.commands.set_switch_box(
+            ctx.client,
+            input_path=SAFE_SWITCH_BOX_INPUT_PATH,
+            filter_path=SAFE_SWITCH_BOX_FILTER_PATH,
+        )
+    except Exception as exc:
+        _emit_error(ctx, f"Switch Box {action_label} 실패: {exc}")
+        return StateResult.FAIL
+
+    if configured:
+        _emit_switch_box_info(
+            ctx,
+            input_path=SAFE_SWITCH_BOX_INPUT_PATH,
+            filter_path=SAFE_SWITCH_BOX_FILTER_PATH,
+        )
+        return StateResult.OK
+
+    _emit_error(ctx, f"Switch Box {action_label} 실패: set_switch_box returned false")
+    return StateResult.FAIL
 
 
 def _emit_turntable_info(
@@ -153,6 +191,8 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
+        if ctx.current_case.test_type is TestType.HARMONIC:
+            return "PrepareFundamentalSwitchBoxBeforeCall"
         return "NRCallConnect"
 
 
@@ -533,6 +573,40 @@ class InitialTurntableZeroState(RotateTurntableState):
         return "AntPolChange"
 
 
+class _RestoreSafeSwitchBoxState(State):
+    """Switch Box 안전 경로 복원 공통 State."""
+
+    name = "_RestoreSafeSwitchBox"
+    _action_label = "안전 경로 복원"
+    _next_state: str | None = None
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        return restore_switch_box_safe_path(ctx, action_label=self._action_label)
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return self._next_state
+
+
+class PrepareFundamentalSwitchBoxBeforeCallState(_RestoreSafeSwitchBoxState):
+    """Fundamental 최초 측정 전 NR Call 연결에 앞서 안전 경로를 보장한다."""
+
+    name = "PrepareFundamentalSwitchBoxBeforeCall"
+    _action_label = "Fundamental 안전 경로 준비"
+    _next_state = "NRCallConnect"
+
+
+class PrepareFundamentalSwitchBoxState(_RestoreSafeSwitchBoxState):
+    """Fundamental 측정 직전 안전 경로를 보장한다."""
+
+    name = "PrepareFundamentalSwitchBox"
+    _action_label = "Fundamental 안전 경로 준비"
+    _next_state = "MeasureFundamental"
+
+
 class ResetSwitchBoxState(State):
     """§4.8 — Switch Box를 기본 경로로 복원한다(시퀀스 정리)."""
 
@@ -546,8 +620,8 @@ class ResetSwitchBoxState(State):
         try:
             configured = ctx.commands.set_switch_box(
                 ctx.client,
-                input_path=InputPath.INPUT1,
-                filter_path=FilterPath.THRU,
+                input_path=SAFE_SWITCH_BOX_INPUT_PATH,
+                filter_path=SAFE_SWITCH_BOX_FILTER_PATH,
             )
         except Exception as exc:
             _emit_error(ctx, f"Switch Box 기본 경로 복원 실패: {exc}")
@@ -556,8 +630,8 @@ class ResetSwitchBoxState(State):
         if configured:
             _emit_switch_box_info(
                 ctx,
-                input_path=InputPath.INPUT1,
-                filter_path=FilterPath.THRU,
+                input_path=SAFE_SWITCH_BOX_INPUT_PATH,
+                filter_path=SAFE_SWITCH_BOX_FILTER_PATH,
             )
             return StateResult.OK
 
@@ -578,7 +652,7 @@ def measurement_start_state_for(
     """test_type에 해당하는 측정 시작 state 이름을 반환한다.
 
     - after_rotate=False (기본): NRCallConnect / TestTypeChange 등에서 측정 시퀀스로 진입할 때.
-      Harmonic은 MeasureFundamental부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
+      Harmonic은 PrepareFundamentalSwitchBox부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
     - after_rotate=True: RotateTurntable 이후 실제 측정 state로 분기할 때.
     """
     if after_rotate:
@@ -589,7 +663,7 @@ def measurement_start_state_for(
         }
     else:
         mapping = {
-            TestType.HARMONIC: "MeasureFundamental",
+            TestType.HARMONIC: "PrepareFundamentalSwitchBox",
             TestType.INBAND: "SetSwitchBox",
             TestType.BILOG: "SetSwitchBox",
         }
