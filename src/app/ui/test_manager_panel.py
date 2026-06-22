@@ -650,8 +650,8 @@ class TestManagerPanel(QWidget):
         bottom_layout.setContentsMargins(0, 0, 0, 0)
         bottom_layout.setSpacing(10)
         bottom_layout.addWidget(self._create_screenshot_group(), 3)
-        bottom_layout.addWidget(self._create_tdf_group(), 1)
-        bottom_layout.addWidget(self._create_custom_option_group(), 2)
+        bottom_layout.addWidget(self._create_tdf_group(), 2)
+        bottom_layout.addWidget(self._create_custom_option_panel())
         bottom_layout.addWidget(self._create_technology_panel())
         content_layout.addLayout(bottom_layout, 1)
 
@@ -920,43 +920,76 @@ class TestManagerPanel(QWidget):
 
         return group
 
-    def _create_custom_option_group(self) -> QGroupBox:
-        """??? ?? ?? ??? ?? ????."""
+    def _create_custom_option_panel(self) -> QWidget:
+        """Custom Option ?? ??? ?? ??? ????."""
 
-        group = QGroupBox("Custom Option", self)
-        group.setObjectName("infoGroupBox")
-        layout = QGridLayout(group)
-        layout.setContentsMargins(12, 18, 12, 10)
-        layout.setHorizontalSpacing(10)
-        layout.setVerticalSpacing(6)
+        panel = QWidget(self)
+        panel.setObjectName("customOptionPanel")
+        panel.setFixedWidth(220)
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
 
-        self._custom_option_check_box = QCheckBox("\uCCB4\uD06C \uBC15\uC2A4 \uD574\uC81C \uC2DC \uAE30\uBCF8 \uAC12 \uC0AC\uC6A9", group)
+        title_label = QLabel("Custom Option", panel)
+        layout.addWidget(title_label)
+        self._custom_option_check_box = QCheckBox(
+            "\uCCB4\uD06C \uBC15\uC2A4 \uD574\uC81C \uC2DC \uAE30\uBCF8 \uAC12 \uC0AC\uC6A9",
+            panel,
+        )
         self._custom_option_check_box.setObjectName("customOptionCheckBox")
         self._custom_option_check_box.setChecked(True)
-        layout.addWidget(self._custom_option_check_box, 0, 0, 1, 2)
+        layout.addWidget(self._custom_option_check_box)
+        layout.addWidget(self._create_custom_option_group(), 1)
+        return panel
+
+    def _create_custom_option_group(self) -> QGroupBox:
+        """Custom Option ?? ??? ? ???? ?? ????."""
+
+        group = QGroupBox("", self)
+        group.setObjectName("infoGroupBox")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(12, 10, 12, 10)
+        layout.setHorizontalSpacing(10)
+        layout.setVerticalSpacing(4)
 
         fields = (
-            ("Saturation Time(s)", "saturationTimeEdit"),
-            ("Connection Waiting Time(s)", "connectionWaitingTimeEdit"),
-            ("Atten Level", "attenLevelEdit"),
-            ("Turn Table Speed", "customTurnTableSpeedEdit"),
-            ("Next Peak Search Level", "nextPeakSearchLevelEdit"),
+            ("Saturation\nTime(s)", "saturationTimeEdit", 0, 0),
+            ("Connection\nWaiting Time(s)", "connectionWaitingTimeEdit", 0, 1),
+            ("Atten Level", "attenLevelEdit", 2, 0),
+            ("Turn Table\nSpeed", "customTurnTableSpeedEdit", 2, 1),
+            ("Next Peak\nSearch Level", "nextPeakSearchLevelEdit", 4, 0),
         )
-        for index, (label_text, object_name) in enumerate(fields):
-            row = 1 + (index // 2)
-            column = index % 2
-            layout.addWidget(
-                self._create_labeled_edit(label_text, object_name, group),
-                row,
-                column,
-            )
+        for label_text, object_name, row, column in fields:
+            label = QLabel(label_text, group)
+            label.setWordWrap(True)
+            label.setFixedWidth(78)
+            edit = self._create_custom_option_edit(object_name, group)
+            layout.addWidget(label, row, column)
+            layout.addWidget(edit, row + 1, column)
+
         marker = QCheckBox("Marker", group)
         marker.setObjectName("markerCheckBox")
-        layout.addWidget(marker, 3, 1)
+        layout.addWidget(marker, 5, 1)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
+        layout.setRowStretch(6, 1)
 
         return group
+
+    def _create_custom_option_edit(
+        self,
+        object_name: str,
+        parent: QWidget,
+    ) -> QLineEdit:
+        edit = QLineEdit(parent)
+        edit.setObjectName(object_name)
+        edit.setFixedWidth(78)
+        edit.setReadOnly(object_name not in _RUN_SETTING_FIELD_NAMES)
+        self._apply_run_setting_validator(edit, object_name)
+        default_value = _RUN_SETTING_FIELD_DEFAULTS.get(object_name)
+        if default_value is not None:
+            edit.setText(default_value)
+        return edit
 
     def _create_screenshot_group(self) -> QWidget:
         """?? ???? ?? ??? ???."""
