@@ -6,6 +6,7 @@ import time
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.equipment import is_equipment_connected
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -26,6 +27,7 @@ class FSMEngine:
         self._ctx = ctx
         self._states: dict[str, State] = {}
         self._current_state_name: str | None = None
+        self._interrupt_cleanup_done = False
 
     def register(self, state: State) -> None:
         """State를 name으로 등록한다. 중복 name은 ValueError."""
@@ -56,9 +58,11 @@ class FSMEngine:
             raise ValueError(f"등록되지 않은 초기 State: {initial_state!r}")
 
         self._current_state_name = initial_state
+        self._interrupt_cleanup_done = False
         while self._current_state_name is not None:
             self._wait_if_paused()
             if self._ctx.stopped:
+                self._cleanup_switch_box_on_interrupt()
                 break
             if (
                 self._ctx.current_case_stop_requested
@@ -79,6 +83,7 @@ class FSMEngine:
 
             result = self._run_state(state)
             if self._ctx.stopped:
+                self._cleanup_switch_box_on_interrupt()
                 break
             if self._ctx.current_case_stop_requested:
                 self._return_to_idle_after_current_case_stop()
@@ -109,10 +114,32 @@ class FSMEngine:
 
     def _return_to_idle_after_current_case_stop(self) -> None:
         """현재 TC 중단 요청을 소비하고 새 Start 대기 상태로 돌아간다."""
+        self._cleanup_switch_box_on_interrupt()
+        self._interrupt_cleanup_done = False
         self._ctx.current_case_stop_requested = False
         self._ctx.paused = False
         self._ctx.test_start_requested.clear()
         self._current_state_name = "Idle"
+
+    def _cleanup_switch_box_on_interrupt(self) -> None:
+        """중단 경로에서 Switch Box를 안전 경로로 best-effort 복원한다."""
+
+        if self._interrupt_cleanup_done:
+            return
+        if self._current_state_name in (None, "Idle"):
+            return
+        if not is_equipment_connected(self._ctx, "Switch Box"):
+            return
+
+        from app.core.fsm.states.measurement.common import restore_switch_box_safe_path
+
+        self._interrupt_cleanup_done = True
+        result = restore_switch_box_safe_path(
+            self._ctx,
+            action_label="중단 안전 경로 복원",
+        )
+        if result is not StateResult.OK:
+            logger.error("Switch Box interrupt cleanup failed")
 
 
 def build_session_engine(ctx: "SessionContext") -> FSMEngine:
@@ -120,6 +147,8 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     from app.core.fsm.states.measurement.bilog import MeasureBilogState
     from app.core.fsm.states.measurement.common import (
         InitialTurntableZeroState,
+        PrepareFundamentalSwitchBoxBeforeCallState,
+        PrepareFundamentalSwitchBoxState,
         ResetSwitchBoxState,
         RotateTurntableState,
         SetSwitchBoxState,
@@ -172,6 +201,8 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)
     engine.register(InitialTurntableZeroState())
     engine.register(SetupSpectrumAnalyzerStartupLevelState())
+    engine.register(PrepareFundamentalSwitchBoxBeforeCallState())
+    engine.register(PrepareFundamentalSwitchBoxState())
     engine.register(SetSwitchBoxState())
     engine.register(SetupSpectrumAnalyzerState())
     engine.register(RotateTurntableState())

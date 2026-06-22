@@ -185,7 +185,7 @@ def test_setup_spectrum_analyzer_startup_level_skips_when_fsv40_is_not_connected
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert state.next_state(ctx, result) == "PrepareFundamentalSwitchBoxBeforeCall"
     assert commands.startup_level_calls == []
     assert events.error.messages
 
@@ -264,7 +264,7 @@ def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect(
 
     result = state.run(ctx)
 
-    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert state.next_state(ctx, result) == "PrepareFundamentalSwitchBoxBeforeCall"
 
 
 def test_set_switch_box_uses_hpf_filter_path_from_range_definition() -> None:
@@ -626,7 +626,7 @@ def test_setup_spectrum_analyzer_does_not_emit_info_on_exception(
     ]
 
 
-def test_reset_switch_box_uses_input1_and_thru() -> None:
+def test_reset_switch_box_uses_input2_and_thru() -> None:
     commands = _Commands()
     client = object()
     events = _Events()
@@ -644,13 +644,13 @@ def test_reset_switch_box_uses_input1_and_thru() -> None:
         (
             client,
             {
-                "input_path": InputPath.INPUT1,
+                "input_path": InputPath.INPUT2,
                 "filter_path": FilterPath.THRU,
             },
         )
     ]
     assert events.switch_box_info_changed.messages == [
-        {"mast": "Bilog", "filter": "THRU"}
+        {"mast": "3m", "filter": "THRU"}
     ]
 
 

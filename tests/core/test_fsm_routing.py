@@ -13,6 +13,8 @@ from app.core.fsm.context import SessionContext
 from app.core.fsm.engine import build_session_engine
 from app.core.fsm.states.measurement.common import (
     InitialTurntableZeroState,
+    PrepareFundamentalSwitchBoxBeforeCallState,
+    PrepareFundamentalSwitchBoxState,
     RotateTurntableState,
     SetupSpectrumAnalyzerStartupLevelState,
     measurement_start_state_for,
@@ -102,7 +104,20 @@ def test_setup_spectrum_analyzer_startup_level_goes_to_nr_call_connect() -> None
     ctx = _make_ctx(TestType.HARMONIC)
     assert (
         SetupSpectrumAnalyzerStartupLevelState().next_state(ctx, StateResult.OK)
+        == "PrepareFundamentalSwitchBoxBeforeCall"
+    )
+
+
+def test_fundamental_switch_box_prepare_routes_to_expected_next_state() -> None:
+    ctx = _make_ctx(TestType.HARMONIC)
+
+    assert (
+        PrepareFundamentalSwitchBoxBeforeCallState().next_state(ctx, StateResult.OK)
         == "NRCallConnect"
+    )
+    assert (
+        PrepareFundamentalSwitchBoxState().next_state(ctx, StateResult.OK)
+        == "MeasureFundamental"
     )
 
 
@@ -158,7 +173,7 @@ def test_measure_harmonics_routes_to_precision_with_candidates() -> None:
 
 
 def test_measurement_start_state_for_helper() -> None:
-    assert measurement_start_state_for(TestType.HARMONIC) == "MeasureFundamental"
+    assert measurement_start_state_for(TestType.HARMONIC) == "PrepareFundamentalSwitchBox"
     assert measurement_start_state_for(TestType.INBAND) == "SetSwitchBox"
     assert measurement_start_state_for(TestType.BILOG) == "SetSwitchBox"
 
@@ -194,6 +209,8 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "TestTypeChange",
         "InitialTurntableZero",
         "SetupSpectrumAnalyzerStartupLevel",
+        "PrepareFundamentalSwitchBoxBeforeCall",
+        "PrepareFundamentalSwitchBox",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",

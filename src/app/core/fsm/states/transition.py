@@ -112,7 +112,7 @@ class AntPolChangeState(State):
 class HandoverState(State):
     """NR Band 간 Handover. Call을 유지한 채 Band를 전환한다.
 
-    Handover 성공 시 → MeasureFundamental로 전이
+    Handover 성공 시 → 시험 타입별 측정 시작 state로 전이
     Handover 실패(Call 끊김) 시 → NRCallDisconnected로 전이
     """
 

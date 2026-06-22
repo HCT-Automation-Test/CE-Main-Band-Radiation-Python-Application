@@ -387,6 +387,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
         "InitialTurntableZero",
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",
+        "PrepareFundamentalSwitchBoxBeforeCall",
         "NRCallConnect",
         "MeasureFundamental",
         "SetSwitchBox",
@@ -400,6 +401,14 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
     ]
     assert "measure_fundamental" in _call_names(commands)
     assert "measure_harmonics" in _call_names(commands)
+    fundamental_call_index = _call_names(commands).index("measure_fundamental")
+    assert (
+        "set_switch_box",
+        {
+            "input_path": InputPath.INPUT2,
+            "filter_path": FilterPath.THRU,
+        },
+    ) in commands.calls[:fundamental_call_index]
     assert _writer_call_names(writer) == [
         "read_fundamental_frequency",
         "write_fundamental",
@@ -460,12 +469,13 @@ def test_nr_call_disconnected_recovery(tmp_path: Path) -> None:
 
     _run_session(ctx)
 
-    assert events.state_changed.values[:8] == [
+    assert events.state_changed.values[:9] == [
         "SessionInit",
         "Idle",
         "InitialTurntableZero",
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",
+        "PrepareFundamentalSwitchBoxBeforeCall",
         "NRCallConnect",
         "NRCallDisconnected",
         "NRCallConnect",
