@@ -27,7 +27,11 @@ from app.models.enums import (
     TestType,
 )
 from app.models.test_case import TestCase
-from app.models.test_run_settings import TestRunSettings
+from app.models import test_run_settings
+from app.models.test_run_settings import (
+    TestRunSettings,
+    default_screenshot_root_dir,
+)
 
 
 class _FakeEngine:
@@ -599,6 +603,27 @@ def test_test_run_settings_rejects_invalid_values(
         TestRunSettings(**kwargs)
 
 
+def test_default_screenshot_root_dir_uses_desktop_for_source_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delattr(test_run_settings.sys, "frozen", raising=False)
+    monkeypatch.setattr(test_run_settings.Path, "home", lambda: tmp_path)
+
+    assert default_screenshot_root_dir() == tmp_path / "Desktop" / "screenshots"
+
+
+def test_default_screenshot_root_dir_uses_executable_dir_for_frozen_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    executable = tmp_path / "NRRadiated.exe"
+    monkeypatch.setattr(test_run_settings.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(test_run_settings.sys, "executable", str(executable))
+
+    assert default_screenshot_root_dir() == tmp_path.resolve() / "screenshots"
+
+
 def test_test_run_settings_accepts_optional_custom_turntable_speed(
     tmp_path: Path,
 ) -> None:
@@ -633,15 +658,12 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
     assert custom_settings.custom_turntable_speed == 8
 
 
-def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
-    template_path = tmp_path / "missing.xlsx"
-    screenshot_root_dir = tmp_path / "missing-screenshots"
-
+def test_test_run_settings_rejects_missing_template_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="template_path"):
         TestRunSettings(
             eut_name="SM-000",
-            template_path=template_path,
-            screenshot_root_dir=tmp_path,
+            template_path=tmp_path / "missing.xlsx",
+            screenshot_root_dir=tmp_path / "screenshots",
             saturation_time_sec=5,
             connection_waiting_time_sec=5,
             atten_level_db=0,
@@ -649,7 +671,32 @@ def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
             active_tdf_file_name="NR_Radiated.tdf",
         )
 
+
+def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -> None:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "missing-screenshots"
     template_path.write_bytes(b"template")
+
+    settings = TestRunSettings(
+        eut_name="SM-000",
+        template_path=template_path,
+        screenshot_root_dir=screenshot_root_dir,
+        saturation_time_sec=5,
+        connection_waiting_time_sec=5,
+        atten_level_db=0,
+        next_peak_search_level_db=6,
+        active_tdf_file_name="NR_Radiated.tdf",
+    )
+
+    assert settings.screenshot_root_dir == screenshot_root_dir
+
+
+def test_test_run_settings_rejects_screenshot_path_that_is_file(tmp_path: Path) -> None:
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root_dir = tmp_path / "screenshot-file"
+    template_path.write_bytes(b"template")
+    screenshot_root_dir.write_bytes(b"not a directory")
+
     with pytest.raises(ValueError, match="screenshot_root_dir"):
         TestRunSettings(
             eut_name="SM-000",

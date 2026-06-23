@@ -2,11 +2,21 @@
 from __future__ import annotations
 
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 _MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
 _MAX_CUSTOM_TURNTABLE_SPEED = 10
+_SCREENSHOT_DIR_NAME = "screenshots"
+
+
+def default_screenshot_root_dir() -> Path:
+    """런타임 환경 기준 기본 스크린샷 저장 경로를 반환한다."""
+
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / _SCREENSHOT_DIR_NAME
+    return Path.home() / "Desktop" / _SCREENSHOT_DIR_NAME
 
 
 @dataclass(frozen=True)
@@ -50,8 +60,8 @@ class TestRunSettings:
             raise ValueError("active_tdf_file_name is required")
         if not template_path.is_file():
             raise ValueError("template_path must be an existing file")
-        if not screenshot_root_dir.is_dir():
-            raise ValueError("screenshot_root_dir must be an existing directory")
+        if screenshot_root_dir.exists() and not screenshot_root_dir.is_dir():
+            raise ValueError("screenshot_root_dir must be a directory")
         if not math.isfinite(saturation_time_sec) or saturation_time_sec < 0:
             raise ValueError("saturation_time_sec must be a number greater than or equal to 0")
         if connection_waiting_time_sec <= 0:

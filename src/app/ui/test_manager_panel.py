@@ -48,7 +48,10 @@ from app.models.nr_channel_lookup import (
 )
 from app.models.test_case import TestCase
 from app.models.test_range import ALL_TEST_RANGES, TestRange
-from app.models.test_run_settings import TestRunSettings
+from app.models.test_run_settings import (
+    TestRunSettings,
+    default_screenshot_root_dir,
+)
 from app.ui.log_panel import LogPanel
 from app.ui.nr_select import NRCaseParameters, NRGroupSettings, NRSelectDialog
 
@@ -657,10 +660,7 @@ class TestManagerPanel(QWidget):
                 self.excel_template_path,
                 "Excel Template",
             )
-            screenshot_root_dir = self._required_directory(
-                self.screenshot_root_dir,
-                "Screenshot Root",
-            )
+            screenshot_root_dir = default_screenshot_root_dir()
             if self._custom_option_check_box.isChecked():
                 saturation_time_sec = self._float_field(
                     "saturationTimeEdit",
