@@ -565,7 +565,7 @@ class MainWindow(QMainWindow):
         )
         self._test_manager_panel.set_run_settings_locked(state.run_settings_locked)
         self._rf_filter_box_panel.set_operation_locked(state.rf_operation_locked)
-        self._test_manager_panel.set_pause_enabled(self._runner.is_measurement_active)
+        self._test_manager_panel.set_stop_enabled(self._runner.is_measurement_active)
 
     def _build_instrument_operation_lock_state(
         self,

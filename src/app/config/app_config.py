@@ -14,7 +14,6 @@ class AppConfig:
     tcp_port: int
     tcp_timeout_s: float
     excel_template_path: Path
-    screenshot_dir: Path
 
     @classmethod
     def load(cls, path: Path) -> "AppConfig":
@@ -27,5 +26,4 @@ class AppConfig:
             tcp_port=int(data["tcp_port"]),
             tcp_timeout_s=float(data.get("tcp_timeout_s", 5.0)),
             excel_template_path=Path(data["excel_template_path"]),
-            screenshot_dir=Path(data["screenshot_dir"]),
         )
