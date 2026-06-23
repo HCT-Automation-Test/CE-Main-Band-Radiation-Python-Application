@@ -29,6 +29,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -818,15 +819,24 @@ class NRSelectDialog(QDialog):
         *,
         parameters_by_band: Mapping[NRBand, NRCaseParameters] | None = None,
         group_settings: Mapping[str, NRGroupSettings] | None = None,
+        generation: Generation = Generation.NR_SA,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("nrSelectDialog")
         self.setWindowTitle("NR Select")
         self._band_checks: dict[NRBand, QCheckBox] = {}
+        self._generation_buttons: dict[Generation, QPushButton] = {}
+        self._generation = generation
         self._parameters_by_band = dict(parameters_by_band or _create_default_parameters())
         self._group_settings = dict(group_settings or _create_default_group_settings())
         self._setup_layout()
         self._apply_styles()
+
+    @property
+    def generation(self) -> Generation:
+        """현재 선택된 NR generation을 반환한다."""
+
+        return self._generation
 
     @property
     def parameters_by_band(self) -> dict[NRBand, NRCaseParameters]:
@@ -875,7 +885,9 @@ class NRSelectDialog(QDialog):
 
         action_layout = QVBoxLayout()
         action_layout.setContentsMargins(0, 52, 0, 0)
-        action_layout.setSpacing(0)
+        action_layout.setSpacing(8)
+
+        action_layout.addWidget(self._create_generation_toggle())
 
         self._table_button = QPushButton("Table", self)
         self._table_button.setObjectName("nrTableButton")
@@ -894,6 +906,39 @@ class NRSelectDialog(QDialog):
         root_layout.addLayout(band_layout, 1)
         root_layout.addLayout(action_layout)
         self.setMinimumSize(860, 350)
+
+    def _create_generation_toggle(self) -> QWidget:
+        """NR SA/NSA 선택 토글을 만든다."""
+
+        panel = QWidget(self)
+        layout = QHBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        group = QButtonGroup(panel)
+        group.setExclusive(True)
+
+        for generation, label in (
+            (Generation.NR_SA, "SA"),
+            (Generation.NR_NSA, "NSA"),
+        ):
+            button = QPushButton(label, panel)
+            button.setObjectName(f"nrGenerationButton_{generation.value}")
+            button.setCheckable(True)
+            button.setMinimumHeight(32)
+            button.setChecked(generation is self._generation)
+            button.clicked.connect(
+                lambda checked=False, value=generation: self.on_generation_clicked(value),
+            )
+            group.addButton(button)
+            self._generation_buttons[generation] = button
+            layout.addWidget(button)
+
+        return panel
+
+    def on_generation_clicked(self, generation: Generation) -> None:
+        """NR generation 토글 선택값을 저장한다."""
+
+        self._generation = generation
 
     def _create_band_group(self, group_key: str, band_numbers: tuple[int, ...]) -> QFrame:
         """Band 그룹별 체크박스 영역을 만든다."""
@@ -996,6 +1041,7 @@ class NRSelectDialog(QDialog):
                 for dut_axis in group_settings.axis_sequence:
                     for antenna_pol in group_settings.antenna_pol_sequence:
                         case = TestCase(
+                            generation=self._generation,
                             band=band,
                             bandwidth=band_parameters.bandwidth,
                             test_type=test_type,

@@ -24,6 +24,13 @@ class NRBand(str, Enum):
     N79 = "n79"
 
 
+class Generation(str, Enum):
+    """Test Case generation / call mode."""
+
+    NR_SA = "NR_SA"
+    NR_NSA = "NR_NSA"
+
+
 class TestType(Enum):
     """시험 종류."""
 

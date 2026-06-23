@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.tc_loader import load_csv, save_csv
-from app.models.enums import FilterMode, InputPath, NRBand
+from app.models.enums import FilterMode, Generation, InputPath, NRBand
 from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
@@ -233,6 +233,7 @@ class TestManagerPanel(QWidget):
         self._completed_test_case_indexes: set[int] = set()
         self._connection_indicators: dict[str, QFrame] = {}
         self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
+        self._nr_generation: Generation = Generation.NR_SA
         self._nr_group_settings: dict[str, NRGroupSettings] | None = None
         self._setup_layout()
         self._connect_signals()
@@ -1388,11 +1389,13 @@ class TestManagerPanel(QWidget):
             self,
             parameters_by_band=self._nr_parameters_by_band,
             group_settings=self._nr_group_settings,
+            generation=self._nr_generation,
         )
         dialog.test_cases_created.connect(self.add_test_cases)
         dialog.exec()
         self._nr_parameters_by_band = dialog.parameters_by_band
         self._nr_group_settings = dialog.group_settings
+        self._nr_generation = dialog.generation
 
     def on_case_confirm_button_clicked(self) -> None:
         """Range 1~6 세팅 확인 팝업을 연다."""
@@ -1828,7 +1831,7 @@ class TestManagerPanel(QWidget):
 
         test_range = case.range_definition
         return (
-            "NR_SA",
+            case.generation.value,
             self._format_band_label(case),
             case.dut_ant_position.value,
             str(case.scs_khz),

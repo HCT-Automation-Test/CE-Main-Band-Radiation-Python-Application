@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.call_routing import nr_call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
 from app.models.band_group import find_band_group
 from app.models.enums import FilterPath, InputPath, TestType
@@ -193,7 +194,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             return None
         if ctx.current_case.test_type is TestType.HARMONIC:
             return "PrepareFundamentalSwitchBoxBeforeCall"
-        return "NRCallConnect"
+        return nr_call_entry_state_for(ctx)
 
 
 class SetSwitchBoxState(State):
@@ -599,6 +600,13 @@ class PrepareFundamentalSwitchBoxBeforeCallState(_RestoreSafeSwitchBoxState):
     name = "PrepareFundamentalSwitchBoxBeforeCall"
     _action_label = "Fundamental 안전 경로 준비"
     _next_state = "NRCallConnect"
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return nr_call_entry_state_for(ctx)
 
 
 class PrepareFundamentalSwitchBoxState(_RestoreSafeSwitchBoxState):
