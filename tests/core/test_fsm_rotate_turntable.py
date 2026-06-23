@@ -185,7 +185,7 @@ def _make_settings(
         saturation_time_sec=saturation_time_sec,
         connection_waiting_time_sec=5,
         atten_level_db=0,
-        next_peak_search_level_db=0,
+        next_peak_search_level_db=6,
         active_tdf_file_name="NR_Radiated.tdf",
         custom_turntable_speed=custom_turntable_speed,
     )

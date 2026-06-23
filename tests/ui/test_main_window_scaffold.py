@@ -1101,14 +1101,14 @@ def test_test_manager_panel_run_setting_properties_and_validators(qtbot) -> None
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
-    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("60.5")
     panel.findChild(QLineEdit, "customTurnTableSpeedEdit").setText("8")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     assert panel.saturation_time_sec == 6.5
     assert panel.connection_waiting_time_sec == 7
     assert panel.atten_level_db == 1.5
-    assert panel.next_peak_search_level_db == -20
+    assert panel.next_peak_search_level_db == 60.5
     assert panel.custom_turntable_speed == 8
     assert isinstance(
         panel.findChild(QLineEdit, "saturationTimeEdit").validator(),
@@ -1122,14 +1122,20 @@ def test_test_manager_panel_run_setting_properties_and_validators(qtbot) -> None
         panel.findChild(QLineEdit, "attenLevelEdit").validator(),
         QDoubleValidator,
     )
-    assert isinstance(
-        panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").validator(),
-        QDoubleValidator,
-    )
-    assert isinstance(
-        panel.findChild(QLineEdit, "customTurnTableSpeedEdit").validator(),
-        QIntValidator,
-    )
+    next_peak_validator = panel.findChild(
+        QLineEdit,
+        "nextPeakSearchLevelEdit",
+    ).validator()
+    custom_speed_validator = panel.findChild(
+        QLineEdit,
+        "customTurnTableSpeedEdit",
+    ).validator()
+    assert isinstance(next_peak_validator, QDoubleValidator)
+    assert next_peak_validator.bottom() == 0.0
+    assert next_peak_validator.top() == 80.0
+    assert isinstance(custom_speed_validator, QIntValidator)
+    assert custom_speed_validator.bottom() == 1
+    assert custom_speed_validator.top() == 10
 
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("1.5")
@@ -2219,7 +2225,7 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("9")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("10")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("11")
-    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-12")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("12")
 
     panel.set_analyzer_info(
         {
@@ -2266,7 +2272,7 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "9"
     assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "10"
     assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "11"
-    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "-12"
+    assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "12"
 
     panel.set_turntable_info({})
 
@@ -2289,7 +2295,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
-    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("60.5")
     panel.findChild(QLineEdit, "customTurnTableSpeedEdit").setText("8")
     panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(True)
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
@@ -2303,7 +2309,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
     assert settings.saturation_time_sec == 6.5
     assert settings.connection_waiting_time_sec == 7
     assert settings.atten_level_db == 1.5
-    assert settings.next_peak_search_level_db == -20
+    assert settings.next_peak_search_level_db == 60.5
     assert settings.custom_turntable_speed == 8
     assert settings.active_tdf_file_name == "NR_Radiated.tdf"
 
@@ -2325,7 +2331,7 @@ def test_test_manager_panel_builds_default_settings_when_custom_option_unchecked
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
-    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("-20")
+    panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("60.5")
     panel.findChild(QLineEdit, "customTurnTableSpeedEdit").setText("8")
     panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(False)
     panel.set_active_tdf_file_name("NR_Radiated.tdf")

@@ -96,6 +96,9 @@ _INFO_FIELDS: tuple[tuple[str, str], ...] = (
     ("Next Peak Search Level", "nextPeakSearchLevelEdit"),
 )
 
+_MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
+_MAX_CUSTOM_TURNTABLE_SPEED = 10
+
 _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "saturationTimeEdit": "5",
     "connectionWaitingTimeEdit": "5",
@@ -634,12 +637,23 @@ class TestManagerPanel(QWidget):
                     "customTurnTableSpeedEdit",
                     "Turn Table Speed",
                 )
-                if custom_turntable_speed <= 0:
-                    raise ValueError("Turn Table Speed는 0보다 커야 합니다.")
+                if not 1 <= custom_turntable_speed <= _MAX_CUSTOM_TURNTABLE_SPEED:
+                    raise ValueError(
+                        "Turn Table Speed는 1에서 "
+                        f"{_MAX_CUSTOM_TURNTABLE_SPEED}사이의 정수여야 합니다."
+                    )
                 next_peak_search_level_db = self._float_field(
                     "nextPeakSearchLevelEdit",
                     "Next Peak Search Level",
                 )
+                if (
+                    next_peak_search_level_db <= 0
+                    or next_peak_search_level_db > _MAX_NEXT_PEAK_SEARCH_LEVEL_DB
+                ):
+                    raise ValueError(
+                        "Next Peak Search Level은 0보다 크고 "
+                        f"{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g}이하의 실수여야 합니다."
+                    )
             else:
                 saturation_time_sec = 5
                 connection_waiting_time_sec = 5
@@ -1768,13 +1782,14 @@ class TestManagerPanel(QWidget):
             "attenLevelEdit",
         }:
             edit.setValidator(QDoubleValidator(0.0, math.inf, 6, edit))
-        elif object_name in {
-            "connectionWaitingTimeEdit",
-            "customTurnTableSpeedEdit",
-        }:
+        elif object_name == "connectionWaitingTimeEdit":
             edit.setValidator(QIntValidator(1, 2147483647, edit))
+        elif object_name == "customTurnTableSpeedEdit":
+            edit.setValidator(QIntValidator(1, _MAX_CUSTOM_TURNTABLE_SPEED, edit))
         elif object_name == "nextPeakSearchLevelEdit":
-            edit.setValidator(QDoubleValidator(-math.inf, math.inf, 6, edit))
+            edit.setValidator(
+                QDoubleValidator(0.0, _MAX_NEXT_PEAK_SEARCH_LEVEL_DB, 6, edit)
+            )
 
     def _show_warning(self, message: str) -> None:
         """Test Manager 경고 메시지를 표시한다."""

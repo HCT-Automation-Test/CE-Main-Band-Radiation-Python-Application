@@ -108,7 +108,7 @@ def _make_settings(
     *,
     saturation_time_sec: float = 0.0,
     atten_level_db: float = 1.5,
-    next_peak_search_level_db: float = -20.0,
+    next_peak_search_level_db: float = 6.0,
 ) -> TestRunSettings:
     template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
@@ -150,7 +150,7 @@ def test_setup_spectrum_analyzer_startup_level_uses_settings(
         settings=_make_settings(
             tmp_path,
             atten_level_db=2.5,
-            next_peak_search_level_db=-18.5,
+            next_peak_search_level_db=18.5,
         ),
     ), "FSV40")
 
@@ -162,7 +162,7 @@ def test_setup_spectrum_analyzer_startup_level_uses_settings(
             client,
             {
                 "atten_level_db": 2.5,
-                "next_peak_search_level_db": -18.5,
+                "next_peak_search_level_db": 18.5,
             },
         )
     ]
@@ -458,7 +458,7 @@ def test_setup_spectrum_analyzer_uses_current_case_settings(tmp_path: Path) -> N
     settings = _make_settings(
         tmp_path,
         atten_level_db=2.5,
-        next_peak_search_level_db=-18.5,
+        next_peak_search_level_db=18.5,
     )
     ctx = _connect_equipment(SessionContext(
         queue=[case],

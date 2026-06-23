@@ -5,6 +5,9 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+_MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
+_MAX_CUSTOM_TURNTABLE_SPEED = 10
+
 
 @dataclass(frozen=True)
 class TestRunSettings:
@@ -55,10 +58,23 @@ class TestRunSettings:
             raise ValueError("connection_waiting_time_sec must be an integer greater than 0")
         if not math.isfinite(atten_level_db) or atten_level_db < 0:
             raise ValueError("atten_level_db must be a number greater than or equal to 0")
-        if not math.isfinite(next_peak_search_level_db):
-            raise ValueError("next_peak_search_level_db must be a number")
-        if custom_turntable_speed is not None and custom_turntable_speed <= 0:
-            raise ValueError("custom_turntable_speed must be an integer greater than 0")
+        if (
+            not math.isfinite(next_peak_search_level_db)
+            or next_peak_search_level_db <= 0
+            or next_peak_search_level_db > _MAX_NEXT_PEAK_SEARCH_LEVEL_DB
+        ):
+            raise ValueError(
+                "next_peak_search_level_db must be a number greater than 0 "
+                f"and less than or equal to {_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g}"
+            )
+        if (
+            custom_turntable_speed is not None
+            and not 1 <= custom_turntable_speed <= _MAX_CUSTOM_TURNTABLE_SPEED
+        ):
+            raise ValueError(
+                "custom_turntable_speed must be an integer between 1 and "
+                f"{_MAX_CUSTOM_TURNTABLE_SPEED}"
+            )
 
         object.__setattr__(self, "eut_name", eut_name)
         object.__setattr__(self, "active_tdf_file_name", active_tdf_file_name)

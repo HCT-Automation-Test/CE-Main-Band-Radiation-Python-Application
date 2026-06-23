@@ -100,7 +100,7 @@ def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettin
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
         atten_level_db=0,
-        next_peak_search_level_db=0,
+        next_peak_search_level_db=6,
         active_tdf_file_name="NR_Radiated.tdf",
     )
 
@@ -515,10 +515,14 @@ def test_equipment_disconnected_clears_runner_equipment_state(
         ("connection_waiting_time_sec", 0),
         ("connection_waiting_time_sec", 1.5),
         ("atten_level_db", -0.1),
+        ("next_peak_search_level_db", 0),
+        ("next_peak_search_level_db", -0.1),
+        ("next_peak_search_level_db", 80.1),
         ("next_peak_search_level_db", float("inf")),
         ("custom_turntable_speed", 0),
         ("custom_turntable_speed", -1),
         ("custom_turntable_speed", 1.5),
+        ("custom_turntable_speed", 11),
         ("active_tdf_file_name", " "),
     ],
 )
@@ -538,7 +542,7 @@ def test_test_run_settings_rejects_invalid_values(
         "saturation_time_sec": 5,
         "connection_waiting_time_sec": 5,
         "atten_level_db": 0,
-        "next_peak_search_level_db": 0,
+        "next_peak_search_level_db": 6,
         "active_tdf_file_name": "NR_Radiated.tdf",
     }
     kwargs[field] = value
@@ -593,7 +597,7 @@ def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
             saturation_time_sec=5,
             connection_waiting_time_sec=5,
             atten_level_db=0,
-            next_peak_search_level_db=0,
+            next_peak_search_level_db=6,
             active_tdf_file_name="NR_Radiated.tdf",
         )
 
@@ -606,7 +610,7 @@ def test_test_run_settings_rejects_missing_paths(tmp_path: Path) -> None:
             saturation_time_sec=5,
             connection_waiting_time_sec=5,
             atten_level_db=0,
-            next_peak_search_level_db=0,
+            next_peak_search_level_db=6,
             active_tdf_file_name="NR_Radiated.tdf",
         )
 
