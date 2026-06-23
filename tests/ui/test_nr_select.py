@@ -82,6 +82,35 @@ def test_nr_select_dialog_renders_band_groups_and_actions(qtbot) -> None:
     assert dialog.findChild(QPushButton, "nrAddButton").text() == "Add"
 
 
+def test_nr_select_generation_toggle_shows_selected_mode(qtbot) -> None:
+    """SA/NSA 토글은 현재 선택된 generation을 checked 상태로 표시한다."""
+
+    dialog = NRSelectDialog()
+    qtbot.addWidget(dialog)
+
+    sa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_SA")
+    nsa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_NSA")
+
+    assert sa_button is not None
+    assert nsa_button is not None
+    assert sa_button.minimumWidth() == nsa_button.minimumWidth()
+    assert sa_button.isChecked()
+    assert not nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_SA
+
+    nsa_button.click()
+
+    assert not sa_button.isChecked()
+    assert nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_NSA
+
+    sa_button.click()
+
+    assert sa_button.isChecked()
+    assert not nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_SA
+
+
 def test_nr_select_all_reset_toggles_group_checkboxes(qtbot) -> None:
     """ALL/RESET 버튼이 해당 그룹의 Band 체크 상태를 토글한다."""
 

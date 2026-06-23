@@ -924,6 +924,7 @@ class NRSelectDialog(QDialog):
             button = QPushButton(label, panel)
             button.setObjectName(f"nrGenerationButton_{generation.value}")
             button.setCheckable(True)
+            button.setMinimumWidth(102)
             button.setMinimumHeight(32)
             button.setChecked(generation is self._generation)
             button.clicked.connect(
@@ -1116,6 +1117,25 @@ class NRSelectDialog(QDialog):
                 background: #f1f7ff;
             }
 
+            QPushButton#nrGenerationButton_NR_SA,
+            QPushButton#nrGenerationButton_NR_NSA {
+                background: #ffffff;
+                border: 1px solid #2f5aa8;
+                color: #1f2937;
+                font-weight: 500;
+            }
+
+            QPushButton#nrGenerationButton_NR_SA:hover,
+            QPushButton#nrGenerationButton_NR_NSA:hover {
+                background: #edf5ff;
+            }
+
+            QPushButton#nrGenerationButton_NR_SA:checked,
+            QPushButton#nrGenerationButton_NR_NSA:checked {
+                background: #2f5aa8;
+                color: #ffffff;
+                font-weight: 700;
+            }
             QCheckBox::indicator {
                 width: 18px;
                 height: 18px;
