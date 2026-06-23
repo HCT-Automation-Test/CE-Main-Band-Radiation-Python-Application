@@ -270,6 +270,7 @@ def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
 
 def test_main_window_start_button_is_blocked_until_equipment_ready(
     qtbot,
+    monkeypatch,
     tmp_path,
 ) -> None:
     """장비 준비 전 시작 버튼은 Runner gate에서 차단된다."""
@@ -279,9 +280,12 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     messages: list[str] = []
     window._runner.events.error.connect(messages.append)
     template_path = tmp_path / "template.xlsx"
-    screenshot_root = tmp_path / "screenshots"
+    screenshot_root = tmp_path / "default-screenshots"
     template_path.write_bytes(b"template")
-    screenshot_root.mkdir()
+    monkeypatch.setattr(
+        "app.ui.test_manager_panel.default_screenshot_root_dir",
+        lambda: screenshot_root,
+    )
     window.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
     window.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     window.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
@@ -2508,17 +2512,19 @@ def test_test_manager_panel_info_setters_update_display_fields(qtbot) -> None:
     assert panel.findChild(QLineEdit, "settingSpeedEdit").text() == ""
 
 
-def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
+def test_test_manager_panel_builds_test_run_settings(qtbot, monkeypatch, tmp_path) -> None:
     panel = ManagerPanel()
     qtbot.addWidget(panel)
     template_path = tmp_path / "template.xlsx"
-    screenshot_root = tmp_path / "screenshots"
+    screenshot_root = tmp_path / "default-screenshots"
     template_path.write_bytes(b"template")
-    screenshot_root.mkdir()
+    monkeypatch.setattr(
+        "app.ui.test_manager_panel.default_screenshot_root_dir",
+        lambda: screenshot_root,
+    )
 
     panel.findChild(QLineEdit, "eutNameEdit").setText(" SM-000 ")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
@@ -2543,18 +2549,21 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, tmp_path) -> None:
 
 def test_test_manager_panel_builds_default_settings_when_custom_option_unchecked(
     qtbot,
+    monkeypatch,
     tmp_path,
 ) -> None:
     panel = ManagerPanel()
     qtbot.addWidget(panel)
     template_path = tmp_path / "template.xlsx"
-    screenshot_root = tmp_path / "screenshots"
+    screenshot_root = tmp_path / "default-screenshots"
     template_path.write_bytes(b"template")
-    screenshot_root.mkdir()
+    monkeypatch.setattr(
+        "app.ui.test_manager_panel.default_screenshot_root_dir",
+        lambda: screenshot_root,
+    )
 
     panel.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
     panel.findChild(QLineEdit, "saturationTimeEdit").setText("6.5")
     panel.findChild(QLineEdit, "connectionWaitingTimeEdit").setText("7")
     panel.findChild(QLineEdit, "attenLevelEdit").setText("1.5")
