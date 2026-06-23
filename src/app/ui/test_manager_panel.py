@@ -537,17 +537,15 @@ class TestManagerPanel(QWidget):
         self._test_case_progress = ["pending"] * len(self._test_cases)
         self._refresh_test_case_progress_marks()
 
+    def clear_running_test_case(self) -> None:
+        self._restore_running_test_case_progress()
+        self._refresh_test_case_progress_marks()
+
     def mark_current_test_case(self, case: TestCase) -> None:
         """현재 진행 중인 TestCase 행을 표시한다."""
 
         current_index = self._find_test_case_index(case)
-        for row, status in enumerate(self._test_case_progress):
-            if status == "running":
-                self._test_case_progress[row] = (
-                    "completed"
-                    if row in self._completed_test_case_indexes
-                    else "pending"
-                )
+        self._restore_running_test_case_progress()
         if current_index is not None:
             self._test_case_progress[current_index] = "running"
             first_item = self._test_case_table.item(current_index, 0)
@@ -558,6 +556,15 @@ class TestManagerPanel(QWidget):
                     QAbstractItemView.ScrollHint.PositionAtCenter,
                 )
         self._refresh_test_case_progress_marks()
+
+    def _restore_running_test_case_progress(self) -> None:
+        for row, status in enumerate(self._test_case_progress):
+            if status == "running":
+                self._test_case_progress[row] = (
+                    "completed"
+                    if row in self._completed_test_case_indexes
+                    else "pending"
+                )
 
     def mark_test_case_completed(self, index: int) -> None:
         """완료 이벤트를 받은 TestCase 행을 완료 표시로 바꾼다."""

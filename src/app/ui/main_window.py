@@ -461,7 +461,8 @@ class MainWindow(QMainWindow):
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
 
-        _ = active
+        if not active:
+            self._test_manager_panel.clear_running_test_case()
         self._update_instrument_operation_lock()
 
     def on_instrument_set_started(self) -> None:

@@ -1241,6 +1241,43 @@ def test_main_window_updates_test_case_progress_from_runner_events(
     assert table.item(1, 0).background().color().name() != running_color
 
 
+def test_main_window_clears_running_progress_when_measurement_stops(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    case = _make_test_case()
+    panel = window._test_manager_panel
+    panel.add_test_cases([case])
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+
+    window._runner.events.current_case_changed.emit(case)
+
+    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
+
+    window.on_measurement_active_changed(False)
+
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+
+
+def test_main_window_restores_completed_progress_when_measurement_stops(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    case = _make_test_case()
+    panel = window._test_manager_panel
+    panel.add_test_cases([case])
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    panel.mark_test_case_completed(0)
+    completed_color = table.item(0, 0).background().color().name()
+
+    window._runner.events.current_case_changed.emit(case)
+
+    assert table.item(0, 0).background().color().name() != completed_color
+
+    window.on_measurement_active_changed(False)
+
+    assert table.item(0, 0).background().color().name() == completed_color
+
 def test_main_window_start_preserves_test_case_progress(
     qtbot,
     monkeypatch,
