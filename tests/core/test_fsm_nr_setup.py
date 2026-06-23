@@ -7,10 +7,15 @@ from typing import Any
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
-from app.core.fsm.states.nr_setup import NRCallConnectState, NRCallDisconnectedState
+from app.core.fsm.states.nr_setup import (
+    LTECallAnchorState,
+    NRCallConnectState,
+    NRCallDisconnectedState,
+)
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -53,7 +58,7 @@ class _Commands:
         return self.connected
 
 
-def _make_case() -> TestCase:
+def _make_case(generation: Generation = Generation.NR_SA) -> TestCase:
     return TestCase(
         band=NRBand.N78,
         bandwidth=100.0,
@@ -64,6 +69,7 @@ def _make_case() -> TestCase:
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
+        generation=generation,
     )
 
 
@@ -231,3 +237,46 @@ def test_nr_call_disconnected_waits_for_user_action_before_reconnect() -> None:
     assert result is StateResult.OK
     assert events.user_action_required.messages == ["비행기 모드 On/Off 후 확인"]
     assert state.next_state(ctx, result) == "NRCallConnect"
+
+
+def test_lte_call_anchor_waits_for_user_action_before_next_state() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(Generation.NR_NSA)],
+        commands=_Commands(connected=True),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = LTECallAnchorState(
+        name="LTECallAnchorBeforeNRCall",
+        next_state_name="NRCallConnect",
+    )
+
+    def complete_action() -> None:
+        time.sleep(0.02)
+        ctx.user_action_completed.set()
+
+    threading.Thread(target=complete_action, daemon=True).start()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert events.user_action_required.messages == ["LTE Anchor Call 연결 후 확인"]
+    assert state.next_state(ctx, result) == "NRCallConnect"
+
+
+def test_lte_call_anchor_returns_fail_when_stopped() -> None:
+    ctx = SessionContext(
+        queue=[_make_case(Generation.NR_NSA)],
+        commands=_Commands(connected=True),
+        events=_Events(),  # type: ignore[arg-type]
+        stopped=True,
+    )
+    state = LTECallAnchorState(
+        name="LTECallAnchorBeforeHandover",
+        next_state_name="Handover",
+    )
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) is None

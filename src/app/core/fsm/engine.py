@@ -162,6 +162,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     )
     from app.core.fsm.states.measurement.inband import MeasureInBandState
     from app.core.fsm.states.nr_setup import (
+        LTECallAnchorState,
         NRCallConnectState,
         NRCallDisconnectedState,
     )
@@ -188,6 +189,18 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(TestEndState())
 
     # NR 연결 관리 상태
+    engine.register(
+        LTECallAnchorState(
+            name="LTECallAnchorBeforeNRCall",
+            next_state_name="NRCallConnect",
+        )
+    )
+    engine.register(
+        LTECallAnchorState(
+            name="LTECallAnchorBeforeHandover",
+            next_state_name="Handover",
+        )
+    )
     engine.register(NRCallConnectState())
     engine.register(NRCallDisconnectedState())
 

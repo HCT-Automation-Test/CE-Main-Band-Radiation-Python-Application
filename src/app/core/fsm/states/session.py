@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.call_routing import handover_entry_state_for_case
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.instrument_connection import (
     describe_equipment_not_ready,
@@ -71,12 +72,15 @@ def _transition_states_for(
         if prev_recall != current_recall:
             transition_states.append("RecallChange")
         else:
-            transition_states.append("Handover")
+            transition_states.append(handover_entry_state_for_case(current_case))
 
     if prev_case.dut_axis != current_case.dut_axis:
         transition_states.append("DUTAxisChange")
     if _antenna_pol_setup_required(prev_case, current_case):
         transition_states.append("AntPolChange")
+    if prev_case.generation != current_case.generation:
+        # TODO(spec): generation 변경 시 SA/NSA call 재설정 정책 확정 필요.
+        pass
     if prev_case.test_type != current_case.test_type:
         transition_states.append("TestTypeChange")
 

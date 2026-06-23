@@ -8,6 +8,7 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     FilterMode,
+    Generation,
     InputPath,
     Modulation,
     NRBand,
@@ -46,6 +47,7 @@ def test_test_case_instantiation() -> None:
 
     assert case.band is NRBand.N78
     assert case.bandwidth == 100.0
+    assert case.generation is Generation.NR_SA
     assert case.scs_khz == 30
     assert case.test_type is MeasurementTestType.HARMONIC
     assert case.modulation is Modulation.QPSK
@@ -157,6 +159,7 @@ def test_test_case_exposes_supported_bandwidth_lookup_for_valid_band() -> None:
 def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None:
     case = TestCase.from_csv_row(
         {
+            "generation": "NR_SA",
             "band": "n78",
             "bandwidth": "100",
             "test_type": "harmonic",
@@ -182,6 +185,7 @@ def test_test_case_from_csv_row_resolves_range_from_band_and_test_type() -> None
 def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
     case = TestCase.from_csv_row(
         {
+            "generation": "NR_SA",
             "band": "n78",
             "bandwidth": "100.0",
             "test_type": "harmonic",
@@ -200,6 +204,7 @@ def test_test_case_from_csv_row_parses_decimal_bandwidth() -> None:
 def test_test_case_from_csv_row_parses_band_case_insensitively() -> None:
     case = TestCase.from_csv_row(
         {
+            "generation": "NR_SA",
             "band": "N78",
             "bandwidth": "100",
             "test_type": "harmonic",
@@ -218,6 +223,7 @@ def test_test_case_from_csv_row_parses_band_case_insensitively() -> None:
 def test_test_case_from_csv_row_parses_test_channel_case_insensitively() -> None:
     case = TestCase.from_csv_row(
         {
+            "generation": "NR_SA",
             "band": "n78",
             "bandwidth": "100",
             "test_type": "harmonic",
@@ -248,6 +254,7 @@ def test_test_case_from_csv_row_uses_representative_range_mappings(
 ) -> None:
     case = TestCase.from_csv_row(
         {
+            "generation": "NR_SA",
             "band": band,
             "bandwidth": bandwidth,
             "test_type": test_type,
@@ -263,10 +270,46 @@ def test_test_case_from_csv_row_uses_representative_range_mappings(
     assert case.test_range is expected_range
 
 
+def test_test_case_from_csv_row_parses_nr_nsa_generation() -> None:
+    case = TestCase.from_csv_row(
+        {
+            "generation": "NR_NSA",
+            "band": "n78",
+            "bandwidth": "100",
+            "test_type": "harmonic",
+            "modulation": "QPSK",
+            "rb_allocation": "Inner_Full",
+            "test_channel": "mid",
+            "antenna_pol": "H",
+            "dut_axis": "X",
+            "dut_ant_position": "Upper",
+        }
+    )
+
+    assert case.generation is Generation.NR_NSA
+
+
+def test_test_case_from_csv_row_rejects_unknown_generation() -> None:
+    with pytest.raises(ValueError, match="Invalid generation"):
+        TestCase.from_csv_row(
+            {
+                "generation": "LTE",
+                "band": "n78",
+                "bandwidth": "100",
+                "test_type": "harmonic",
+                "modulation": "QPSK",
+                "rb_allocation": "Inner_Full",
+                "test_channel": "mid",
+                "antenna_pol": "H",
+                "dut_axis": "X",
+                "dut_ant_position": "Upper",
+            }
+        )
 def test_test_case_to_csv_row_uses_external_csv_schema_only() -> None:
     row = _build_case().to_csv_row()
 
     assert list(row) == list(CSV_FIELDNAMES)
+    assert row["generation"] == "NR_SA"
     assert row["band"] == "n78"
     assert row["bandwidth"] == "100"
     assert row["test_type"] == "harmonic"
@@ -279,6 +322,7 @@ def test_test_case_from_csv_row_rejects_missing_test_type() -> None:
     with pytest.raises(ValueError, match="Missing required field: test_type"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n78",
                 "bandwidth": "100",
                 "modulation": "QPSK",
@@ -295,6 +339,7 @@ def test_test_case_from_csv_row_rejects_unknown_test_type() -> None:
     with pytest.raises(ValueError, match="Invalid test_type"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n78",
                 "bandwidth": "100",
                 "test_type": "unknown",
@@ -312,6 +357,7 @@ def test_test_case_from_csv_row_rejects_unknown_test_channel() -> None:
     with pytest.raises(ValueError, match="Invalid test_channel"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n78",
                 "bandwidth": "100",
                 "test_type": "harmonic",
@@ -328,6 +374,7 @@ def test_test_case_from_csv_row_rejects_unknown_dut_ant_position() -> None:
     with pytest.raises(ValueError, match="Invalid dut_ant_position"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n78",
                 "bandwidth": "100",
                 "test_type": "harmonic",
@@ -345,6 +392,7 @@ def test_test_case_from_csv_row_rejects_unknown_band() -> None:
     with pytest.raises(ValueError, match="Invalid band"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n99",
                 "bandwidth": "100",
                 "test_type": "harmonic",
@@ -362,6 +410,7 @@ def test_test_case_from_csv_row_rejects_unsupported_band_and_test_type() -> None
     with pytest.raises(ValueError, match="Bilog not supported"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n5",
                 "bandwidth": "100",
                 "test_type": "bilog",
@@ -382,6 +431,7 @@ def test_test_case_from_csv_row_rejects_bandwidth_with_unit_suffix(
     with pytest.raises(ValueError, match="Invalid bandwidth"):
         TestCase.from_csv_row(
             {
+                "generation": "NR_SA",
                 "band": "n78",
                 "bandwidth": bandwidth,
                 "test_type": "harmonic",

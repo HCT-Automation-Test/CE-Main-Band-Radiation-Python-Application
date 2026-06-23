@@ -11,6 +11,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -22,6 +23,7 @@ from app.models.supported_bandwidths import validate_supported_bandwidth
 from app.models.test_range import RangeId, TestRange, get_test_range
 
 CSV_FIELDNAMES: tuple[str, ...] = (
+    "generation",
     "band",
     "bandwidth",
     "test_type",
@@ -105,8 +107,10 @@ class TestCase:
     antenna_pol: AntennaPol
     dut_axis: DUTAxis
     dut_ant_position: DUTAntPosition
+    generation: Generation = Generation.NR_SA
 
     def __post_init__(self) -> None:
+        self.generation = _coerce_enum_value(self.generation, "generation", Generation)
         self.band = _coerce_enum_value(self.band, "band", NRBand)
         self.bandwidth = _coerce_bandwidth_value(self.bandwidth)
         self.dut_ant_position = _coerce_enum_value(
@@ -158,6 +162,7 @@ class TestCase:
     def from_csv_row(cls, row: dict[str, Any]) -> "TestCase":
         """검증한 CSV dict 한 행으로부터 TestCase를 생성한다."""
 
+        generation = _parse_enum_value(row, "generation", Generation)
         band = _parse_enum_value(row, "band", NRBand)
         bandwidth = _parse_bandwidth_value(_get_required_csv_value(row, "bandwidth"))
         test_type = _parse_enum_value(row, "test_type", TestType)
@@ -182,12 +187,14 @@ class TestCase:
             antenna_pol=antenna_pol,
             dut_axis=dut_axis,
             dut_ant_position=dut_ant_position,
+            generation=generation,
         )
 
     def to_csv_row(self) -> dict[str, Any]:
         """외부 CSV 스키마에 포함되는 필드만 직렬화한다."""
 
         return {
+            "generation": self.generation.value,
             "band": self.band.value,
             "bandwidth": _format_bandwidth_value(self.bandwidth),
             "test_type": self.test_type.value,

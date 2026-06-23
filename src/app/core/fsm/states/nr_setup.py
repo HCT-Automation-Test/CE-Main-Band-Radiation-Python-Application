@@ -5,6 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
+from app.core.fsm.call_routing import nr_call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.fsm.transition_flow import next_transition_or
@@ -24,6 +25,34 @@ def _emit_error(ctx: "SessionContext", message: str) -> None:
     logger.error(message)
     if ctx.events is not None:
         ctx.events.error.emit(message)
+
+class LTECallAnchorState(State):
+    """NR NSA 시험 전 LTE Anchor Call 수동 연결 확인을 기다린다."""
+
+    def __init__(self, *, name: str, next_state_name: str) -> None:
+        self.name = name
+        self._next_state_name = next_state_name
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        ctx.user_action_completed.clear()
+        if ctx.events is not None:
+            ctx.events.user_action_required.emit("LTE Anchor Call 연결 후 확인")
+
+        while not ctx.stopped and not ctx.current_case_stop_requested:
+            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
+                if ctx.stopped or ctx.current_case_stop_requested:
+                    return StateResult.FAIL
+                ctx.user_action_completed.clear()
+                return StateResult.OK
+
+        return StateResult.FAIL
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is StateResult.OK:
+            return self._next_state_name
+        return None
 
 
 class NRCallConnectState(State):
@@ -115,4 +144,4 @@ class NRCallDisconnectedState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return "NRCallConnect"
+        return nr_call_entry_state_for(ctx)

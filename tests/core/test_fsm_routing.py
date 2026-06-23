@@ -26,12 +26,13 @@ from app.core.fsm.states.measurement.harmonic import (
     MeasureHarmonicsState,
 )
 from app.core.fsm.states.measurement.inband import MeasureInBandState
-from app.core.fsm.states.nr_setup import NRCallConnectState
+from app.core.fsm.states.nr_setup import LTECallAnchorState, NRCallConnectState
 from app.core.fsm.states.session import IdleState
 from app.core.fsm.states.transition import AntPolChangeState
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -42,7 +43,9 @@ from app.models.measurement_result import HarmonicPrecisionCandidate
 from app.models.test_case import TestCase
 
 
-def _make_case(test_type: TestType) -> TestCase:
+def _make_case(
+    test_type: TestType, generation: Generation = Generation.NR_SA
+) -> TestCase:
     """3타입 모두 지원하는 Band(n78)로 TestCase를 생성한다."""
     return TestCase(
         band=NRBand.N78,
@@ -54,12 +57,15 @@ def _make_case(test_type: TestType) -> TestCase:
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
+        generation=generation,
     )
 
 
-def _make_ctx(test_type: TestType) -> SessionContext:
+def _make_ctx(
+    test_type: TestType, generation: Generation = Generation.NR_SA
+) -> SessionContext:
     return SessionContext(
-        queue=[_make_case(test_type)],
+        queue=[_make_case(test_type, generation)],
         commands=None,
         events=None,  # type: ignore[arg-type]
     )
@@ -95,6 +101,24 @@ def test_rotate_turntable_branches_on_test_type(
     assert RotateTurntableState().next_state(ctx, StateResult.OK) == expected
 
 
+def test_nr_call_entry_routes_nsa_to_lte_anchor_before_nr_call() -> None:
+    ctx = _make_ctx(TestType.HARMONIC, Generation.NR_NSA)
+
+    assert (
+        PrepareFundamentalSwitchBoxBeforeCallState().next_state(ctx, StateResult.OK)
+        == "LTECallAnchorBeforeNRCall"
+    )
+
+
+def test_lte_anchor_state_routes_to_configured_next_state() -> None:
+    ctx = _make_ctx(TestType.HARMONIC, Generation.NR_NSA)
+    state = LTECallAnchorState(
+        name="LTECallAnchorBeforeNRCall",
+        next_state_name="NRCallConnect",
+    )
+
+    assert state.next_state(ctx, StateResult.OK) == "NRCallConnect"
+    assert state.next_state(ctx, StateResult.FAIL) is None
 def test_measure_fundamental_goes_to_set_switch_box() -> None:
     ctx = _make_ctx(TestType.HARMONIC)
     assert MeasureFundamentalState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
@@ -200,6 +224,8 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "Idle",
         "CheckNextCase",
         "TestEnd",
+        "LTECallAnchorBeforeNRCall",
+        "LTECallAnchorBeforeHandover",
         "NRCallConnect",
         "NRCallDisconnected",
         "AntPolChange",

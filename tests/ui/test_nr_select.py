@@ -18,6 +18,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -79,6 +80,35 @@ def test_nr_select_dialog_renders_band_groups_and_actions(qtbot) -> None:
 
     assert dialog.findChild(QPushButton, "nrTableButton").text() == "Table"
     assert dialog.findChild(QPushButton, "nrAddButton").text() == "Add"
+
+
+def test_nr_select_generation_toggle_shows_selected_mode(qtbot) -> None:
+    """SA/NSA 토글은 현재 선택된 generation을 checked 상태로 표시한다."""
+
+    dialog = NRSelectDialog()
+    qtbot.addWidget(dialog)
+
+    sa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_SA")
+    nsa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_NSA")
+
+    assert sa_button is not None
+    assert nsa_button is not None
+    assert sa_button.minimumWidth() == nsa_button.minimumWidth()
+    assert sa_button.isChecked()
+    assert not nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_SA
+
+    nsa_button.click()
+
+    assert not sa_button.isChecked()
+    assert nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_NSA
+
+    sa_button.click()
+
+    assert sa_button.isChecked()
+    assert not nsa_button.isChecked()
+    assert dialog.generation is Generation.NR_SA
 
 
 def test_nr_select_all_reset_toggles_group_checkboxes(qtbot) -> None:
@@ -459,14 +489,15 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert table is not None
     assert panel.test_cases == (case,)
     assert table.rowCount() == 1
-    assert table.item(0, 0).text() == "NR_SA"
-    assert table.item(0, 1).text() == "n78"
-    assert table.item(0, 4).text() == "100"
-    assert table.item(0, 7).text() == "135"
-    assert table.item(0, 8).text() == "67"
-    assert table.item(0, 12).text() == "6"
-    assert table.item(0, 13).text() == "6000"
-    assert table.item(0, 14).text() == "18000"
+    assert table.item(0, 0).text() == "1"
+    assert table.item(0, 1).text() == "NR_SA"
+    assert table.item(0, 2).text() == "n78"
+    assert table.item(0, 5).text() == "100"
+    assert table.item(0, 8).text() == "135"
+    assert table.item(0, 9).text() == "67"
+    assert table.item(0, 13).text() == "6"
+    assert table.item(0, 14).text() == "6000"
+    assert table.item(0, 15).text() == "18000"
     assert table.item(0, 0).foreground().color().name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.Text).name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.HighlightedText).name() == "#111111"
@@ -489,7 +520,7 @@ def test_test_manager_delete_button_removes_selected_single_case(qtbot) -> None:
 
     assert panel.test_cases == (inband_case,)
     assert table.rowCount() == 1
-    assert table.item(0, 12).text() == "5"
+    assert table.item(0, 13).text() == "5"
 
 
 def test_test_manager_delete_button_ignores_missing_selection(qtbot) -> None:
@@ -555,7 +586,7 @@ def test_test_manager_load_button_appends_csv_cases(
     assert table is not None
     assert panel.test_cases == (existing_case, loaded_case)
     assert table.rowCount() == 2
-    assert table.item(1, 12).text() == "5"
+    assert table.item(1, 13).text() == "5"
 
 
 def test_test_manager_load_button_rejects_non_csv_file(
@@ -684,11 +715,13 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
             *,
             parameters_by_band=None,
             group_settings=None,
+            generation=Generation.NR_SA,
         ) -> None:
             super().__init__(parent)
             created["parent"] = parent
             created["parameters_by_band"] = parameters_by_band
             created["group_settings"] = group_settings
+            created["generation"] = generation
 
         @property
         def parameters_by_band(self) -> dict:
@@ -697,6 +730,10 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
         @property
         def group_settings(self) -> dict:
             return {}
+
+        @property
+        def generation(self) -> Generation:
+            return Generation.NR_SA
 
         def exec(self) -> int:
             self.test_cases_created.emit([case])
@@ -712,6 +749,7 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
     assert created["parent"] is panel
     assert created["parameters_by_band"] is None
     assert created["group_settings"] is None
+    assert created["generation"] is Generation.NR_SA
     assert panel.test_cases == (case,)
 
 
@@ -737,7 +775,7 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
             antenna_pol_sequence=(AntennaPol.H,),
         ),
     }
-    calls: list[tuple[object, object]] = []
+    calls: list[tuple[object, object, Generation]] = []
 
     class FakeDialog(QObject):
         test_cases_created = Signal(list)
@@ -748,9 +786,10 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
             *,
             parameters_by_band=None,
             group_settings=None,
+            generation=Generation.NR_SA,
         ) -> None:
             super().__init__(parent)
-            calls.append((parameters_by_band, group_settings))
+            calls.append((parameters_by_band, group_settings, generation))
 
         @property
         def parameters_by_band(self) -> dict:
@@ -759,6 +798,10 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
         @property
         def group_settings(self) -> dict:
             return saved_group_settings
+
+        @property
+        def generation(self) -> Generation:
+            return Generation.NR_NSA
 
         def exec(self) -> int:
             return 0
@@ -772,6 +815,6 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
     panel.findChild(QPushButton, "nrButton").click()
 
     assert calls == [
-        (None, None),
-        (saved_parameters, saved_group_settings),
+        (None, None, Generation.NR_SA),
+        (saved_parameters, saved_group_settings, Generation.NR_NSA),
     ]

@@ -1,2 +1,2 @@
-band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
-n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper
+generation,band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
+NR_SA,n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper

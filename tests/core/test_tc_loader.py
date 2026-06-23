@@ -78,9 +78,9 @@ def test_save_csv_round_trips_external_fields(tmp_path: Path) -> None:
 def test_load_csv_rejects_missing_required_column(tmp_path: Path) -> None:
     path = tmp_path / "missing_test_type.csv"
     path.write_text(
-        "band,bandwidth,modulation,rb_allocation,test_channel,antenna_pol,"
+        "generation,band,bandwidth,modulation,rb_allocation,test_channel,antenna_pol,"
         "dut_axis,dut_ant_position\n"
-        "n78,100,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n78,100,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -91,9 +91,9 @@ def test_load_csv_rejects_missing_required_column(tmp_path: Path) -> None:
 def test_load_csv_rejects_unexpected_column(tmp_path: Path) -> None:
     path = tmp_path / "unexpected_column.csv"
     path.write_text(
-        "band,bandwidth,test_type,modulation,rb_allocation,test_channel,"
+        "generation,band,bandwidth,test_type,modulation,rb_allocation,test_channel,"
         "antenna_pol,dut_axis,dut_ant_position,test_range\n"
-        "n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper,range_6\n",
+        "NR_SA,n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper,range_6\n",
         encoding="utf-8",
     )
 
@@ -104,9 +104,9 @@ def test_load_csv_rejects_unexpected_column(tmp_path: Path) -> None:
 def test_load_csv_rejects_out_of_order_header(tmp_path: Path) -> None:
     path = tmp_path / "wrong_order.csv"
     path.write_text(
-        "band,test_type,bandwidth,modulation,rb_allocation,test_channel,"
+        "band,generation,test_type,bandwidth,modulation,rb_allocation,test_channel,"
         "antenna_pol,dut_axis,dut_ant_position\n"
-        "n78,harmonic,100,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "n78,NR_SA,harmonic,100,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -118,7 +118,7 @@ def test_load_csv_reports_row_and_field_context_for_invalid_rows(tmp_path: Path)
     path = tmp_path / "invalid_row.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "n78,100,unknown,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n78,100,unknown,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -130,7 +130,7 @@ def test_load_csv_rejects_legacy_bandwidth_unit_suffix(tmp_path: Path) -> None:
     path = tmp_path / "legacy_bandwidth.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "n78,100MHz,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n78,100MHz,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -142,7 +142,7 @@ def test_load_csv_rejects_unsupported_bandwidth_for_band(tmp_path: Path) -> None
     path = tmp_path / "unsupported_bandwidth.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "n71,30,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n71,30,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
