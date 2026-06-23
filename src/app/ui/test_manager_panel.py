@@ -221,7 +221,6 @@ class TestManagerPanel(QWidget):
     start_requested = Signal()
     single_start_requested = Signal()
     stop_requested = Signal()
-    pause_requested = Signal()
     get_tdf_list_requested = Signal()
     tdf_all_off_requested = Signal()
     set_tdf_requested = Signal(str)
@@ -250,15 +249,6 @@ class TestManagerPanel(QWidget):
         """UI에서 선택한 Excel 양식 경로를 반환한다."""
 
         value = self._excel_template_path_edit.text().strip()
-        if not value:
-            return None
-        return Path(value)
-
-    @property
-    def screenshot_root_dir(self) -> Path | None:
-        """UI에서 선택한 스크린샷 저장 루트 디렉터리를 반환한다."""
-
-        value = self._screenshot_root_edit.text().strip()
         if not value:
             return None
         return Path(value)
@@ -526,12 +516,11 @@ class TestManagerPanel(QWidget):
         self._custom_option_check_box.setEnabled(not locked)
         self._marker_check_box.setEnabled(not locked)
         self._excel_template_browse_button.setEnabled(not locked)
-        self._screenshot_root_browse_button.setEnabled(not locked)
 
-    def set_pause_enabled(self, enabled: bool) -> None:
+    def set_stop_enabled(self, enabled: bool) -> None:
         """현재 TC 중단 버튼 활성화 상태를 갱신한다."""
 
-        self._pause_button.setEnabled(enabled)
+        self._stop_button.setEnabled(enabled)
 
     def reset_test_case_progress(self) -> None:
         """TestCase 표의 진행 상태 표시를 초기화한다."""
@@ -837,9 +826,6 @@ class TestManagerPanel(QWidget):
         self._excel_template_browse_button.clicked.connect(
             self.on_excel_template_browse_clicked,
         )
-        self._screenshot_root_browse_button.clicked.connect(
-            self.on_screenshot_root_browse_clicked,
-        )
         self._nr_button.clicked.connect(self.on_nr_button_clicked)
         self._delete_button.clicked.connect(self.on_delete_button_clicked)
         self._clear_button.clicked.connect(self.on_clear_button_clicked)
@@ -848,7 +834,7 @@ class TestManagerPanel(QWidget):
         self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
         self._single_start_button.clicked.connect(self.single_start_requested.emit)
-        self._pause_button.clicked.connect(self.stop_requested.emit)
+        self._stop_button.clicked.connect(self.stop_requested.emit)
         self._get_tdf_list_button.clicked.connect(self.get_tdf_list_requested.emit)
         self._tdf_all_off_button.clicked.connect(self.tdf_all_off_requested.emit)
         self._set_tdf_button.clicked.connect(self.on_set_tdf_button_clicked)
@@ -862,7 +848,6 @@ class TestManagerPanel(QWidget):
         layout.setSpacing(10)
 
         self._create_hidden_monitoring_fields(panel)
-        self._create_hidden_screenshot_path_inputs(panel)
 
         input_panel = QWidget(panel)
         input_layout = QGridLayout(input_panel)
@@ -907,7 +892,7 @@ class TestManagerPanel(QWidget):
         for text, object_name in (
             ("\uB2E8\uC77C\uC2DC\uC791", "singleStartButton"),
             ("\uC2DC\uC791", "startButton"),
-            ("\uC815\uC9C0", "pauseButton"),
+            ("\uC815\uC9C0", "stopButton"),
             ("\uC0AD\uC81C", "deleteButton"),
             ("\uCD08\uAE30\uD654", "clearButton"),
             ("\uBD88\uB7EC\uC624\uAE30", "loadItemButton"),
@@ -919,9 +904,9 @@ class TestManagerPanel(QWidget):
                 self._single_start_button = button
             elif object_name == "startButton":
                 self._start_button = button
-            elif object_name == "pauseButton":
-                self._pause_button = button
-                self._pause_button.setEnabled(False)
+            elif object_name == "stopButton":
+                self._stop_button = button
+                self._stop_button.setEnabled(False)
             elif object_name == "deleteButton":
                 self._delete_button = button
             elif object_name == "clearButton":
@@ -932,17 +917,6 @@ class TestManagerPanel(QWidget):
                 self._save_item_button = button
             layout.addWidget(button)
         return panel
-
-    def _create_hidden_screenshot_path_inputs(self, parent: QWidget) -> None:
-        """?? ?? ?? ??? ???? ?? ??? ?? ??."""
-
-        self._screenshot_root_edit = QLineEdit(parent)
-        self._screenshot_root_edit.setObjectName("screenshotRootEdit")
-        self._screenshot_root_edit.setReadOnly(True)
-        self._screenshot_root_edit.hide()
-        self._screenshot_root_browse_button = QPushButton("\uCC3E\uAE30", parent)
-        self._screenshot_root_browse_button.setObjectName("screenshotRootBrowseButton")
-        self._screenshot_root_browse_button.hide()
 
     def _create_hidden_monitoring_fields(self, parent: QWidget) -> None:
         """?? setter/tests ??? ???? ??? ?? ?? ????."""
@@ -1407,17 +1381,6 @@ class TestManagerPanel(QWidget):
         if file_path:
             self._excel_template_path_edit.setText(str(Path(file_path)))
 
-    def on_screenshot_root_browse_clicked(self) -> None:
-        """스크린샷 저장 루트 디렉터리를 선택해 입력칸에 반영한다."""
-
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            "스크린샷 저장 경로 선택",
-            self._screenshot_root_edit.text().strip(),
-        )
-        if directory:
-            self._screenshot_root_edit.setText(str(Path(directory)))
-
     def on_nr_button_clicked(self) -> None:
         """NR 버튼 클릭 시 TestCase 선택 팝업을 연다."""
 
@@ -1658,13 +1621,6 @@ class TestManagerPanel(QWidget):
             raise ValueError(f"{label}을 선택하세요.")
         if not value.is_file():
             raise ValueError(f"{label} 파일이 존재하지 않습니다.")
-        return value
-
-    def _required_directory(self, value: Path | None, label: str) -> Path:
-        if value is None:
-            raise ValueError(f"{label}를 선택하세요.")
-        if not value.is_dir():
-            raise ValueError(f"{label} 폴더가 존재하지 않습니다.")
         return value
 
     def _required_active_tdf_file_name(self) -> str:

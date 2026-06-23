@@ -288,7 +288,6 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     )
     window.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
     window.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    window.findChild(QLineEdit, "screenshotRootEdit").setText(str(screenshot_root))
     window._test_manager_panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     start_button = window.findChild(QPushButton, "startButton")
@@ -307,7 +306,7 @@ def test_main_window_stop_button_requests_runner_stop(qtbot, monkeypatch) -> Non
 
     window._runner._set_measurement_active(True)
 
-    stop_button = window.findChild(QPushButton, "pauseButton")
+    stop_button = window.findChild(QPushButton, "stopButton")
     assert stop_button is not None
     assert stop_button.isEnabled()
 
@@ -481,7 +480,6 @@ def test_main_window_session_inputs_are_moved_to_test_manager(qtbot) -> None:
     manager = window.findChild(ManagerPanel)
     assert manager is not None
     assert manager.findChild(QLineEdit, "eutNameEdit") is not None
-    assert manager.findChild(QLineEdit, "screenshotRootEdit") is not None
 
 
 def test_test_manager_panel_has_extended_test_case_table(qtbot) -> None:
@@ -577,15 +575,13 @@ def test_test_manager_panel_exposes_planned_layout_widgets(qtbot) -> None:
     for object_name in (
         "eutNameEdit",
         "excelTemplatePathEdit",
-        "screenshotRootEdit",
     ):
         assert panel.findChild(QLineEdit, object_name) is not None
 
     for object_name in (
         "excelTemplateBrowseButton",
-        "screenshotRootBrowseButton",
         "startButton",
-        "pauseButton",
+        "stopButton",
         "deleteButton",
         "clearButton",
         "loadItemButton",
@@ -871,9 +867,8 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
 
     expected_button_texts = {
         "excelTemplateBrowseButton": "찾기",
-        "screenshotRootBrowseButton": "찾기",
         "startButton": "시작",
-        "pauseButton": "정지",
+        "stopButton": "정지",
         "deleteButton": "삭제",
         "clearButton": "초기화",
         "loadItemButton": "불러오기",
@@ -1020,35 +1015,6 @@ def test_test_manager_panel_excel_browse_button_sets_selected_path(
     assert edit.text() == str(selected_path)
     assert panel.excel_template_path == selected_path
 
-
-def test_test_manager_panel_screenshot_browse_button_sets_selected_directory(
-    qtbot,
-    monkeypatch,
-    tmp_path,
-) -> None:
-    """스크린샷 저장 경로 찾기 버튼이 선택한 폴더를 입력칸에 반영한다."""
-
-    panel = ManagerPanel()
-    qtbot.addWidget(panel)
-    selected_dir = tmp_path / "screenshots"
-
-    def fake_get_existing_directory(parent, caption, directory) -> str:
-        assert parent is panel
-        assert caption == "스크린샷 저장 경로 선택"
-        return str(selected_dir)
-
-    monkeypatch.setattr(
-        QFileDialog,
-        "getExistingDirectory",
-        fake_get_existing_directory,
-    )
-
-    panel.findChild(QPushButton, "screenshotRootBrowseButton").click()
-
-    edit = panel.findChild(QLineEdit, "screenshotRootEdit")
-    assert edit is not None
-    assert edit.text() == str(selected_dir)
-    assert panel.screenshot_root_dir == selected_dir
 
 
 def test_test_manager_panel_run_setting_fields_are_user_editable(qtbot) -> None:
@@ -1300,7 +1266,6 @@ def test_main_window_start_preserves_test_case_progress(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     monkeypatch.setattr(window._runner, "start", lambda cases, **kwargs: None)
 
@@ -1355,7 +1320,6 @@ def test_main_window_blocks_start_without_active_tdf(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     warnings: list[str] = []
     starts: list[bool] = []
     monkeypatch.setattr(panel, "_show_warning", warnings.append)
@@ -1392,7 +1356,6 @@ def test_main_window_start_preserves_completed_progress(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     monkeypatch.setattr(window._runner, "start", lambda cases, **kwargs: None)
 
@@ -1421,7 +1384,6 @@ def test_main_window_stop_then_start_uses_edited_index(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("1")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[dict[str, object]] = []
@@ -1453,7 +1415,6 @@ def test_main_window_stop_then_single_start_uses_edited_index(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("1")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[dict[str, object]] = []
@@ -1484,7 +1445,6 @@ def test_main_window_stop_then_start_blocks_out_of_range_index(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("2")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[bool] = []
@@ -1517,7 +1477,6 @@ def test_main_window_start_uses_blank_index_as_first_case(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").clear()
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[dict[str, object]] = []
@@ -1548,7 +1507,6 @@ def test_main_window_start_blocks_out_of_range_index(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("2")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[bool] = []
@@ -1580,7 +1538,6 @@ def test_main_window_single_start_runs_only_selected_index(
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
-    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("2")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     starts: list[dict[str, object]] = []
@@ -1804,8 +1761,8 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         "nextPeakSearchLevelEdit",
         "customTurnTableSpeedEdit",
     )
-    path_edits = ("excelTemplatePathEdit", "screenshotRootEdit")
-    browse_buttons = ("excelTemplateBrowseButton", "screenshotRootBrowseButton")
+    path_edits = ("excelTemplatePathEdit",)
+    browse_buttons = ("excelTemplateBrowseButton",)
     custom_option_check_box = window.findChild(QCheckBox, "customOptionCheckBox")
     marker_check_box = window.findChild(QCheckBox, "markerCheckBox")
     assert custom_option_check_box is not None
