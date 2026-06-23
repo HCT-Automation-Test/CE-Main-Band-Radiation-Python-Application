@@ -1062,6 +1062,7 @@ def test_test_manager_panel_run_setting_fields_are_user_editable(qtbot) -> None:
 
     editable_names = {
         "eutNameEdit",
+        "indexEdit",
         "saturationTimeEdit",
         "connectionWaitingTimeEdit",
         "attenLevelEdit",
@@ -1259,7 +1260,7 @@ def test_main_window_start_resets_test_case_progress(
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
-    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+    monkeypatch.setattr(window._runner, "start", lambda cases, **kwargs: None)
 
     window.on_start_requested()
 
@@ -1286,7 +1287,7 @@ def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) ->
     monkeypatch.setattr(
         window._runner,
         "start",
-        lambda cases, *, settings: starts.append(True),
+        lambda cases, **kwargs: starts.append(True),
     )
 
     window._rf_switch_box_service._thread = object()
@@ -1321,7 +1322,7 @@ def test_main_window_blocks_start_without_active_tdf(
     monkeypatch.setattr(
         window._runner,
         "start",
-        lambda cases, *, settings: starts.append(True),
+        lambda cases, **kwargs: starts.append(True),
     )
 
     window.on_start_requested()
@@ -1354,7 +1355,7 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
     window._runner._restart_index = 1
-    monkeypatch.setattr(window._runner, "start", lambda cases, *, settings: None)
+    monkeypatch.setattr(window._runner, "start", lambda cases, **kwargs: None)
 
     window.on_start_requested()
 
@@ -1365,6 +1366,202 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
 
     assert table.item(0, 0).background().color().name() == completed_color
     assert table.item(1, 0).background().color().name() == running_color
+
+
+
+
+def test_main_window_pause_restart_uses_edited_index(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    cases = [_make_test_case(), _make_test_case()]
+    panel.add_test_cases(cases)
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").setText("1")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    window._runner._restart_index = 1
+    starts: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append({"cases": cases, **kwargs}),
+    )
+
+    window.on_start_requested()
+
+    assert starts
+    assert starts[0]["cases"] == cases
+    assert starts[0]["start_index"] == 0
+    assert starts[0]["stop_index"] is None
+
+
+def test_main_window_pause_single_start_uses_edited_index(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    cases = [_make_test_case(), _make_test_case()]
+    panel.add_test_cases(cases)
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").setText("1")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    window._runner._restart_index = 1
+    starts: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append({"cases": cases, **kwargs}),
+    )
+
+    panel.findChild(QPushButton, "singleStartButton").click()
+
+    assert starts
+    assert starts[0]["cases"] == cases
+    assert starts[0]["start_index"] == 0
+    assert starts[0]["stop_index"] == 0
+
+
+def test_main_window_pause_restart_blocks_out_of_range_index(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    panel.add_test_cases([_make_test_case()])
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").setText("2")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    window._runner._restart_index = 0
+    starts: list[bool] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append(True),
+    )
+
+    window.on_start_requested()
+
+    assert starts == []
+    assert warnings == ["Index가 Test Case 개수를 초과했습니다."]
+
+
+def test_main_window_start_uses_blank_index_as_first_case(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    first_case = _make_test_case()
+    second_case = _make_test_case()
+    panel.add_test_cases([first_case, second_case])
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").clear()
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    starts: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append({"cases": cases, **kwargs}),
+    )
+
+    window.on_start_requested()
+
+    assert starts
+    assert starts[0]["cases"] == [first_case, second_case]
+    assert starts[0]["start_index"] == 0
+    assert starts[0]["stop_index"] is None
+
+
+def test_main_window_start_blocks_out_of_range_index(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    panel.add_test_cases([_make_test_case()])
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").setText("2")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    starts: list[bool] = []
+    warnings: list[str] = []
+    monkeypatch.setattr(panel, "_show_warning", warnings.append)
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append(True),
+    )
+
+    window.on_start_requested()
+
+    assert starts == []
+    assert warnings == ["Index가 Test Case 개수를 초과했습니다."]
+
+
+def test_main_window_single_start_runs_only_selected_index(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._test_manager_panel
+    cases = [_make_test_case(), _make_test_case()]
+    panel.add_test_cases(cases)
+    panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
+    template_path = tmp_path / "template.xlsx"
+    template_path.write_bytes(b"template")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "indexEdit").setText("2")
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+    starts: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        window._runner,
+        "start",
+        lambda cases, **kwargs: starts.append({"cases": cases, **kwargs}),
+    )
+
+    panel.findChild(QPushButton, "singleStartButton").click()
+
+    assert starts
+    assert starts[0]["cases"] == cases
+    assert starts[0]["start_index"] == 1
+    assert starts[0]["stop_index"] == 1
 
 
 def test_main_window_updates_analyzer_info_from_runner_event(qtbot) -> None:

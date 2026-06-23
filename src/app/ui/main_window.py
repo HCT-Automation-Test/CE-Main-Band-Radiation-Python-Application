@@ -120,6 +120,9 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.start_requested.connect(
             self.on_start_requested,
         )
+        self._test_manager_panel.single_start_requested.connect(
+            self.on_single_start_requested,
+        )
         self._test_manager_panel.pause_requested.connect(
             self._runner.pause,
         )
@@ -359,8 +362,16 @@ class MainWindow(QMainWindow):
         self._page_stack.setCurrentIndex(index)
 
     def on_start_requested(self) -> None:
-        """Test Manager의 시작 요청을 Runner에 전달한다."""
+        """Test Manager의 일반 시작 요청을 Runner에 전달한다."""
 
+        self._start_requested(single=False)
+
+    def on_single_start_requested(self) -> None:
+        """Test Manager의 단일 시작 요청을 Runner에 전달한다."""
+
+        self._start_requested(single=True)
+
+    def _start_requested(self, *, single: bool) -> None:
         block_reason = self._rf_switch_box_operation_block_reason()
         if block_reason:
             self._show_warning("RF Switch Box", block_reason)
@@ -368,11 +379,18 @@ class MainWindow(QMainWindow):
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
+        cases = list(self._test_manager_panel.test_cases)
+        start_index = self._test_manager_panel.build_start_index(len(cases))
+        if start_index is None:
+            return
+        stop_index = start_index if single else None
         if self._runner.restart_index is None:
             self._test_manager_panel.reset_test_case_progress()
         self._runner.start(
-            list(self._test_manager_panel.test_cases),
+            cases,
             settings=settings,
+            start_index=start_index,
+            stop_index=stop_index,
         )
 
     def on_get_tdf_list_requested(self) -> None:

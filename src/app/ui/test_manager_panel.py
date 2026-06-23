@@ -216,6 +216,7 @@ class TestManagerPanel(QWidget):
     """테스트 케이스 생성, 실행, 로그 출력의 중심 패널."""
 
     start_requested = Signal()
+    single_start_requested = Signal()
     pause_requested = Signal()
     get_tdf_list_requested = Signal()
     tdf_all_off_requested = Signal()
@@ -512,6 +513,7 @@ class TestManagerPanel(QWidget):
         """시험 실행 중 Start 설정 입력값을 고정한다."""
 
         self._eut_name_edit.setReadOnly(locked)
+        self._index_edit.setReadOnly(locked)
         for object_name in _RUN_SETTING_FIELD_NAMES:
             edit = self.findChild(QLineEdit, object_name)
             if edit is not None:
@@ -601,6 +603,25 @@ class TestManagerPanel(QWidget):
         self._get_tdf_list_button.setEnabled(enabled)
         self._tdf_all_off_button.setEnabled(enabled)
         self._set_tdf_button.setEnabled(enabled)
+
+    def build_start_index(self, case_count: int) -> int | None:
+        """Index 입력값을 0-based TestCase index로 변환한다."""
+
+        text = self._index_edit.text().strip()
+        if not text:
+            return 0
+        try:
+            index = int(text)
+        except ValueError:
+            self._show_warning("Index는 정수로 입력하세요.")
+            return None
+        if index < 1:
+            self._show_warning("Index는 1 이상이어야 합니다.")
+            return None
+        if index > case_count:
+            self._show_warning("Index가 Test Case 개수를 초과했습니다.")
+            return None
+        return index - 1
 
     def build_test_run_settings(self) -> TestRunSettings | None:
         """Start 요청에 필요한 UI 입력값을 실행 설정으로 변환한다."""
@@ -803,6 +824,7 @@ class TestManagerPanel(QWidget):
         self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
         self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
+        self._single_start_button.clicked.connect(self.single_start_requested.emit)
         self._pause_button.clicked.connect(self.pause_requested.emit)
         self._get_tdf_list_button.clicked.connect(self.get_tdf_list_requested.emit)
         self._tdf_all_off_button.clicked.connect(self.tdf_all_off_requested.emit)

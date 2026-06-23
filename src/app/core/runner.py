@@ -280,6 +280,8 @@ class Runner(QObject):
         cases: list[TestCase],
         *,
         settings: TestRunSettings,
+        start_index: int | None = None,
+        stop_index: int | None = None,
     ) -> None:
         """Idle 상태에서 시험 실행 요청을 주입한다."""
         if self.is_equipment_connecting:
@@ -318,10 +320,17 @@ class Runner(QObject):
         ctx = self._ctx
         ctx.queue = list(cases)
         ctx.report_writer = report_writer
-        start_index = self._restart_index
-        if start_index is None or start_index >= len(cases):
+        restart_index = self._restart_index
+        if start_index is None:
+            if restart_index is not None and restart_index < len(cases):
+                start_index = restart_index
+                stop_index = None
+            else:
+                start_index = 0
+        elif start_index < 0 or start_index >= len(cases):
             start_index = 0
         ctx.start_index = start_index
+        ctx.stop_index = stop_index
         ctx.current_index = start_index
         ctx.paused = False
         ctx.stopped = False
