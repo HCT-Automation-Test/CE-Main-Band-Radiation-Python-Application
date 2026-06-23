@@ -110,6 +110,18 @@ _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "customTurnTableSpeedEdit": "5",
 }
 _RUN_SETTING_FIELD_NAMES = frozenset(_RUN_SETTING_FIELD_DEFAULTS)
+_RUN_SETTING_BUTTON_NAMES = (
+    "singleStartButton",
+    "startButton",
+    "deleteButton",
+    "clearButton",
+    "loadItemButton",
+    "saveItemButton",
+    "nrButton",
+    "lteButton",
+    "wcdmaButton",
+    "gsmButton",
+)
 _CONNECTION_CANONICAL_KEYS: tuple[str, ...] = (
     "MT8000A",
     "FSV40",
@@ -508,15 +520,19 @@ class TestManagerPanel(QWidget):
     def set_run_settings_locked(self, locked: bool) -> None:
         """시험 실행 중 Start 설정 입력값을 고정한다."""
 
-        self._eut_name_edit.setReadOnly(locked)
-        self._index_edit.setReadOnly(locked)
+        self._eut_name_edit.setEnabled(not locked)
+        self._index_edit.setEnabled(not locked)
         for object_name in _RUN_SETTING_FIELD_NAMES:
             edit = self.findChild(QLineEdit, object_name)
             if edit is not None:
-                edit.setReadOnly(locked)
+                edit.setEnabled(not locked)
         self._custom_option_check_box.setEnabled(not locked)
         self._marker_check_box.setEnabled(not locked)
         self._excel_template_browse_button.setEnabled(not locked)
+        for object_name in _RUN_SETTING_BUTTON_NAMES:
+            button = self.findChild(QPushButton, object_name)
+            if button is not None:
+                button.setEnabled(not locked)
 
     def set_stop_enabled(self, enabled: bool) -> None:
         """현재 TC 중단 버튼 활성화 상태를 갱신한다."""
@@ -1192,6 +1208,12 @@ class TestManagerPanel(QWidget):
                 padding: 1px 4px;
             }
 
+            QLineEdit:disabled {
+                background: #e9ecef;
+                border: 1px solid #8f9ca8;
+                color: #555555;
+            }
+
             QListWidget#tdfListWidget {
                 border: 1px solid #3f73a8;
                 background: #ffffff;
@@ -1220,6 +1242,16 @@ class TestManagerPanel(QWidget):
 
             QPushButton:hover {
                 background: #f1f7ff;
+            }
+
+            QPushButton:disabled {
+                background: #e1e5ea;
+                border: 1px dashed #8f9ca8;
+                color: #555555;
+            }
+
+            QCheckBox:disabled {
+                color: #555555;
             }
 
             QFrame[statusIndicator="true"] {

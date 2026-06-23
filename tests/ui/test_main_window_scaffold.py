@@ -1757,6 +1757,7 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
 
     locked_edits = (
         "eutNameEdit",
+        "indexEdit",
         "saturationTimeEdit",
         "connectionWaitingTimeEdit",
         "attenLevelEdit",
@@ -1765,6 +1766,19 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
     )
     path_edits = ("excelTemplatePathEdit",)
     browse_buttons = ("excelTemplateBrowseButton",)
+    locked_buttons = (
+        "singleStartButton",
+        "startButton",
+        "deleteButton",
+        "clearButton",
+        "loadItemButton",
+        "saveItemButton",
+        "nrButton",
+        "lteButton",
+        "wcdmaButton",
+        "gsmButton",
+    )
+    unlocked_buttons = ("stopButton", "caseConfirmButton")
     custom_option_check_box = window.findChild(QCheckBox, "customOptionCheckBox")
     marker_check_box = window.findChild(QCheckBox, "markerCheckBox")
     assert custom_option_check_box is not None
@@ -1773,22 +1787,30 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
     window._runner._set_measurement_active(True)
 
     for object_name in locked_edits:
-        assert window.findChild(QLineEdit, object_name).isReadOnly()
+        assert not window.findChild(QLineEdit, object_name).isEnabled()
     for object_name in path_edits:
         assert window.findChild(QLineEdit, object_name).isReadOnly()
     for object_name in browse_buttons:
         assert not window.findChild(QPushButton, object_name).isEnabled()
+    for object_name in locked_buttons:
+        assert not window.findChild(QPushButton, object_name).isEnabled()
+    for object_name in unlocked_buttons:
+        assert window.findChild(QPushButton, object_name).isEnabled()
     assert not custom_option_check_box.isEnabled()
     assert not marker_check_box.isEnabled()
 
     window._runner._set_measurement_active(False)
 
     for object_name in locked_edits:
-        assert not window.findChild(QLineEdit, object_name).isReadOnly()
+        assert window.findChild(QLineEdit, object_name).isEnabled()
     for object_name in path_edits:
         assert window.findChild(QLineEdit, object_name).isReadOnly()
     for object_name in browse_buttons:
         assert window.findChild(QPushButton, object_name).isEnabled()
+    for object_name in locked_buttons:
+        assert window.findChild(QPushButton, object_name).isEnabled()
+    assert not window.findChild(QPushButton, "stopButton").isEnabled()
+    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert custom_option_check_box.isEnabled()
     assert marker_check_box.isEnabled()
 
@@ -1812,7 +1834,7 @@ def test_main_window_locks_instrument_operations_while_set_active(
     service.set_started.emit()
 
     assert not connect_button.isEnabled()
-    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isEnabled()
 
     instrument_panel.on_connect_clicked()
 
@@ -1821,7 +1843,7 @@ def test_main_window_locks_instrument_operations_while_set_active(
     service.set_finished.emit()
 
     assert connect_button.isEnabled()
-    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QLineEdit, "eutNameEdit").isEnabled()
 
 
 def test_main_window_blocks_instrument_connect_while_rf_switch_running(
@@ -1957,14 +1979,14 @@ def test_main_window_locks_tdf_operations_immediately_after_request(
 
     assert not connect_button.isEnabled()
     assert not get_tdf_button.isEnabled()
-    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isEnabled()
     assert window.findChild(QDialog, "tdfProgressDialog") is None
 
     window.on_tdf_operation_finished("done")
 
     assert connect_button.isEnabled()
     assert get_tdf_button.isEnabled()
-    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QLineEdit, "eutNameEdit").isEnabled()
 
 
 def test_main_window_marks_tdf_active_after_set_success(
@@ -2053,7 +2075,7 @@ def test_main_window_locks_instrument_operations_while_tdf_active(
 
     assert not connect_button.isEnabled()
     assert not get_tdf_button.isEnabled()
-    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isEnabled()
     dialog = window.findChild(QDialog, "tdfProgressDialog")
     assert dialog is not None
     assert dialog.property("progressDialog") is True
@@ -2062,7 +2084,7 @@ def test_main_window_locks_instrument_operations_while_tdf_active(
 
     assert connect_button.isEnabled()
     assert get_tdf_button.isEnabled()
-    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QLineEdit, "eutNameEdit").isEnabled()
     assert window.findChild(QDialog, "tdfProgressDialog") is None
 
 
@@ -2100,12 +2122,12 @@ def test_main_window_keeps_measurement_lock_after_set_finishes(
     service.set_finished.emit()
 
     assert not connect_button.isEnabled()
-    assert window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert not window.findChild(QLineEdit, "eutNameEdit").isEnabled()
 
     window._runner._set_measurement_active(False)
 
     assert connect_button.isEnabled()
-    assert not window.findChild(QLineEdit, "eutNameEdit").isReadOnly()
+    assert window.findChild(QLineEdit, "eutNameEdit").isEnabled()
 
 
 def test_main_window_updates_test_manager_equipment_info_after_set_finishes(
