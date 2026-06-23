@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -32,6 +33,8 @@ InstrumentConnectionBlocker = Callable[[], str | None]
 
 _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
+_START_READY_TIMEOUT_SEC = 1.0
+_START_READY_POLL_SEC = 0.01
 INSTRUMENT_SET_BLOCK_MESSAGE = "장비 Set이 진행 중입니다"
 INSTRUMENT_CONNECTION_BLOCK_MESSAGE = (
     "시험 실행 중에는 Instrument Check 연결을 시작할 수 없습니다."
@@ -118,7 +121,6 @@ class Runner(QObject):
         self._temp_dir = Path(temp_dir)
         self._equipment_state: dict[str, bool] = {}
         self._measurement_active = False
-        self._restart_index: int | None = None
         self._shutting_down = False
         self._instrument_connection_blockers: list[InstrumentConnectionBlocker] = []
         self._instrument_connection_service = (
@@ -172,11 +174,6 @@ class Runner(QObject):
 
         return self._commands
 
-    @property
-    def restart_index(self) -> int | None:
-        """Pause 후 재시작할 TestCase index를 반환한다."""
-
-        return self._restart_index
 
     @property
     def equipment_state(self) -> dict[str, bool]:
@@ -280,6 +277,8 @@ class Runner(QObject):
         cases: list[TestCase],
         *,
         settings: TestRunSettings,
+        start_index: int | None = None,
+        stop_index: int | None = None,
     ) -> None:
         """Idle 상태에서 시험 실행 요청을 주입한다."""
         if self.is_equipment_connecting:
@@ -291,10 +290,7 @@ class Runner(QObject):
         if not self.is_equipment_ready:
             self._emit_error("시험 시작 실패: Instrument Check 연결을 완료하세요")
             return
-        if self._ctx is None or not self.is_running:
-            self._emit_error("시험 시작 실패: Runner is not initialized")
-            return
-        if not self._is_waiting_for_start():
+        if not self._ensure_start_ready():
             self._emit_error("시험 시작 실패: Runner is not idle")
             return
         if not cases:
@@ -318,10 +314,10 @@ class Runner(QObject):
         ctx = self._ctx
         ctx.queue = list(cases)
         ctx.report_writer = report_writer
-        start_index = self._restart_index
-        if start_index is None or start_index >= len(cases):
+        if start_index is None or start_index < 0 or start_index >= len(cases):
             start_index = 0
         ctx.start_index = start_index
+        ctx.stop_index = stop_index
         ctx.current_index = start_index
         ctx.paused = False
         ctx.stopped = False
@@ -333,18 +329,13 @@ class Runner(QObject):
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
-        self._restart_index = None
         self._set_measurement_active(True)
         ctx.test_start_requested.set()
 
     def pause(self) -> None:
-        """현재 TC 실행을 중단하고 같은 TC부터 다시 시작할 수 있게 한다."""
-        if self._ctx is None or not self.is_measurement_active:
-            return
-        self._restart_index = self._ctx.current_index
-        self._ctx.current_case_stop_requested = True
-        self._ctx.paused = False
-        self._ctx.user_action_completed.set()
+        """이전 호환용 shim. 정지와 동일하게 처리한다."""
+
+        self.stop()
 
     def resume(self) -> None:
         """일시정지 해제."""
@@ -395,6 +386,27 @@ class Runner(QObject):
         if self._worker is None or self._worker.engine is None:
             return False
         return self._worker.engine.current_state_name == _START_READY_STATE
+
+    def _ensure_start_ready(self) -> bool:
+        if self._ctx is None or not self.is_running:
+            self.initialize()
+        if self._ctx is None:
+            return False
+        if not self.is_running:
+            return False
+        if self._is_waiting_for_start():
+            return True
+
+        self._ctx.equipment_state = dict(self._equipment_state)
+        self._ctx.equipment_connect_requested.set()
+        deadline = time.monotonic() + _START_READY_TIMEOUT_SEC
+        while time.monotonic() < deadline:
+            if self._is_waiting_for_start():
+                return True
+            if not self.is_running:
+                return False
+            time.sleep(_START_READY_POLL_SEC)
+        return self._is_waiting_for_start()
 
     def _instrument_connection_block_reason(self) -> str | None:
         if self.is_measurement_active:

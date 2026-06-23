@@ -183,6 +183,8 @@ class CheckNextCaseState(State):
         if ctx.events is not None:
             ctx.events.tc_finished.emit(ctx.current_index)
 
+        if ctx.stop_index is not None and ctx.current_index >= ctx.stop_index:
+            return StateResult.OK
         if not ctx.has_next_case:
             return StateResult.OK
 
@@ -224,6 +226,7 @@ class TestEndState(State):
             ctx.events.session_finished.emit()
         ctx.queue = []
         ctx.current_index = 0
+        ctx.stop_index = None
         ctx.fundamental_frequency_mhz = None
         ctx.pending_transition_states.clear()
         return StateResult.OK

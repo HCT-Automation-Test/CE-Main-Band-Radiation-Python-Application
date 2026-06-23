@@ -483,6 +483,27 @@ def test_check_next_case_routes_band_change_to_recall_change_when_recall_differs
     assert state.next_state(ctx, result) == "RecallChange"
 
 
+
+def test_check_next_case_goes_to_test_end_at_stop_index() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(), _make_case(antenna_pol=AntennaPol.V)],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        stop_index=0,
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.current_index == 0
+    assert state.next_state(ctx, result) == "TestEnd"
+    assert events.tc_finished.values == [0]
+    assert events.current_case_changed.values == []
+    assert events.tc_started.values == []
+
+
 def test_check_next_case_goes_to_test_end_at_queue_end() -> None:
     events = _Events()
     ctx = SessionContext(

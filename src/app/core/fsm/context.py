@@ -31,6 +31,7 @@ class SessionContext:
     tcp_port: int = 5025
     current_index: int = 0
     start_index: int = 0
+    stop_index: int | None = None
     paused: bool = False
     stopped: bool = False
     current_case_stop_requested: bool = False

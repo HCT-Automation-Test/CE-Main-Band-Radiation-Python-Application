@@ -120,8 +120,11 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.start_requested.connect(
             self.on_start_requested,
         )
-        self._test_manager_panel.pause_requested.connect(
-            self._runner.pause,
+        self._test_manager_panel.single_start_requested.connect(
+            self.on_single_start_requested,
+        )
+        self._test_manager_panel.stop_requested.connect(
+            self._runner.stop,
         )
         self._test_manager_panel.get_tdf_list_requested.connect(
             self.on_get_tdf_list_requested,
@@ -143,6 +146,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.current_case_changed.connect(
             self.on_current_case_changed,
+        )
+        self._runner.events.tc_finished.connect(
+            self.on_test_case_finished,
         )
         self._runner.events.spectrum_analyzer_info_changed.connect(
             self._test_manager_panel.set_analyzer_info,
@@ -359,8 +365,16 @@ class MainWindow(QMainWindow):
         self._page_stack.setCurrentIndex(index)
 
     def on_start_requested(self) -> None:
-        """Test Manager의 시작 요청을 Runner에 전달한다."""
+        """Test Manager의 일반 시작 요청을 Runner에 전달한다."""
 
+        self._start_requested(single=False)
+
+    def on_single_start_requested(self) -> None:
+        """Test Manager의 단일 시작 요청을 Runner에 전달한다."""
+
+        self._start_requested(single=True)
+
+    def _start_requested(self, *, single: bool) -> None:
         block_reason = self._rf_switch_box_operation_block_reason()
         if block_reason:
             self._show_warning("RF Switch Box", block_reason)
@@ -368,11 +382,16 @@ class MainWindow(QMainWindow):
         settings = self._test_manager_panel.build_test_run_settings()
         if settings is None:
             return
-        if self._runner.restart_index is None:
-            self._test_manager_panel.reset_test_case_progress()
+        cases = list(self._test_manager_panel.test_cases)
+        start_index = self._test_manager_panel.build_start_index(len(cases))
+        if start_index is None:
+            return
+        stop_index = start_index if single else None
         self._runner.start(
-            list(self._test_manager_panel.test_cases),
+            cases,
             settings=settings,
+            start_index=start_index,
+            stop_index=stop_index,
         )
 
     def on_get_tdf_list_requested(self) -> None:
@@ -442,7 +461,8 @@ class MainWindow(QMainWindow):
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
 
-        _ = active
+        if not active:
+            self._test_manager_panel.clear_running_test_case()
         self._update_instrument_operation_lock()
 
     def on_instrument_set_started(self) -> None:
@@ -635,8 +655,12 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.set_current_case(case)
         self._test_manager_panel.mark_current_test_case(case)
 
+    def on_test_case_finished(self, index: int) -> None:
+        """완료된 TestCase 행을 누적 완료 표시한다."""
+
+        self._test_manager_panel.mark_test_case_completed(index)
+
     def on_session_finished(self) -> None:
-        self._test_manager_panel.complete_current_test_case()
         self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
 
     def _show_info(self, title: str, message: str) -> None:
