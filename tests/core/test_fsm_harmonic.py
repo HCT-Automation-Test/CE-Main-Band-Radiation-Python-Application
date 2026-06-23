@@ -287,7 +287,7 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
         saturation_time_sec=0,
         connection_waiting_time_sec=1,
         atten_level_db=0,
-        next_peak_search_level_db=0,
+        next_peak_search_level_db=6,
         active_tdf_file_name="NR_Radiated.tdf",
     )
 

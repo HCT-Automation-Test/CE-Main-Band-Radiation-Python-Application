@@ -335,6 +335,8 @@ class RotateTurntableState(State):
             _emit_error(ctx, f"BandGroup 조회 실패: {exc}")
             return StateResult.FAIL
         speed = band_group.turntable_speed
+        if ctx.settings is not None and ctx.settings.custom_turntable_speed is not None:
+            speed = ctx.settings.custom_turntable_speed
 
         try:
             ctx.commands.rotate_turntable(
@@ -526,7 +528,7 @@ class InitialTurntableZeroState(RotateTurntableState):
             ctx.commands.rotate_turntable(
                 ctx.client,
                 angle=self._target_angle,
-                turntable_speed=4,
+                turntable_speed=6,
             )
         except Exception as exc:
             _emit_error(ctx, f"Turntable 초기 0도 정렬 명령 실패: {exc}")
@@ -536,7 +538,7 @@ class InitialTurntableZeroState(RotateTurntableState):
             ctx,
             {
                 "target_angle": self._target_angle,
-                "setting_speed": 4,
+                "setting_speed": 6,
             },
         )
         ctx.events.progress.emit(0)
