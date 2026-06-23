@@ -285,6 +285,12 @@ class TestManagerPanel(QWidget):
         return self._optional_float_field("nextPeakSearchLevelEdit")
 
     @property
+    def custom_turntable_speed(self) -> int | None:
+        """Custom Turn Table Speed 입력값을 정수로 반환한다."""
+
+        return self._optional_int_field("customTurnTableSpeedEdit")
+
+    @property
     def active_tdf_file_name(self) -> str | None:
         """마지막으로 활성화에 성공한 TDF 파일명을 반환한다."""
 
@@ -507,6 +513,8 @@ class TestManagerPanel(QWidget):
             edit = self.findChild(QLineEdit, object_name)
             if edit is not None:
                 edit.setReadOnly(locked)
+        self._custom_option_check_box.setEnabled(not locked)
+        self._marker_check_box.setEnabled(not locked)
         self._excel_template_browse_button.setEnabled(not locked)
         self._screenshot_root_browse_button.setEnabled(not locked)
 
@@ -606,21 +614,39 @@ class TestManagerPanel(QWidget):
                 self.screenshot_root_dir,
                 "Screenshot Root",
             )
-            saturation_time_sec = self._float_field(
-                "saturationTimeEdit",
-                "Saturation Time",
-            )
-            if saturation_time_sec < 0:
-                raise ValueError("Saturation Time은 0 이상이어야 합니다.")
-            connection_waiting_time_sec = self._int_field(
-                "connectionWaitingTimeEdit",
-                "Connection Waiting Time",
-            )
-            if connection_waiting_time_sec <= 0:
-                raise ValueError("Connection Waiting Time은 0보다 커야 합니다.")
-            atten_level_db = self._float_field("attenLevelEdit", "Atten Level")
-            if atten_level_db < 0:
-                raise ValueError("Atten Level은 0 이상이어야 합니다.")
+            if self._custom_option_check_box.isChecked():
+                saturation_time_sec = self._float_field(
+                    "saturationTimeEdit",
+                    "Saturation Time",
+                )
+                if saturation_time_sec < 0:
+                    raise ValueError("Saturation Time은 0 이상이어야 합니다.")
+                connection_waiting_time_sec = self._int_field(
+                    "connectionWaitingTimeEdit",
+                    "Connection Waiting Time",
+                )
+                if connection_waiting_time_sec <= 0:
+                    raise ValueError("Connection Waiting Time은 0보다 커야 합니다.")
+                atten_level_db = self._float_field("attenLevelEdit", "Atten Level")
+                if atten_level_db < 0:
+                    raise ValueError("Atten Level은 0 이상이어야 합니다.")
+                custom_turntable_speed = self._int_field(
+                    "customTurnTableSpeedEdit",
+                    "Turn Table Speed",
+                )
+                if custom_turntable_speed <= 0:
+                    raise ValueError("Turn Table Speed는 0보다 커야 합니다.")
+                next_peak_search_level_db = self._float_field(
+                    "nextPeakSearchLevelEdit",
+                    "Next Peak Search Level",
+                )
+            else:
+                saturation_time_sec = 5
+                connection_waiting_time_sec = 5
+                atten_level_db = 0
+                next_peak_search_level_db = 6
+                custom_turntable_speed = None
+
             settings = TestRunSettings(
                 eut_name=eut_name,
                 template_path=template_path,
@@ -628,11 +654,9 @@ class TestManagerPanel(QWidget):
                 saturation_time_sec=saturation_time_sec,
                 connection_waiting_time_sec=connection_waiting_time_sec,
                 atten_level_db=atten_level_db,
-                next_peak_search_level_db=self._float_field(
-                    "nextPeakSearchLevelEdit",
-                    "Next Peak Search Level",
-                ),
+                next_peak_search_level_db=next_peak_search_level_db,
                 active_tdf_file_name=self._required_active_tdf_file_name(),
+                custom_turntable_speed=custom_turntable_speed,
             )
         except ValueError as exc:
             self._show_warning(str(exc))
@@ -947,7 +971,7 @@ class TestManagerPanel(QWidget):
             panel,
         )
         self._custom_option_check_box.setObjectName("customOptionCheckBox")
-        self._custom_option_check_box.setChecked(True)
+        self._custom_option_check_box.setChecked(False)
         layout.addWidget(self._custom_option_check_box)
         layout.addWidget(self._create_custom_option_group(), 1)
         return panel
@@ -979,6 +1003,7 @@ class TestManagerPanel(QWidget):
 
         marker = QCheckBox("Marker", group)
         marker.setObjectName("markerCheckBox")
+        self._marker_check_box = marker
         layout.addWidget(marker, 5, 1)
         layout.setColumnStretch(0, 1)
         layout.setColumnStretch(1, 1)
@@ -1743,7 +1768,10 @@ class TestManagerPanel(QWidget):
             "attenLevelEdit",
         }:
             edit.setValidator(QDoubleValidator(0.0, math.inf, 6, edit))
-        elif object_name == "connectionWaitingTimeEdit":
+        elif object_name in {
+            "connectionWaitingTimeEdit",
+            "customTurnTableSpeedEdit",
+        }:
             edit.setValidator(QIntValidator(1, 2147483647, edit))
         elif object_name == "nextPeakSearchLevelEdit":
             edit.setValidator(QDoubleValidator(-math.inf, math.inf, 6, edit))

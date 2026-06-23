@@ -168,7 +168,12 @@ def _make_ctx(
     return ctx, events
 
 
-def _make_settings(tmp_path: Path, *, saturation_time_sec: float) -> TestRunSettings:
+def _make_settings(
+    tmp_path: Path,
+    *,
+    saturation_time_sec: float,
+    custom_turntable_speed: int | None = None,
+) -> TestRunSettings:
     template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
     template_path.write_bytes(b"template")
@@ -182,6 +187,7 @@ def _make_settings(tmp_path: Path, *, saturation_time_sec: float) -> TestRunSett
         atten_level_db=0,
         next_peak_search_level_db=0,
         active_tdf_file_name="NR_Radiated.tdf",
+        custom_turntable_speed=custom_turntable_speed,
     )
 
 
@@ -222,7 +228,7 @@ def _emit_after(client: _FakeClient, delay: float, event: _FakeEvent) -> threadi
         (360.0, 360.0),
     ],
 )
-def test_initial_turntable_zero_uses_nearest_reference_angle_and_speed_4(
+def test_initial_turntable_zero_uses_nearest_reference_angle_and_speed_6(
     readback_angle: float,
     expected_target: float,
 ) -> None:
@@ -247,13 +253,13 @@ def test_initial_turntable_zero_uses_nearest_reference_angle_and_speed_4(
     assert ctx.current_angle == expected_target
     assert commands.angle_calls == [client]
     assert commands.rotate_calls == [
-        (client, {"angle": expected_target, "turntable_speed": 4}),
+        (client, {"angle": expected_target, "turntable_speed": 6}),
     ]
     assert commands.stop_calls == []
     assert events.progress.values == [0, 100]
     assert events.turntable_info_changed.values == [
         {"current_angle": readback_angle},
-        {"target_angle": expected_target, "setting_speed": 4},
+        {"target_angle": expected_target, "setting_speed": 6},
         {"current_angle": expected_target},
     ]
     assert state.next_state(ctx, result) == "AntPolChange"
@@ -283,7 +289,7 @@ def test_initial_turntable_zero_consumes_buffered_progress_and_complete() -> Non
     assert commands.angle_calls == [client]
     assert events.turntable_info_changed.values == [
         {"current_angle": 180.0},
-        {"target_angle": 0.0, "setting_speed": 4},
+        {"target_angle": 0.0, "setting_speed": 6},
         {"current_angle": 30.0},
         {"current_angle": 0.0},
     ]
@@ -735,6 +741,36 @@ def test_band_group_speed_for_n78() -> None:
     thread.join(timeout=1.0)
 
     assert commands.rotate_calls[0][1]["turntable_speed"] == 3
+
+
+def test_rotate_uses_custom_turntable_speed_from_settings(tmp_path: Path) -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_case(NRBand.N78, MeasurementTestType.HARMONIC, bandwidth=100.0)
+    ctx, events = _make_ctx(
+        case,
+        commands=commands,
+        client=client,
+        settings=_make_settings(
+            tmp_path,
+            saturation_time_sec=0.0,
+            custom_turntable_speed=8,
+        ),
+    )
+    state = RotateTurntableState()
+
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert commands.rotate_calls[0][1]["turntable_speed"] == 8
+    assert events.turntable_info_changed.values[0] == {
+        "target_angle": 360.0,
+        "setting_speed": 8,
+    }
 
 
 def test_ui_stop_triggers_stop_turntable_and_fail() -> None:

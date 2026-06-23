@@ -20,6 +20,7 @@ class TestRunSettings:
     atten_level_db: float
     next_peak_search_level_db: float
     active_tdf_file_name: str
+    custom_turntable_speed: int | None = None
 
     def __post_init__(self) -> None:
         eut_name = self.eut_name.strip()
@@ -33,6 +34,12 @@ class TestRunSettings:
         )
         atten_level_db = float(self.atten_level_db)
         next_peak_search_level_db = float(self.next_peak_search_level_db)
+        custom_turntable_speed = None
+        if self.custom_turntable_speed is not None:
+            custom_turntable_speed = _coerce_int(
+                self.custom_turntable_speed,
+                field_name="custom_turntable_speed",
+            )
 
         if not eut_name:
             raise ValueError("eut_name is required")
@@ -50,6 +57,8 @@ class TestRunSettings:
             raise ValueError("atten_level_db must be a number greater than or equal to 0")
         if not math.isfinite(next_peak_search_level_db):
             raise ValueError("next_peak_search_level_db must be a number")
+        if custom_turntable_speed is not None and custom_turntable_speed <= 0:
+            raise ValueError("custom_turntable_speed must be an integer greater than 0")
 
         object.__setattr__(self, "eut_name", eut_name)
         object.__setattr__(self, "active_tdf_file_name", active_tdf_file_name)
@@ -63,6 +72,7 @@ class TestRunSettings:
         )
         object.__setattr__(self, "atten_level_db", atten_level_db)
         object.__setattr__(self, "next_peak_search_level_db", next_peak_search_level_db)
+        object.__setattr__(self, "custom_turntable_speed", custom_turntable_speed)
 
 
 def _coerce_int(value: int | float | str, *, field_name: str) -> int:
