@@ -123,8 +123,8 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.single_start_requested.connect(
             self.on_single_start_requested,
         )
-        self._test_manager_panel.pause_requested.connect(
-            self._runner.pause,
+        self._test_manager_panel.stop_requested.connect(
+            self._runner.stop,
         )
         self._test_manager_panel.get_tdf_list_requested.connect(
             self.on_get_tdf_list_requested,
@@ -146,6 +146,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.current_case_changed.connect(
             self.on_current_case_changed,
+        )
+        self._runner.events.tc_finished.connect(
+            self.on_test_case_finished,
         )
         self._runner.events.spectrum_analyzer_info_changed.connect(
             self._test_manager_panel.set_analyzer_info,
@@ -384,8 +387,6 @@ class MainWindow(QMainWindow):
         if start_index is None:
             return
         stop_index = start_index if single else None
-        if self._runner.restart_index is None:
-            self._test_manager_panel.reset_test_case_progress()
         self._runner.start(
             cases,
             settings=settings,
@@ -653,8 +654,12 @@ class MainWindow(QMainWindow):
         self._test_manager_panel.set_current_case(case)
         self._test_manager_panel.mark_current_test_case(case)
 
+    def on_test_case_finished(self, index: int) -> None:
+        """완료된 TestCase 행을 누적 완료 표시한다."""
+
+        self._test_manager_panel.mark_test_case_completed(index)
+
     def on_session_finished(self) -> None:
-        self._test_manager_panel.complete_current_test_case()
         self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
 
     def _show_info(self, title: str, message: str) -> None:

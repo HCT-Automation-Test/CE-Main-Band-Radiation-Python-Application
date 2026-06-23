@@ -404,14 +404,22 @@ def test_start_uses_requested_start_and_stop_indexes(
     qtbot.waitUntil(lambda: not runner.is_running)
 
 
-def test_start_explicit_index_overrides_restart_index(
+def test_start_after_stop_initializes_new_worker(
     qtbot: Any,
     tmp_path: Path,
 ) -> None:
     engines: list[_FakeEngine] = []
 
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
+    class _ReadyEngine(_FakeEngine):
+        def run(self, initial_state: str = "SessionInit") -> None:
+            self.initial_state = initial_state
+            self.current_state_name = "Idle"
+            self.started.set()
+            while not self.ctx.stopped:
+                time.sleep(0.01)
+
+    def engine_factory(ctx: SessionContext) -> _ReadyEngine:
+        engine = _ReadyEngine(ctx)
         engines.append(engine)
         return engine
 
@@ -423,101 +431,27 @@ def test_start_explicit_index_overrides_restart_index(
         temp_dir=tmp_path / "temp",
     )
     runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
-    runner._restart_index = 1
+    qtbot.waitUntil(lambda: len(engines) == 1 and engines[0].started.is_set())
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running, timeout=1000)
 
-    runner.start(
-        [_make_case(), _make_case(antenna_pol=AntennaPol.V)],
-        settings=_make_settings(tmp_path),
-        start_index=0,
-        stop_index=0,
-    )
+    case = _make_case()
+    runner.start([case], settings=_make_settings(tmp_path), start_index=0)
 
-    ctx = runner.context
-    assert ctx is not None
-    assert ctx.start_index == 0
-    assert ctx.current_index == 0
-    assert ctx.stop_index == 0
+    qtbot.waitUntil(lambda: len(engines) == 2 and engines[1].started.is_set())
+    assert runner.context is not None
+    assert runner.context.queue == [case]
+    assert runner.context.start_index == 0
+    assert runner.context.test_start_requested.is_set()
+    assert runner.is_measurement_active
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
 
 
-def test_start_uses_restart_index_when_start_index_is_omitted(
+def test_start_ignores_previous_stop_state_and_uses_requested_index(
     qtbot: Any,
     tmp_path: Path,
-) -> None:
-    engines: list[_FakeEngine] = []
-
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
-        engines.append(engine)
-        return engine
-
-    runner = Runner(
-        client=object(),
-        commands=object(),
-        engine_factory=engine_factory,  # type: ignore[arg-type]
-        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
-        temp_dir=tmp_path / "temp",
-    )
-    runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
-    runner._restart_index = 1
-
-    runner.start(
-        [_make_case(), _make_case(antenna_pol=AntennaPol.V)],
-        settings=_make_settings(tmp_path),
-    )
-
-    ctx = runner.context
-    assert ctx is not None
-    assert ctx.start_index == 1
-    assert ctx.current_index == 1
-    assert ctx.stop_index is None
-
-    runner.stop()
-    qtbot.waitUntil(lambda: not runner.is_running)
-
-def test_pause_requests_current_case_stop(qtbot: Any, tmp_path: Path) -> None:
-    engines: list[_FakeEngine] = []
-
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
-        engines.append(engine)
-        return engine
-
-    runner = Runner(
-        client=object(),
-        commands=object(),
-        engine_factory=engine_factory,  # type: ignore[arg-type]
-        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
-        temp_dir=tmp_path / "temp",
-    )
-    runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
-    runner.start([_make_case()], settings=_make_settings(tmp_path))
-
-    ctx = runner.context
-    assert ctx is not None
-    ctx.test_start_requested.clear()
-    ctx.current_index = 0
-    runner.pause()
-
-    assert ctx.current_case_stop_requested
-    assert not ctx.paused
-    assert not ctx.test_start_requested.is_set()
-    assert ctx.user_action_completed.is_set()
-
-    runner.stop()
-    qtbot.waitUntil(lambda: not runner.is_running)
-
-
-def test_restart_after_pause_uses_interrupted_case_index(
-    qtbot: Any, tmp_path: Path
 ) -> None:
     engines: list[_FakeEngine] = []
 
@@ -538,23 +472,19 @@ def test_restart_after_pause_uses_interrupted_case_index(
     engines[0].current_state_name = "Idle"
 
     cases = [_make_case(), _make_case(antenna_pol=AntennaPol.V)]
-    runner.start(cases, settings=_make_settings(tmp_path))
+    runner.start(
+        cases,
+        settings=_make_settings(tmp_path),
+        start_index=1,
+    )
+
     ctx = runner.context
     assert ctx is not None
-    ctx.current_index = 1
-    runner.pause()
-    runner.events.state_changed.emit("Idle")
-    engines[0].current_state_name = "Idle"
-
-    runner.start(cases, settings=_make_settings(tmp_path))
-
     assert ctx.start_index == 1
     assert ctx.current_index == 1
-    assert not ctx.current_case_stop_requested
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
-
 
 def test_start_rejects_while_instrument_set_is_active(
     qtbot: Any, tmp_path: Path

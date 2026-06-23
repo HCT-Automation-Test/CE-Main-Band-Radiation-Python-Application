@@ -295,37 +295,25 @@ def test_main_window_start_button_is_blocked_until_equipment_ready(
     assert messages == ["시험 시작 실패: Instrument Check 연결을 완료하세요"]
 
 
-def test_main_window_pause_button_requests_runner_pause(qtbot) -> None:
+def test_main_window_stop_button_requests_runner_stop(qtbot, monkeypatch) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
-    ctx = SimpleNamespace(
-        current_index=0,
-        current_case_stop_requested=False,
-        paused=True,
-        test_start_requested=threading.Event(),
-        user_action_completed=threading.Event(),
-    )
-    window._runner._ctx = ctx
-    try:
-        window._runner._set_measurement_active(True)
+    stops: list[bool] = []
+    monkeypatch.setattr(window._runner, "stop", lambda: stops.append(True))
 
-        pause_button = window.findChild(QPushButton, "pauseButton")
-        assert pause_button is not None
-        assert pause_button.isEnabled()
+    window._runner._set_measurement_active(True)
 
-        pause_button.click()
+    stop_button = window.findChild(QPushButton, "pauseButton")
+    assert stop_button is not None
+    assert stop_button.isEnabled()
 
-        assert ctx.current_case_stop_requested
-        assert not ctx.paused
-        assert not ctx.test_start_requested.is_set()
-        assert ctx.user_action_completed.is_set()
+    stop_button.click()
 
-        window._runner._set_measurement_active(False)
+    assert stops == [True]
 
-        assert not pause_button.isEnabled()
-    finally:
-        window._runner._ctx = None
+    window._runner._set_measurement_active(False)
 
+    assert not stop_button.isEnabled()
 
 def test_main_window_blocks_instrument_connect_while_measurement_active(
     qtbot,
@@ -742,14 +730,19 @@ def test_test_manager_panel_marks_test_case_progress_rows(qtbot) -> None:
     running_color = table.item(0, 0).background().color().name()
     panel.mark_current_test_case(second_case)
 
-    assert table.item(0, 0).background().style() != Qt.BrushStyle.NoBrush
-    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
     assert table.item(1, 0).background().color().name() == running_color
 
-    panel.complete_current_test_case()
+    panel.mark_test_case_completed(1)
 
     assert table.item(1, 0).background().style() != Qt.BrushStyle.NoBrush
     assert table.item(1, 0).background().color().name() != running_color
+
+    completed_color = table.item(1, 0).background().color().name()
+    panel.mark_current_test_case(second_case)
+    panel.mark_current_test_case(first_case)
+
+    assert table.item(1, 0).background().color().name() == completed_color
 
 
 def test_test_manager_panel_resets_test_case_progress_rows(qtbot) -> None:
@@ -876,7 +869,7 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         "excelTemplateBrowseButton": "찾기",
         "screenshotRootBrowseButton": "찾기",
         "startButton": "시작",
-        "pauseButton": "일시정지",
+        "pauseButton": "정지",
         "deleteButton": "삭제",
         "clearButton": "초기화",
         "loadItemButton": "불러오기",
@@ -1235,15 +1228,20 @@ def test_main_window_updates_test_case_progress_from_runner_events(
     running_color = table.item(0, 0).background().color().name()
     window._runner.events.current_case_changed.emit(second_case)
 
-    assert table.item(0, 0).background().color().name() != running_color
+    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
     assert table.item(1, 0).background().color().name() == running_color
 
     window._runner.events.session_finished.emit()
 
+    assert table.item(1, 0).background().color().name() == running_color
+
+    window._runner.events.tc_finished.emit(1)
+
+    assert table.item(1, 0).background().style() != Qt.BrushStyle.NoBrush
     assert table.item(1, 0).background().color().name() != running_color
 
 
-def test_main_window_start_resets_test_case_progress(
+def test_main_window_start_preserves_test_case_progress(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1253,7 +1251,10 @@ def test_main_window_start_resets_test_case_progress(
     panel = window._test_manager_panel
     case = _make_test_case()
     panel.add_test_cases([case])
-    panel.mark_current_test_case(case)
+    panel.mark_test_case_completed(0)
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    completed_color = table.item(0, 0).background().color().name()
     panel.findChild(QLineEdit, "eutNameEdit").setText("DUT")
     template_path = tmp_path / "template.xlsx"
     template_path.write_bytes(b"template")
@@ -1264,9 +1265,7 @@ def test_main_window_start_resets_test_case_progress(
 
     window.on_start_requested()
 
-    table = panel.findChild(QTableWidget, "testCaseTable")
-    assert table is not None
-    assert table.item(0, 0).background().style() == Qt.BrushStyle.NoBrush
+    assert table.item(0, 0).background().color().name() == completed_color
 
 
 def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) -> None:
@@ -1331,7 +1330,7 @@ def test_main_window_blocks_start_without_active_tdf(
     assert warnings == ["활성화된 TDF 파일이 없습니다."]
 
 
-def test_main_window_start_preserves_completed_progress_on_pause_restart(
+def test_main_window_start_preserves_completed_progress(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1342,7 +1341,7 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
     first_case = _make_test_case()
     second_case = _make_test_case()
     panel.add_test_cases([first_case, second_case])
-    panel.mark_current_test_case(first_case)
+    panel.mark_test_case_completed(0)
     panel.mark_current_test_case(second_case)
     table = panel.findChild(QTableWidget, "testCaseTable")
     assert table is not None
@@ -1354,7 +1353,6 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
-    window._runner._restart_index = 1
     monkeypatch.setattr(window._runner, "start", lambda cases, **kwargs: None)
 
     window.on_start_requested()
@@ -1362,15 +1360,13 @@ def test_main_window_start_preserves_completed_progress_on_pause_restart(
     assert table.item(0, 0).background().color().name() == completed_color
     assert table.item(1, 0).background().color().name() == running_color
 
-    window._runner.events.current_case_changed.emit(second_case)
+    window._runner.events.current_case_changed.emit(first_case)
 
-    assert table.item(0, 0).background().color().name() == completed_color
-    assert table.item(1, 0).background().color().name() == running_color
-
-
+    assert table.item(0, 0).background().color().name() == running_color
+    assert table.item(1, 0).background().style() == Qt.BrushStyle.NoBrush
 
 
-def test_main_window_pause_restart_uses_edited_index(
+def test_main_window_stop_then_start_uses_edited_index(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1387,7 +1383,6 @@ def test_main_window_pause_restart_uses_edited_index(
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("1")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
-    window._runner._restart_index = 1
     starts: list[dict[str, object]] = []
     monkeypatch.setattr(
         window._runner,
@@ -1403,7 +1398,7 @@ def test_main_window_pause_restart_uses_edited_index(
     assert starts[0]["stop_index"] is None
 
 
-def test_main_window_pause_single_start_uses_edited_index(
+def test_main_window_stop_then_single_start_uses_edited_index(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1420,7 +1415,6 @@ def test_main_window_pause_single_start_uses_edited_index(
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("1")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
-    window._runner._restart_index = 1
     starts: list[dict[str, object]] = []
     monkeypatch.setattr(
         window._runner,
@@ -1436,7 +1430,7 @@ def test_main_window_pause_single_start_uses_edited_index(
     assert starts[0]["stop_index"] == 0
 
 
-def test_main_window_pause_restart_blocks_out_of_range_index(
+def test_main_window_stop_then_start_blocks_out_of_range_index(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1452,7 +1446,6 @@ def test_main_window_pause_restart_blocks_out_of_range_index(
     panel.findChild(QLineEdit, "screenshotRootEdit").setText(str(tmp_path))
     panel.findChild(QLineEdit, "indexEdit").setText("2")
     panel.set_active_tdf_file_name("NR_Radiated.tdf")
-    window._runner._restart_index = 0
     starts: list[bool] = []
     warnings: list[str] = []
     monkeypatch.setattr(panel, "_show_warning", warnings.append)

@@ -217,6 +217,7 @@ class TestManagerPanel(QWidget):
 
     start_requested = Signal()
     single_start_requested = Signal()
+    stop_requested = Signal()
     pause_requested = Signal()
     get_tdf_list_requested = Signal()
     tdf_all_off_requested = Signal()
@@ -227,6 +228,7 @@ class TestManagerPanel(QWidget):
         self._active_tdf_file_name: str | None = None
         self._test_cases: list[TestCase] = []
         self._test_case_progress: list[_TestCaseProgress] = []
+        self._completed_test_case_indexes: set[int] = set()
         self._connection_indicators: dict[str, QFrame] = {}
         self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
         self._nr_group_settings: dict[str, NRGroupSettings] | None = None
@@ -531,6 +533,7 @@ class TestManagerPanel(QWidget):
     def reset_test_case_progress(self) -> None:
         """TestCase 표의 진행 상태 표시를 초기화한다."""
 
+        self._completed_test_case_indexes.clear()
         self._test_case_progress = ["pending"] * len(self._test_cases)
         self._refresh_test_case_progress_marks()
 
@@ -540,7 +543,11 @@ class TestManagerPanel(QWidget):
         current_index = self._find_test_case_index(case)
         for row, status in enumerate(self._test_case_progress):
             if status == "running":
-                self._test_case_progress[row] = "completed"
+                self._test_case_progress[row] = (
+                    "completed"
+                    if row in self._completed_test_case_indexes
+                    else "pending"
+                )
         if current_index is not None:
             self._test_case_progress[current_index] = "running"
             first_item = self._test_case_table.item(current_index, 0)
@@ -552,11 +559,20 @@ class TestManagerPanel(QWidget):
                 )
         self._refresh_test_case_progress_marks()
 
+    def mark_test_case_completed(self, index: int) -> None:
+        """완료 이벤트를 받은 TestCase 행을 완료 표시로 바꾼다."""
+
+        if 0 <= index < len(self._test_case_progress):
+            self._completed_test_case_indexes.add(index)
+            self._test_case_progress[index] = "completed"
+        self._refresh_test_case_progress_marks()
+
     def complete_current_test_case(self) -> None:
         """현재 진행 중인 TestCase 행을 완료 표시로 바꾼다."""
 
         for row, status in enumerate(self._test_case_progress):
             if status == "running":
+                self._completed_test_case_indexes.add(row)
                 self._test_case_progress[row] = "completed"
         self._refresh_test_case_progress_marks()
 
@@ -825,7 +841,7 @@ class TestManagerPanel(QWidget):
         self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
         self._single_start_button.clicked.connect(self.single_start_requested.emit)
-        self._pause_button.clicked.connect(self.pause_requested.emit)
+        self._pause_button.clicked.connect(self.stop_requested.emit)
         self._get_tdf_list_button.clicked.connect(self.get_tdf_list_requested.emit)
         self._tdf_all_off_button.clicked.connect(self.tdf_all_off_requested.emit)
         self._set_tdf_button.clicked.connect(self.on_set_tdf_button_clicked)
@@ -884,7 +900,7 @@ class TestManagerPanel(QWidget):
         for text, object_name in (
             ("\uB2E8\uC77C\uC2DC\uC791", "singleStartButton"),
             ("\uC2DC\uC791", "startButton"),
-            ("\uC77C\uC2DC\uC815\uC9C0", "pauseButton"),
+            ("\uC815\uC9C0", "pauseButton"),
             ("\uC0AD\uC81C", "deleteButton"),
             ("\uCD08\uAE30\uD654", "clearButton"),
             ("\uBD88\uB7EC\uC624\uAE30", "loadItemButton"),
@@ -1562,6 +1578,11 @@ class TestManagerPanel(QWidget):
 
         self._test_cases.pop(row)
         self._test_case_progress.pop(row)
+        self._completed_test_case_indexes = {
+            index if index < row else index - 1
+            for index in self._completed_test_case_indexes
+            if index != row
+        }
         self._test_case_table.removeRow(row)
         self._refresh_test_case_indexes()
         self._refresh_test_case_progress_marks()
@@ -1574,6 +1595,7 @@ class TestManagerPanel(QWidget):
 
         self._test_cases.clear()
         self._test_case_progress.clear()
+        self._completed_test_case_indexes.clear()
         self._test_case_table.setRowCount(0)
         self._index_edit.clear()
 
