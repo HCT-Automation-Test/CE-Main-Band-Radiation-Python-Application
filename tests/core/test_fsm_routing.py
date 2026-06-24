@@ -197,7 +197,7 @@ def test_measure_harmonics_routes_to_precision_with_candidates() -> None:
 
 
 def test_measurement_start_state_for_helper() -> None:
-    assert measurement_start_state_for(TestType.HARMONIC) == "PrepareFundamentalSwitchBox"
+    assert measurement_start_state_for(TestType.HARMONIC) == "MeasureFundamental"
     assert measurement_start_state_for(TestType.INBAND) == "SetSwitchBox"
     assert measurement_start_state_for(TestType.BILOG) == "SetSwitchBox"
 
