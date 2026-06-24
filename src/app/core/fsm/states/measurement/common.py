@@ -662,7 +662,7 @@ def measurement_start_state_for(
     """test_type에 해당하는 측정 시작 state 이름을 반환한다.
 
     - after_rotate=False (기본): NRCallConnect / TestTypeChange 등에서 측정 시퀀스로 진입할 때.
-      Harmonic은 PrepareFundamentalSwitchBox부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
+      Harmonic은 MeasureFundamental부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
     - after_rotate=True: RotateTurntable 이후 실제 측정 state로 분기할 때.
     """
     if after_rotate:
@@ -673,7 +673,7 @@ def measurement_start_state_for(
         }
     else:
         mapping = {
-            TestType.HARMONIC: "PrepareFundamentalSwitchBox",
+            TestType.HARMONIC: "MeasureFundamental",
             TestType.INBAND: "SetSwitchBox",
             TestType.BILOG: "SetSwitchBox",
         }
