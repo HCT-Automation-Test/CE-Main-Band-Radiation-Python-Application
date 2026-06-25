@@ -13,6 +13,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -43,6 +44,7 @@ def _make_case(
     antenna_pol: AntennaPol = AntennaPol.V,
     dut_axis: DUTAxis = DUTAxis.X,
     dut_ant_position: DUTAntPosition = DUTAntPosition.UPPER,
+    generation: Generation = Generation.NR_SA,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -54,6 +56,7 @@ def _make_case(
         antenna_pol=antenna_pol,
         dut_axis=dut_axis,
         dut_ant_position=dut_ant_position,
+        generation=generation,
     )
 
 
@@ -386,6 +389,83 @@ def test_write_inband_uses_lb_layout(tmp_path: Path) -> None:
     assert _cell(path, "Sub6 n5", "D52") == -47.0
 
 
+def test_write_nsa_default_cells_use_shifted_rows(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    base_case = _make_case(generation=Generation.NR_NSA)
+    inband_case = _make_case(
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+        generation=Generation.NR_NSA,
+    )
+    bilog_case = _make_case(
+        test_type=MeasurementTestType.BILOG,
+        generation=Generation.NR_NSA,
+    )
+
+    writer.write_fundamental(
+        base_case,
+        FundamentalResult(fundamental_frequency_mhz=3550.25),
+    )
+    writer.write_harmonic(
+        base_case,
+        HarmonicResult(
+            harmonic_2nd_peak_level_dbm=-41.0,
+            harmonic_3rd_peak_level_dbm=-40.0,
+            harmonic_4th_peak_level_dbm=-39.0,
+            harmonic_5th_peak_level_dbm=-38.0,
+        ),
+    )
+    writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=-45.5))
+    writer.write_bilog(bilog_case, BilogResult(bilog_peak_level_dbm=-38.25))
+
+    worksheet = load_workbook(path)["Sub6 n78"]
+    assert worksheet["C7"].value == "mid"
+    assert worksheet["J7"].value == 3550.25
+    assert worksheet["A24"].value == 7100.5
+    assert worksheet["B24"].value == -41.0
+    assert worksheet["D20"].value == -45.5
+    assert worksheet["B14"].value == -38.25
+
+
+def test_write_nsa_lb_cells_use_shifted_rows(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N5)
+    writer = ExcelReportWriter(path)
+    case = _make_case(
+        band=NRBand.N5,
+        bandwidth=20.0,
+        generation=Generation.NR_NSA,
+    )
+    inband_case = _make_case(
+        band=NRBand.N5,
+        bandwidth=20.0,
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+        generation=Generation.NR_NSA,
+    )
+
+    writer.write_fundamental(case, FundamentalResult(fundamental_frequency_mhz=836.5))
+    writer.write_harmonic(
+        case,
+        HarmonicResult(
+            harmonic_2nd_peak_level_dbm=-42.0,
+            harmonic_3rd_peak_level_dbm=-41.0,
+            harmonic_4th_peak_level_dbm=-40.0,
+            harmonic_5th_peak_level_dbm=-39.0,
+        ),
+    )
+    writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=-47.0))
+
+    worksheet = load_workbook(path)["Sub6 n5"]
+    assert worksheet["C7"].value == "mid"
+    assert worksheet["J7"].value == 836.5
+    assert worksheet["A19"].value == 1673
+    assert worksheet["B19"].value == -42.0
+    assert worksheet["D15"].value == -47.0
+
+
 def test_band_info_is_written_once_per_band(tmp_path: Path) -> None:
     path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
     writer = ExcelReportWriter(path)
@@ -458,6 +538,23 @@ def test_write_inband_and_bilog_write_dash_for_missing_peak(
 
     assert _cell(path, "Sub6 n78", "D62") == "-"
     assert _cell(path, "Sub6 n78", "B56") == "-"
+
+
+def test_band_info_is_written_once_per_band_and_generation(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    sa_case = _make_case(test_type=MeasurementTestType.INBAND)
+    nsa_case = _make_case(
+        bandwidth=90.0,
+        test_type=MeasurementTestType.INBAND,
+        generation=Generation.NR_NSA,
+    )
+
+    writer.write_inband(sa_case, InbandResult(inband_peak_level_dbm=-45.0))
+    writer.write_inband(nsa_case, InbandResult(inband_peak_level_dbm=-44.0))
+
+    assert _cell(path, "Sub6 n78", "D49") == 100
+    assert _cell(path, "Sub6 n78", "D7") == 90
 
 
 def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(
