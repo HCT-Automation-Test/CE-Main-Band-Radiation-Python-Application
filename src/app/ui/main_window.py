@@ -438,7 +438,7 @@ class MainWindow(QMainWindow):
         """TDF 작업 완료 상태를 UI에 반영한다."""
 
         self._tdf_operation_active = False
-        self._test_manager_panel.set_tdf_operation_locked(False)
+        self._update_tdf_operation_lock()
         self._close_tdf_progress_dialog()
         self._update_instrument_operation_lock()
         if self._pending_tdf_operation == "set_tdf" and self._pending_tdf_file_name:
@@ -455,7 +455,7 @@ class MainWindow(QMainWindow):
         """TDF 작업 실패 상태를 UI에 반영한다."""
 
         self._tdf_operation_active = False
-        self._test_manager_panel.set_tdf_operation_locked(False)
+        self._update_tdf_operation_lock()
         self._close_tdf_progress_dialog()
         self._update_instrument_operation_lock()
         self._pending_tdf_operation = None
@@ -467,7 +467,7 @@ class MainWindow(QMainWindow):
 
         if not active:
             self._test_manager_panel.clear_running_test_case()
-        self._test_manager_panel.set_tdf_operation_locked(active)
+        self._update_tdf_operation_lock()
         self._update_instrument_operation_lock()
 
     def on_instrument_set_started(self) -> None:
@@ -572,6 +572,10 @@ class MainWindow(QMainWindow):
         self._rf_filter_box_panel.set_operation_locked(state.rf_operation_locked)
         self._test_manager_panel.set_stop_enabled(self._runner.is_measurement_active)
 
+    def _update_tdf_operation_lock(self) -> None:
+        locked = self._runner.is_measurement_active or self._tdf_operation_active
+        self._test_manager_panel.set_tdf_operation_locked(locked)
+
     def _build_instrument_operation_lock_state(
         self,
         *,
@@ -608,7 +612,7 @@ class MainWindow(QMainWindow):
         """TDF 요청 직후 다른 장비 조작을 즉시 차단한다."""
 
         self._tdf_operation_active = True
-        self._test_manager_panel.set_tdf_operation_locked(True)
+        self._update_tdf_operation_lock()
         self._update_instrument_operation_lock()
 
     def _tdf_operation_block_reason(self) -> str | None:
