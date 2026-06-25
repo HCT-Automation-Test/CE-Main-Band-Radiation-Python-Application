@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
+from app.models.enums import Generation
 from app.models.nr_channel_lookup import resolve_target_frequency_mhz
 from app.models.test_case import TestCase
 
@@ -13,6 +14,7 @@ _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TRAFFIC_DIR = "Traffic"
 _RAT_DIR = "5G"
 _SA_DIR = "SA"
+_NSA_DIR = "NSA"
 _FUNDAMENTAL_SUFFIX = "Fundamental Frequency"
 
 
@@ -45,6 +47,11 @@ def _format_precision_frequency(value_mhz: float) -> str:
     return f"{value_mhz:.3f}MHz"
 
 
+def _generation_dir(test_case: TestCase) -> str:
+    if test_case.generation is Generation.NR_NSA:
+        return _NSA_DIR
+    return _SA_DIR
+
 def build_sa_screenshot_path(
     *,
     root_dir: Path,
@@ -63,10 +70,11 @@ def build_sa_screenshot_path(
     band = test_case.band.value
     dut_ant_position = test_case.dut_ant_position.name
     axis_pol = f"{test_case.dut_axis.value}{test_case.antenna_pol.value}"
+    generation_dir = _generation_dir(test_case)
 
     filename = (
         f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{band}_{dut_ant_position}_"
-        f"{_SA_DIR}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{generation_dir}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_format_range_frequency(test_range.start_freq)}_"
         f"{_format_range_frequency(test_range.stop_freq)}_{axis_pol}.png"
     )
@@ -78,7 +86,7 @@ def build_sa_screenshot_path(
         / _RAT_DIR
         / band
         / dut_ant_position
-        / _SA_DIR
+        / generation_dir
         / filename
     )
 
@@ -97,9 +105,10 @@ def build_harmonic_precision_screenshot_path(
     band = test_case.band.value
     dut_ant_position = test_case.dut_ant_position.name
     axis_pol = f"{test_case.dut_axis.value}{test_case.antenna_pol.value}"
+    generation_dir = _generation_dir(test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{_SA_DIR}_{band}_"
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
         f"{dut_ant_position}_{_format_precision_frequency(peak_frequency_mhz)}_"
         f"{axis_pol}_{int(sweep_time_ms)}ms.png"
     )
@@ -111,7 +120,7 @@ def build_harmonic_precision_screenshot_path(
         / _RAT_DIR
         / band
         / dut_ant_position
-        / _SA_DIR
+        / generation_dir
         / filename
     )
 
@@ -132,10 +141,11 @@ def build_fundamental_screenshot_path(
     )
     band = test_case.band.value
     dut_ant_position = test_case.dut_ant_position.name
+    generation_dir = _generation_dir(test_case)
 
     filename = (
         f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{band}_{dut_ant_position}_"
-        f"{_SA_DIR}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{generation_dir}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_FUNDAMENTAL_SUFFIX}.png"
     )
 
@@ -146,7 +156,7 @@ def build_fundamental_screenshot_path(
         / _RAT_DIR
         / band
         / dut_ant_position
-        / _SA_DIR
+        / generation_dir
         / filename
     )
 

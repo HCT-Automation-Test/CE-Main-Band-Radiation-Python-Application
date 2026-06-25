@@ -8,6 +8,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -45,6 +46,7 @@ def _make_case(
     test_type: TestType,
     test_channel: TestChannel,
     dut_ant_position: DUTAntPosition,
+    generation: Generation = Generation.NR_SA,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -56,6 +58,7 @@ def _make_case(
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
         dut_ant_position=dut_ant_position,
+        generation=generation,
     )
 
 
@@ -167,6 +170,33 @@ def test_build_sa_screenshot_path_uses_lookup_and_range_values(
     )
 
 
+def test_build_nsa_screenshot_path_uses_nsa_dir_and_filename(tmp_path: Path) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.INBAND,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+        generation=Generation.NR_NSA,
+    )
+
+    path = build_sa_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n78"
+        / "UPPER"
+        / "NSA"
+        / "SM-000_Traffic_5G_n78_UPPER_NSA_3549.990MHz_1GHz_6GHz_XH.png"
+    )
+
 def test_finalize_sa_screenshot_copies_file_and_emits_event(tmp_path: Path) -> None:
     case = _make_case(
         band=NRBand.N5,
@@ -223,6 +253,37 @@ def test_build_harmonic_precision_screenshot_path_uses_precision_filename(
         / "SM-000_Traffic_5G_SA_n79_UPPER_14088.350MHz_XH_100ms.png"
     )
 
+
+def test_build_nsa_harmonic_precision_screenshot_path_uses_nsa_dir_and_filename(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N79,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+        generation=Generation.NR_NSA,
+    )
+
+    path = build_harmonic_precision_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=14088.35,
+        sweep_time_ms=100,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n79"
+        / "UPPER"
+        / "NSA"
+        / "SM-000_Traffic_5G_NSA_n79_UPPER_14088.350MHz_XH_100ms.png"
+    )
 
 def test_finalize_harmonic_precision_screenshot_copies_file_and_emits_event(
     tmp_path: Path,
@@ -285,6 +346,35 @@ def test_build_fundamental_screenshot_path_uses_lookup_and_fixed_suffix(
         / "SM-000_Traffic_5G_n78_UPPER_SA_3549.990MHz_Fundamental Frequency.png"
     )
 
+
+def test_build_nsa_fundamental_screenshot_path_uses_nsa_dir_and_filename(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+        generation=Generation.NR_NSA,
+    )
+
+    path = build_fundamental_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "5G"
+        / "n78"
+        / "UPPER"
+        / "NSA"
+        / "SM-000_Traffic_5G_n78_UPPER_NSA_3549.990MHz_Fundamental Frequency.png"
+    )
 
 def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
     tmp_path: Path,
