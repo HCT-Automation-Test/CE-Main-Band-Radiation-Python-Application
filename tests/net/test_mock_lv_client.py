@@ -176,6 +176,43 @@ def test_mock_lv_client_measure_harmonics_prints_marker_return(
         server.stop()
 
 
+
+def test_mock_lv_client_manual_commands(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line("measure-harmonic-manual fundamental=3550.25")
+        assert console.execute_line("measure-inband-manual limit=-30")
+        assert console.execute_line("get-screenshot")
+        assert console.execute_line("marker-peak marker=2 excursion=6.5")
+        assert console.execute_line("marker-next marker=3 excursion=7.5")
+        assert console.execute_line("marker-off marker=4 excursion=8.5")
+        assert console.execute_line("marker-all-off")
+
+        text = output.getvalue()
+        assert "REQUEST  FSV40 / Measure Harmonic" in text
+        assert "REQUEST  FSV40 / Measure Inband" in text
+        assert "REQUEST  FSV40 / Get Screenshot" in text
+        assert "REQUEST  FSV40 / Marker Peak" in text
+        assert "REQUEST  FSV40 / Marker Next" in text
+        assert "REQUEST  FSV40 / Marker OFF" in text
+        assert "REQUEST  FSV40 / Marker ALL OFF" in text
+        assert '"Fundamental Frequency": 3550.25' in text
+        assert '"Limit": -30.0' in text
+        assert '"Marker Index": 2' in text
+        assert '"Excursion": 6.5' in text
+        assert (tmp_path / "screenshot.png").is_file()
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()

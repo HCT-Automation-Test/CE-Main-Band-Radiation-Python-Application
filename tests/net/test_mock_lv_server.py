@@ -657,6 +657,115 @@ def test_mock_lv_server_handles_inband_command(qtbot, tmp_path) -> None:
         server.stop()
 
 
+
+def test_mock_lv_server_handles_manual_harmonic_without_auto_screenshot(
+    qtbot,
+    tmp_path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        markers = commands.measure_harmonic_manual(client, fundamental=3550.25)
+
+        assert [(marker.order, marker.amplitude_dbm) for marker in markers] == [
+            (2, -42.1),
+            (3, -48.0),
+            (4, -51.0),
+            (5, -56.2),
+        ]
+        assert [marker.peak_frequency_mhz for marker in markers] == [
+            7100.5,
+            10650.75,
+            14201.0,
+            17751.25,
+        ]
+        assert not (tmp_path / "harmonic.png").exists()
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "FSV40",
+            "Measure Harmonic",
+            {"Fundamental Frequency": 3550.25},
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_bad_manual_harmonic_result_scenario(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path, scenario="bad-harmonic-result")
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        with pytest.raises(commands.CommandError, match="must contain 4 values"):
+            commands.measure_harmonic_manual(client, fundamental=3550.25)
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_handles_manual_inband_without_auto_screenshot(
+    qtbot,
+    tmp_path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.measure_inband_manual(client, limit=-30.0) == -42.1
+        assert not (tmp_path / "inband.png").exists()
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "FSV40",
+            "Measure Inband",
+            {"Limit": -30.0},
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_handles_manual_screenshot_and_marker_commands(
+    qtbot,
+    tmp_path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.get_screenshot(client)
+        assert (tmp_path / "screenshot.png").is_file()
+        assert commands.marker_peak(client, marker_index=2, excursion=6.5)
+        assert commands.marker_next(client, marker_index=3, excursion=7.5)
+        assert commands.marker_off(client, marker_index=4, excursion=8.5)
+        assert commands.marker_all_off(client)
+
+        requests = server.received_requests[-5:]
+        assert [(request.target, request.command, request.params) for request in requests] == [
+            ("FSV40", "Get Screenshot", {}),
+            ("FSV40", "Marker Peak", {"Marker Index": 2, "Excursion": 6.5}),
+            ("FSV40", "Marker Next", {"Marker Index": 3, "Excursion": 7.5}),
+            ("FSV40", "Marker OFF", {"Marker Index": 4, "Excursion": 8.5}),
+            ("FSV40", "Marker ALL OFF", {}),
+        ]
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
