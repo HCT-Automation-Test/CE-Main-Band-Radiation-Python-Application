@@ -388,7 +388,12 @@ class RotateTurntableState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return measurement_start_state_for(ctx.current_case.test_type, after_rotate=True)
+        manual_marker = _manual_marker_enabled(ctx)
+        return measurement_start_state_for(
+            ctx.current_case.test_type,
+            after_rotate=True,
+            manual_marker=manual_marker,
+        )
 
     def _on_event_received(self, event: Any) -> None:
         if getattr(event, "target", None) != _TARGET_TURNTABLE:
@@ -656,8 +661,16 @@ class ResetSwitchBoxState(State):
         return "CheckNextCase"
 
 
+def _manual_marker_enabled(ctx: "SessionContext") -> bool:
+    settings = getattr(ctx, "settings", None)
+    return bool(getattr(settings, "manual_marker_enabled", False))
+
+
 def measurement_start_state_for(
-    test_type: TestType, *, after_rotate: bool = False
+    test_type: TestType,
+    *,
+    after_rotate: bool = False,
+    manual_marker: bool = False,
 ) -> str:
     """test_type에 해당하는 측정 시작 state 이름을 반환한다.
 
@@ -665,7 +678,13 @@ def measurement_start_state_for(
       Harmonic은 MeasureFundamental부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
     - after_rotate=True: RotateTurntable 이후 실제 측정 state로 분기할 때.
     """
-    if after_rotate:
+    if after_rotate and manual_marker:
+        mapping = {
+            TestType.HARMONIC: "MeasureHarmonicsManual",
+            TestType.INBAND: "MeasureInBandManual",
+            TestType.BILOG: "MeasureBilogManual",
+        }
+    elif after_rotate:
         mapping = {
             TestType.HARMONIC: "MeasureHarmonics",
             TestType.INBAND: "MeasureInBand",
@@ -681,3 +700,4 @@ def measurement_start_state_for(
         return mapping[test_type]
     except KeyError as exc:
         raise ValueError(f"unknown test_type: {test_type!r}") from exc
+

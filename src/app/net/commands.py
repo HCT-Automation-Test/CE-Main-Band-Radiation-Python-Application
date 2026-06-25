@@ -26,8 +26,15 @@ _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MEASURE_HARMONIC = "Measure Harmonic"
 _COMMAND_MARK_HARMONIC_PRECISION = "Mark Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
+_COMMAND_MEASURE_INBAND = "Measure Inband"
+_COMMAND_GET_SCREENSHOT = "Get Screenshot"
+_COMMAND_MARKER_PEAK = "Marker Peak"
+_COMMAND_MARKER_NEXT = "Marker Next"
+_COMMAND_MARKER_OFF = "Marker OFF"
+_COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -470,34 +477,23 @@ def measure_harmonics(
         {"Fundamental Frequency": float(fundamental)},
     )
     result = _result_dict(response, _TARGET_FSV40, _COMMAND_MARK_HARMONIC)
-    amplitudes = _number_list(
-        result,
-        "Amplitude",
+    return _harmonic_markers_from_result(result, _COMMAND_MARK_HARMONIC)
+
+
+def measure_harmonic_manual(
+    client: Any,
+    *,
+    fundamental: float,
+) -> list[HarmonicMarker]:
+    """수동 마커 모드 Harmonic 측정 결과를 반환한다."""
+    response = _send_request(
+        client,
         _TARGET_FSV40,
-        _COMMAND_MARK_HARMONIC,
-        expected_count=4,
+        _COMMAND_MEASURE_HARMONIC,
+        {"Fundamental Frequency": float(fundamental)},
     )
-    frequencies_hz = _number_list(
-        result,
-        "Frequency",
-        _TARGET_FSV40,
-        _COMMAND_MARK_HARMONIC,
-        expected_count=4,
-    )
-    frequencies_mhz = [frequency_hz / _HZ_PER_MHZ for frequency_hz in frequencies_hz]
-    return [
-        HarmonicMarker(
-            order=order,
-            amplitude_dbm=amplitude,
-            peak_frequency_mhz=frequency,
-        )
-        for order, amplitude, frequency in zip(
-            (2, 3, 4, 5),
-            amplitudes,
-            frequencies_mhz,
-            strict=True,
-        )
-    ]
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_MEASURE_HARMONIC)
+    return _harmonic_markers_from_result(result, _COMMAND_MEASURE_HARMONIC)
 
 
 def setup_sa_precision(
@@ -551,6 +547,61 @@ def measure_bilog(client: Any, *, limit: float) -> float:
     return measure_inband(client, limit=limit)
 
 
+def measure_inband_manual(client: Any, *, limit: float) -> float:
+    """수동 마커 모드 In-Band 측정 amplitude(dBm)를 반환한다."""
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_MEASURE_INBAND,
+        {"Limit": float(limit)},
+    )
+    result = _result_dict(response, _TARGET_FSV40, _COMMAND_MEASURE_INBAND)
+    return _number(result, "Amplitude", _TARGET_FSV40, _COMMAND_MEASURE_INBAND)
+
+
+def measure_bilog_manual(client: Any, *, limit: float) -> float:
+    """수동 마커 모드 Bilog 측정 amplitude(dBm)를 반환한다."""
+    return measure_inband_manual(client, limit=limit)
+
+
+def get_screenshot(client: Any) -> bool:
+    """현재 FSV40 화면을 temp/screenshot.png로 저장한다."""
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_GET_SCREENSHOT, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_GET_SCREENSHOT)
+
+
+def marker_peak(client: Any, *, marker_index: int, excursion: float) -> bool:
+    return _send_marker_command(
+        client,
+        _COMMAND_MARKER_PEAK,
+        marker_index=marker_index,
+        excursion=excursion,
+    )
+
+
+def marker_next(client: Any, *, marker_index: int, excursion: float) -> bool:
+    return _send_marker_command(
+        client,
+        _COMMAND_MARKER_NEXT,
+        marker_index=marker_index,
+        excursion=excursion,
+    )
+
+
+def marker_off(client: Any, *, marker_index: int, excursion: float) -> bool:
+    return _send_marker_command(
+        client,
+        _COMMAND_MARKER_OFF,
+        marker_index=marker_index,
+        excursion=excursion,
+    )
+
+
+def marker_all_off(client: Any) -> bool:
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_MARKER_ALL_OFF, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_MARKER_ALL_OFF)
+
+
 def check_call_status(client: Any) -> bool:
     """현재 NR Call 연결 상태를 확인한다. TestTypeChange 등에서 호출."""
     response = _send_request(client, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
@@ -580,6 +631,59 @@ def set_antenna_pol(client: Any, *, pol: AntennaPol, input_path: InputPath) -> b
         {"pol": pol.value},
     )
     return _action_ok(response, target, _COMMAND_CHANGE_ANT_POL)
+
+
+def _harmonic_markers_from_result(
+    result: dict[str, Any],
+    command: str,
+) -> list[HarmonicMarker]:
+    amplitudes = _number_list(
+        result,
+        "Amplitude",
+        _TARGET_FSV40,
+        command,
+        expected_count=4,
+    )
+    frequencies_hz = _number_list(
+        result,
+        "Frequency",
+        _TARGET_FSV40,
+        command,
+        expected_count=4,
+    )
+    frequencies_mhz = [frequency_hz / _HZ_PER_MHZ for frequency_hz in frequencies_hz]
+    return [
+        HarmonicMarker(
+            order=order,
+            amplitude_dbm=amplitude,
+            peak_frequency_mhz=frequency,
+        )
+        for order, amplitude, frequency in zip(
+            (2, 3, 4, 5),
+            amplitudes,
+            frequencies_mhz,
+            strict=True,
+        )
+    ]
+
+
+def _send_marker_command(
+    client: Any,
+    command: str,
+    *,
+    marker_index: int,
+    excursion: float,
+) -> bool:
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        command,
+        {
+            "Marker Index": int(marker_index),
+            "Excursion": float(excursion),
+        },
+    )
+    return _action_ok(response, _TARGET_FSV40, command)
 
 
 def _send_request(
@@ -653,3 +757,5 @@ def _coerce_number(value: Any, target: str, command: str, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise CommandError(f"{target} / {command} Result.{key} must be a number")
     return float(value)
+
+

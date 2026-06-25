@@ -38,6 +38,7 @@ from app.models.test_case import TestCase
 from app.ui.generated.main_window_ui import Ui_MainWindow
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.instrument_set_progress_dialog import InstrumentSetProgressDialog
+from app.ui.manual_marker_dialog import ManualMarkerDialog
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel, RFSwitchBoxService
 from app.ui.test_manager_panel import TestManagerPanel
@@ -173,6 +174,9 @@ class MainWindow(QMainWindow):
         )
         self._runner.events.user_action_required.connect(
             self.on_user_action_required,
+        )
+        self._runner.events.manual_marker_edit_required.connect(
+            self.on_manual_marker_edit_required,
         )
         self._runner.events.session_finished.connect(
             self.on_session_finished,
@@ -723,6 +727,39 @@ class MainWindow(QMainWindow):
         if getattr(self, "_user_action_dialog", None) is dialog:
             self._user_action_dialog = None
 
+    def on_manual_marker_edit_required(self, payload: object) -> None:
+        """수동 마커 편집 dialog를 표시하고 Runner marker command와 연결한다."""
+
+        existing_dialog = getattr(self, "_manual_marker_dialog", None)
+        if existing_dialog is not None:
+            close_without_action = getattr(existing_dialog, "close_without_action", None)
+            if callable(close_without_action):
+                close_without_action()
+            else:
+                existing_dialog.close()
+
+        info = payload if isinstance(payload, dict) else {}
+        next_peak_search_level_db = float(info.get("next_peak_search_level_db", 6.0))
+        dialog = ManualMarkerDialog(
+            self,
+            next_peak_search_level_db=next_peak_search_level_db,
+        )
+        dialog.peak_requested.connect(self._runner.marker_peak)
+        dialog.next_peak_requested.connect(self._runner.marker_next)
+        dialog.marker_off_requested.connect(self._runner.marker_off)
+        dialog.all_marker_off_requested.connect(self._runner.marker_all_off)
+        dialog.completed.connect(self._runner.user_action_completed)
+        dialog.stop_requested.connect(self._runner.stop)
+        dialog.finished.connect(lambda _result: self._clear_manual_marker_dialog(dialog))
+        self._manual_marker_dialog = dialog
+        dialog.show()
+
+    def _clear_manual_marker_dialog(self, dialog: QDialog) -> None:
+        """현재 수동 마커 dialog 참조를 정리한다."""
+
+        if getattr(self, "_manual_marker_dialog", None) is dialog:
+            self._manual_marker_dialog = None
+
     def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
         """창 표시 후 네이티브 resize 테두리 정책을 다시 적용한다."""
 
@@ -737,6 +774,7 @@ class MainWindow(QMainWindow):
 
         self._shutdown_child_panels()
         self._close_tdf_progress_dialog()
+        self._close_manual_marker_dialog()
         self._tdf_service.shutdown()
         self._runner.shutdown()
         super().closeEvent(event)
@@ -745,9 +783,23 @@ class MainWindow(QMainWindow):
         if event.type() == QEvent.Type.Destroy:
             self._shutdown_child_panels()
             self._close_tdf_progress_dialog()
+            self._close_manual_marker_dialog()
             self._tdf_service.shutdown()
             self._runner.shutdown()
         return super().event(event)
+
+    def _close_manual_marker_dialog(self) -> None:
+        dialog = getattr(self, "_manual_marker_dialog", None)
+        if dialog is None:
+            return
+        self._manual_marker_dialog = None
+        close_without_action = getattr(dialog, "close_without_action", None)
+        if callable(close_without_action):
+            close_without_action()
+        else:
+            dialog.close()
+        dialog.setParent(None)
+        dialog.deleteLater()
 
     def _shutdown_child_panels(self) -> None:
         seen: set[int] = set()
@@ -833,3 +885,4 @@ class MainWindow(QMainWindow):
             0,
             _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER | _SWP_FRAMECHANGED,
         )
+

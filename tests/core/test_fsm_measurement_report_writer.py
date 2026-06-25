@@ -1,19 +1,21 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
-from app.core.fsm.states.measurement.bilog import MeasureBilogState
+from app.core.fsm.states.measurement.bilog import MeasureBilogManualState, MeasureBilogState
 from app.core.fsm.states.measurement.harmonic import (
     MeasureHarmonicPrecisionState,
     MeasureFundamentalState,
+    MeasureHarmonicsManualState,
     MeasureHarmonicsState,
 )
-from app.core.fsm.states.measurement.inband import MeasureInBandState
+from app.core.fsm.states.measurement.inband import MeasureInBandManualState, MeasureInBandState
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -38,9 +40,12 @@ from app.models.test_case import TestCase
 class _SignalRecorder:
     def __init__(self) -> None:
         self.messages: list[Any] = []
+        self.on_emit: Any | None = None
 
-    def emit(self, message: Any) -> None:
+    def emit(self, message: Any = None) -> None:
         self.messages.append(message)
+        if self.on_emit is not None:
+            self.on_emit(message)
 
 
 class _Events:
@@ -48,6 +53,7 @@ class _Events:
         self.error = _SignalRecorder()
         self.screenshot_saved = _SignalRecorder()
         self.spectrum_analyzer_info_changed = _SignalRecorder()
+        self.manual_marker_edit_required = _SignalRecorder()
 
 
 _DEFAULT_HARMONIC_LEVELS = object()
@@ -89,9 +95,14 @@ class _Commands:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.measure_fundamental_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_harmonics_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_harmonic_manual_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_inband_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_inband_manual_calls: list[tuple[Any, dict[str, Any]]] = []
         self.measure_bilog_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.measure_bilog_manual_calls: list[tuple[Any, dict[str, Any]]] = []
         self.setup_sa_precision_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.setup_sa_startup_levels_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.get_screenshot_calls: list[Any] = []
         self.measure_harmonic_precision_calls: list[Any] = []
         self.precision_amplitudes: list[float] = []
 
@@ -116,12 +127,26 @@ class _Commands:
             self.harmonic_screenshot_path.write_bytes(b"fresh harmonic")
         return self.harmonic_levels
 
+    def measure_harmonic_manual(self, client: Any, *, fundamental: float) -> object:
+        self.measure_harmonic_manual_calls.append(
+            (client, {"fundamental": fundamental})
+        )
+        if self.harmonics_exception is not None:
+            raise self.harmonics_exception
+        return self.harmonic_levels
+
     def measure_inband(self, client: Any, *, limit: float) -> float:
         self.measure_inband_calls.append((client, {"limit": limit}))
         if self.inband_exception is not None:
             raise self.inband_exception
         if self.inband_screenshot_path is not None:
             self.inband_screenshot_path.write_bytes(b"fresh inband")
+        return self.inband_amplitude
+
+    def measure_inband_manual(self, client: Any, *, limit: float) -> float:
+        self.measure_inband_manual_calls.append((client, {"limit": limit}))
+        if self.inband_exception is not None:
+            raise self.inband_exception
         return self.inband_amplitude
 
     def measure_bilog(self, client: Any, *, limit: float) -> float:
@@ -131,6 +156,34 @@ class _Commands:
         if self.bilog_screenshot_path is not None:
             self.bilog_screenshot_path.write_bytes(b"fresh bilog")
         return self.bilog_amplitude
+
+    def measure_bilog_manual(self, client: Any, *, limit: float) -> float:
+        self.measure_bilog_manual_calls.append((client, {"limit": limit}))
+        if self.bilog_exception is not None:
+            raise self.bilog_exception
+        return self.bilog_amplitude
+
+    def setup_sa_startup_levels(
+        self,
+        client: Any,
+        *,
+        atten_level_db: float,
+        next_peak_search_level_db: float,
+    ) -> bool:
+        self.setup_sa_startup_levels_calls.append(
+            (
+                client,
+                {
+                    "atten_level_db": atten_level_db,
+                    "next_peak_search_level_db": next_peak_search_level_db,
+                },
+            )
+        )
+        return True
+
+    def get_screenshot(self, client: Any) -> bool:
+        self.get_screenshot_calls.append(client)
+        return True
 
     def setup_sa_precision(
         self,
@@ -1246,3 +1299,115 @@ def test_non_harmonic_measurement_states_return_fail_without_report_writer(
     result = state.run(ctx)
 
     assert result is StateResult.FAIL
+
+
+
+def _enable_manual_marker(ctx: SessionContext, events: _Events) -> None:
+    ctx.settings = SimpleNamespace(
+        atten_level_db=1.5,
+        next_peak_search_level_db=6.5,
+    )
+    events.manual_marker_edit_required.on_emit = (
+        lambda _payload: ctx.user_action_completed.set()
+    )
+
+
+def test_measure_harmonics_manual_waits_restores_level_and_gets_screenshot(
+    tmp_path: Path,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands(harmonic_levels=_markers((-28.0, -39.5, -40.0, -37.0)))
+    events = _Events()
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+        fundamental_frequency_mhz=3550.25,
+    )
+    _enable_manual_marker(ctx, events)
+    (tmp_path / "screenshot.png").write_bytes(b"stale")
+    events.manual_marker_edit_required.on_emit = lambda _payload: (
+        (tmp_path / "screenshot.png").write_bytes(b"manual screenshot"),
+        ctx.user_action_completed.set(),
+    )
+
+    result = MeasureHarmonicsManualState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.measure_harmonic_manual_calls == [
+        (None, {"fundamental": 3550.25})
+    ]
+    assert commands.setup_sa_startup_levels_calls == [
+        (None, {"atten_level_db": 1.5, "next_peak_search_level_db": 6.5})
+    ]
+    assert commands.get_screenshot_calls == [None]
+    assert events.manual_marker_edit_required.messages == [
+        {
+            "test_type": MeasurementTestType.HARMONIC,
+            "next_peak_search_level_db": 6.5,
+        }
+    ]
+    assert report_writer.calls[0][0] == "harmonic"
+    measured = report_writer.calls[0][2]
+    assert isinstance(measured, HarmonicResult)
+    assert measured.screenshot_path == tmp_path / "screenshot.png"
+    assert ctx.harmonic_precision_candidates
+    assert MeasureHarmonicsManualState().next_state(ctx, result) == "MeasureHarmonicPrecision"
+
+
+@pytest.mark.parametrize(
+    ("state", "test_type", "writer_name", "manual_call_name"),
+    [
+        (
+            MeasureInBandManualState(),
+            MeasurementTestType.INBAND,
+            "inband",
+            "measure_inband_manual_calls",
+        ),
+        (
+            MeasureBilogManualState(),
+            MeasurementTestType.BILOG,
+            "bilog",
+            "measure_bilog_manual_calls",
+        ),
+    ],
+)
+def test_measure_inband_and_bilog_manual_use_screenshot_png(
+    tmp_path: Path,
+    state: Any,
+    test_type: MeasurementTestType,
+    writer_name: str,
+    manual_call_name: str,
+) -> None:
+    report_writer = _ReportWriter()
+    commands = _Commands()
+    events = _Events()
+    ctx = _make_ctx(
+        test_type,
+        commands=commands,
+        report_writer=report_writer,
+        events=events,
+        temp_dir=tmp_path,
+    )
+    ctx.equipment_state = {"FSV40": True}
+    _enable_manual_marker(ctx, events)
+    events.manual_marker_edit_required.on_emit = lambda _payload: (
+        (tmp_path / "screenshot.png").write_bytes(b"manual screenshot"),
+        ctx.user_action_completed.set(),
+    )
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert getattr(commands, manual_call_name)
+    assert commands.setup_sa_startup_levels_calls == [
+        (None, {"atten_level_db": 1.5, "next_peak_search_level_db": 6.5})
+    ]
+    assert commands.get_screenshot_calls == [None]
+    assert report_writer.calls[0][0] == writer_name
+    measured = report_writer.calls[0][2]
+    assert measured.screenshot_path == tmp_path / "screenshot.png"
+
+

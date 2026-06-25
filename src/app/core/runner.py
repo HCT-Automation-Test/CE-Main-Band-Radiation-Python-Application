@@ -357,6 +357,71 @@ class Runner(QObject):
         if self._ctx is not None:
             self._ctx.user_action_completed.set()
 
+    def marker_peak(self, marker_index: int, excursion: float) -> bool:
+        """수동 마커 편집 dialog에서 Marker Peak를 요청한다."""
+
+        return self._run_marker_command(
+            "Marker Peak",
+            self._commands.marker_peak,
+            marker_index=marker_index,
+            excursion=excursion,
+        )
+
+    def marker_next(self, marker_index: int, excursion: float) -> bool:
+        """수동 마커 편집 dialog에서 Marker Next를 요청한다."""
+
+        return self._run_marker_command(
+            "Marker Next",
+            self._commands.marker_next,
+            marker_index=marker_index,
+            excursion=excursion,
+        )
+
+    def marker_off(self, marker_index: int, excursion: float) -> bool:
+        """수동 마커 편집 dialog에서 Marker OFF를 요청한다."""
+
+        return self._run_marker_command(
+            "Marker OFF",
+            self._commands.marker_off,
+            marker_index=marker_index,
+            excursion=excursion,
+        )
+
+    def marker_all_off(self) -> bool:
+        """수동 마커 편집 dialog에서 모든 marker OFF를 요청한다."""
+
+        try:
+            ok = bool(self._commands.marker_all_off(self._client))
+        except Exception as exc:
+            self._emit_error(f"Marker ALL OFF 실패: {exc}")
+            return False
+        if not ok:
+            self._emit_error("Marker ALL OFF 실패: marker_all_off returned false")
+        return ok
+
+    def _run_marker_command(
+        self,
+        label: str,
+        command: Callable[..., bool],
+        *,
+        marker_index: int,
+        excursion: float,
+    ) -> bool:
+        try:
+            ok = bool(
+                command(
+                    self._client,
+                    marker_index=marker_index,
+                    excursion=excursion,
+                )
+            )
+        except Exception as exc:
+            self._emit_error(f"{label} 실패: {exc}")
+            return False
+        if not ok:
+            self._emit_error(f"{label} 실패: command returned false")
+        return ok
+
     def shutdown(self) -> None:
         """Runner가 소유한 worker, 연결 서비스, TCP client를 정리한다."""
 
@@ -460,3 +525,4 @@ class Runner(QObject):
         ):
             self._equipment_state = {}
         self._emit_error(f"장비 연결 실패: {message}")
+

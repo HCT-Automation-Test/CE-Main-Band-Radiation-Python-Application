@@ -12,6 +12,11 @@ from app.core.fsm.states.measurement.common import (
     RotateTurntableState,
     _wait_for_saturation_time,
 )
+from app.core.fsm.states.measurement.manual_marker import (
+    complete_manual_marker_edit,
+    manual_screenshot_path,
+    remove_stale_manual_screenshot,
+)
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import (
     FundamentalResult,
@@ -170,6 +175,32 @@ def _build_precision_candidates(
     return candidates
 
 
+def _build_harmonic_result(
+    ctx: "SessionContext",
+    *,
+    screenshot_path: Path,
+    harmonic_markers: list[HarmonicMarker],
+) -> HarmonicResult:
+    """Harmonic marker 결과를 기존 판정 기준의 리포트 결과로 변환한다."""
+
+    threshold_dbm = ctx.current_case.range_definition.limit - 10.0
+    return HarmonicResult(
+        screenshot_path=screenshot_path,
+        harmonic_2nd_peak_level_dbm=_recordable_peak(
+            harmonic_markers[0].amplitude_dbm, threshold_dbm
+        ),
+        harmonic_3rd_peak_level_dbm=_recordable_peak(
+            harmonic_markers[1].amplitude_dbm, threshold_dbm
+        ),
+        harmonic_4th_peak_level_dbm=_recordable_peak(
+            harmonic_markers[2].amplitude_dbm, threshold_dbm
+        ),
+        harmonic_5th_peak_level_dbm=_recordable_peak(
+            harmonic_markers[3].amplitude_dbm, threshold_dbm
+        ),
+    )
+
+
 class MeasureFundamentalState(State):
     """기본파 주파수를 측정하여 결과를 저장한다."""
 
@@ -298,26 +329,84 @@ class MeasureHarmonicsState(State):
             )
             return StateResult.FAIL
 
-        threshold_dbm = ctx.current_case.range_definition.limit - 10.0
-        result = HarmonicResult(
+        result = _build_harmonic_result(
+            ctx,
             screenshot_path=screenshot_path,
-            harmonic_2nd_peak_level_dbm=_recordable_peak(
-                harmonic_markers[0].amplitude_dbm, threshold_dbm
-            ),
-            harmonic_3rd_peak_level_dbm=_recordable_peak(
-                harmonic_markers[1].amplitude_dbm, threshold_dbm
-            ),
-            harmonic_4th_peak_level_dbm=_recordable_peak(
-                harmonic_markers[2].amplitude_dbm, threshold_dbm
-            ),
-            harmonic_5th_peak_level_dbm=_recordable_peak(
-                harmonic_markers[3].amplitude_dbm, threshold_dbm
-            ),
+            harmonic_markers=harmonic_markers,
         )
         written = append_and_write_report(
             ctx,
             result,
             lambda writer: writer.write_harmonic(ctx.current_case, result),
+            "Harmonic 리포트 작성 실패: write_harmonic returned false",
+        )
+        if written is StateResult.OK:
+            ctx.harmonic_precision_candidates = _build_precision_candidates(
+                ctx,
+                harmonic_markers,
+            )
+        return written
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        if ctx.harmonic_precision_candidates:
+            return "MeasureHarmonicPrecision"
+        return "ResetSwitchBox"
+
+
+class MeasureHarmonicsManualState(State):
+    """수동 마커 모드 Harmonic 측정 후 사용자 편집 스크린샷을 저장한다."""
+
+    name = "MeasureHarmonicsManual"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        ctx.harmonic_precision_candidates = []
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Harmonic 수동 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
+        fundamental_frequency_mhz = ctx.fundamental_frequency_mhz
+        if fundamental_frequency_mhz is None:
+            _emit_error(ctx, "Harmonic 수동 측정 실패: fundamental_frequency_mhz is not set")
+            return StateResult.FAIL
+
+        if ctx.temp_dir is None:
+            _emit_error(ctx, "Harmonic 수동 스크린샷 경로 생성 실패: temp_dir is not set")
+            return StateResult.FAIL
+
+        screenshot_path = manual_screenshot_path(ctx.temp_dir)
+        try:
+            remove_stale_manual_screenshot(screenshot_path)
+            harmonic_markers = _normalize_harmonic_markers(
+                ctx.commands.measure_harmonic_manual(
+                    ctx.client,
+                    fundamental=fundamental_frequency_mhz,
+                )
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Harmonic 수동 측정 실패: {exc}")
+            return StateResult.FAIL
+
+        result = complete_manual_marker_edit(
+            ctx,
+            test_type=ctx.current_case.test_type,
+            screenshot_path=screenshot_path,
+        )
+        if result is not StateResult.OK:
+            return result
+
+        harmonic_result = _build_harmonic_result(
+            ctx,
+            screenshot_path=screenshot_path,
+            harmonic_markers=harmonic_markers,
+        )
+        written = append_and_write_report(
+            ctx,
+            harmonic_result,
+            lambda writer: writer.write_harmonic(ctx.current_case, harmonic_result),
             "Harmonic 리포트 작성 실패: write_harmonic returned false",
         )
         if written is StateResult.OK:
@@ -477,3 +566,4 @@ class MeasureHarmonicPrecisionState(State):
         finally:
             if entered:
                 state.exit(ctx)
+
