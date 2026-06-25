@@ -11,6 +11,7 @@ from PySide6.QtGui import QDoubleValidator, QIntValidator
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QComboBox,
     QDialog,
     QFileDialog,
     QGroupBox,
@@ -48,6 +49,7 @@ from app.models.test_case import TestCase
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow, RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
+from app.ui.manual_marker_dialog import ManualMarkerDialog
 from app.ui.manual_test_panel import ManualTestPanel
 from app.ui.nr_select import NRSelectDialog
 from app.ui.rf_filter_box_panel import RFFilterBoxPanel
@@ -2501,6 +2503,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, monkeypatch, tmp_pat
     assert settings.atten_level_db == 1.5
     assert settings.next_peak_search_level_db == 60.5
     assert settings.custom_turntable_speed == 8
+    assert settings.manual_marker_enabled is False
     assert settings.active_tdf_file_name == "NR_Radiated.tdf"
 
 
@@ -2546,3 +2549,97 @@ def test_nr_select_dialog_can_be_created(qtbot) -> None:
     qtbot.addWidget(dialog)
 
     assert dialog.windowTitle() == "NR Select"
+
+
+def test_test_manager_panel_enables_manual_marker_when_custom_marker_checked(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    template_path = tmp_path / "template.xlsx"
+    screenshot_root = tmp_path / "default-screenshots"
+    template_path.write_bytes(b"template")
+    monkeypatch.setattr(
+        "app.ui.test_manager_panel.default_screenshot_root_dir",
+        lambda: screenshot_root,
+    )
+
+    panel.findChild(QLineEdit, "eutNameEdit").setText("SM-000")
+    panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
+    panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(True)
+    panel.findChild(QCheckBox, "markerCheckBox").setChecked(True)
+    panel.set_active_tdf_file_name("NR_Radiated.tdf")
+
+    settings = panel.build_test_run_settings()
+
+    assert settings is not None
+    assert settings.manual_marker_enabled is True
+
+
+def test_manual_marker_dialog_emits_marker_commands(qtbot) -> None:
+    dialog = ManualMarkerDialog(next_peak_search_level_db=6.5)
+    qtbot.addWidget(dialog)
+    received: list[tuple[int, float]] = []
+    all_off: list[bool] = []
+    completed: list[bool] = []
+
+    dialog.peak_requested.connect(
+        lambda index, excursion: received.append((index, excursion))
+    )
+    dialog.all_marker_off_requested.connect(lambda: all_off.append(True))
+    dialog.completed.connect(lambda: completed.append(True))
+    dialog.show()
+
+    combo = dialog.findChild(QComboBox, "targetMarkerComboBox")
+    edit = dialog.findChild(QLineEdit, "nextPeakSearchLevelEdit")
+    combo.setCurrentIndex(1)
+    edit.setText("7.5")
+
+    qtbot.mouseClick(
+        dialog.findChild(QPushButton, "markerPeakButton"),
+        Qt.MouseButton.LeftButton,
+    )
+    qtbot.mouseClick(
+        dialog.findChild(QPushButton, "markerAllOffButton"),
+        Qt.MouseButton.LeftButton,
+    )
+    qtbot.mouseClick(
+        dialog.findChild(QPushButton, "manualMarkerCompleteButton"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert received == [(2, 7.5)]
+    assert all_off == [True]
+    assert completed == [True]
+
+
+def test_main_window_shows_manual_marker_dialog_and_complete_resumes(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    completed: list[bool] = []
+    monkeypatch.setattr(
+        window._runner,
+        "user_action_completed",
+        lambda: completed.append(True),
+    )
+
+    window._runner.events.manual_marker_edit_required.emit(
+        {"next_peak_search_level_db": 6.5}
+    )
+
+    dialog = window.findChild(QDialog, "manualMarkerDialog")
+    assert dialog is not None
+    assert dialog.findChild(QComboBox, "targetMarkerComboBox").count() == 10
+    assert dialog.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "6.5"
+
+    qtbot.mouseClick(
+        dialog.findChild(QPushButton, "manualMarkerCompleteButton"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert completed == [True]

@@ -43,8 +43,15 @@ _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
+_COMMAND_MEASURE_HARMONIC = "Measure Harmonic"
 _COMMAND_MARK_HARMONIC_PRECISION = "Mark Precision"
 _COMMAND_MARK_INBAND = "Mark Inband"
+_COMMAND_MEASURE_INBAND = "Measure Inband"
+_COMMAND_GET_SCREENSHOT = "Get Screenshot"
+_COMMAND_MARKER_PEAK = "Marker Peak"
+_COMMAND_MARKER_NEXT = "Marker Next"
+_COMMAND_MARKER_OFF = "Marker OFF"
+_COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -235,20 +242,9 @@ class MockLvServer:
             )
         if request.command == _COMMAND_MARK_HARMONIC:
             self._write_png("harmonic.png")
-            if self.scenario == "bad-harmonic-result":
-                return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0]})
-            return _ok(
-                request,
-                {
-                    "Amplitude": [-42.1, -48.0, -51.0, -56.2],
-                    "Frequency": [
-                        7100500000.0,
-                        10650750000.0,
-                        14201000000.0,
-                        17751250000.0,
-                    ],
-                },
-            )
+            return self._harmonic_response(request)
+        if request.command == _COMMAND_MEASURE_HARMONIC:
+            return self._harmonic_response(request)
         if request.command == _COMMAND_MARK_HARMONIC_PRECISION:
             self._write_png("precision.png")
             sweep_time_sec = 0.1
@@ -261,8 +257,22 @@ class MockLvServer:
             return _ok(request, {"Amplitude": amplitude})
         if request.command == _COMMAND_MARK_INBAND:
             self._write_png("inband.png")
-            limit = _coerce_float(request.params.get("Limit"), -30.0)
-            return _ok(request, {"Amplitude": limit - 12.1})
+            return self._inband_response(request)
+        if request.command == _COMMAND_MEASURE_INBAND:
+            return self._inband_response(request)
+        if request.command == _COMMAND_GET_SCREENSHOT:
+            self._write_png("screenshot.png")
+            return _ok(request)
+        if request.command in {
+            _COMMAND_MARKER_PEAK,
+            _COMMAND_MARKER_NEXT,
+            _COMMAND_MARKER_OFF,
+        }:
+            _coerce_int(request.params.get("Marker Index"), 1)
+            _coerce_float(request.params.get("Excursion"), 0.0)
+            return _ok(request)
+        if request.command == _COMMAND_MARKER_ALL_OFF:
+            return _ok(request)
         if request.command == _COMMAND_SELF_ALIGNMENT:
             self._start_set_event(
                 target=_TARGET_FSV40,
@@ -281,6 +291,26 @@ class MockLvServer:
         if request.command == _COMMAND_SET_TDF:
             return _ok(request)
         return _error(request, "unsupported command")
+
+    def _harmonic_response(self, request: Request) -> Response:
+        if self.scenario == "bad-harmonic-result":
+            return _ok(request, {"Amplitude": [-42.1, -48.0, -51.0]})
+        return _ok(
+            request,
+            {
+                "Amplitude": [-42.1, -48.0, -51.0, -56.2],
+                "Frequency": [
+                    7100500000.0,
+                    10650750000.0,
+                    14201000000.0,
+                    17751250000.0,
+                ],
+            },
+        )
+
+    def _inband_response(self, request: Request) -> Response:
+        limit = _coerce_float(request.params.get("Limit"), -30.0)
+        return _ok(request, {"Amplitude": limit - 12.1})
 
     def _handle_switch_box(self, request: Request) -> Response:
         if request.command == _COMMAND_SET_INPUT:

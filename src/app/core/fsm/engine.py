@@ -144,7 +144,10 @@ class FSMEngine:
 
 def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     """모든 상태를 등록한 세션 엔진을 구성한다."""
-    from app.core.fsm.states.measurement.bilog import MeasureBilogState
+    from app.core.fsm.states.measurement.bilog import (
+        MeasureBilogManualState,
+        MeasureBilogState,
+    )
     from app.core.fsm.states.measurement.common import (
         InitialTurntableZeroState,
         PrepareFundamentalSwitchBoxBeforeCallState,
@@ -158,9 +161,13 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     from app.core.fsm.states.measurement.harmonic import (
         MeasureHarmonicPrecisionState,
         MeasureFundamentalState,
+        MeasureHarmonicsManualState,
         MeasureHarmonicsState,
     )
-    from app.core.fsm.states.measurement.inband import MeasureInBandState
+    from app.core.fsm.states.measurement.inband import (
+        MeasureInBandManualState,
+        MeasureInBandState,
+    )
     from app.core.fsm.states.nr_setup import (
         LTECallAnchorState,
         NRCallConnectState,
@@ -224,10 +231,14 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     # Harmonic 전용 측정 상태
     engine.register(MeasureFundamentalState())
     engine.register(MeasureHarmonicsState())
+    engine.register(MeasureHarmonicsManualState())
     engine.register(MeasureHarmonicPrecisionState())
 
     # InBand / Bilog 측정 상태 (스켈레톤)
     engine.register(MeasureInBandState())
+    engine.register(MeasureInBandManualState())
     engine.register(MeasureBilogState())
+    engine.register(MeasureBilogManualState())
 
     return engine
+

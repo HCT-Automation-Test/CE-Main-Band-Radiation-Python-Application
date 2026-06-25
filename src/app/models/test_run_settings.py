@@ -34,6 +34,7 @@ class TestRunSettings:
     next_peak_search_level_db: float
     active_tdf_file_name: str
     custom_turntable_speed: int | None = None
+    manual_marker_enabled: bool = False
 
     def __post_init__(self) -> None:
         eut_name = self.eut_name.strip()
@@ -99,6 +100,11 @@ class TestRunSettings:
         object.__setattr__(self, "atten_level_db", atten_level_db)
         object.__setattr__(self, "next_peak_search_level_db", next_peak_search_level_db)
         object.__setattr__(self, "custom_turntable_speed", custom_turntable_speed)
+        object.__setattr__(
+            self,
+            "manual_marker_enabled",
+            bool(self.manual_marker_enabled),
+        )
 
 
 def _coerce_int(value: int | float | str, *, field_name: str) -> int:
@@ -117,3 +123,4 @@ def _coerce_int(value: int | float | str, *, field_name: str) -> int:
         return int(text)
     except ValueError as exc:
         raise ValueError(f"{field_name} must be an integer") from exc
+

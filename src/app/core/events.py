@@ -20,6 +20,8 @@ class RunnerEvents(QObject):
     session_finished = Signal()             # all test cases finished normally
     error = Signal(str)                     # message
     user_action_required = Signal(str)      # reason
+    manual_marker_edit_required = Signal(object)  # dict
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
+

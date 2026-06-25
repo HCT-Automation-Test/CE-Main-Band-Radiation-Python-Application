@@ -472,6 +472,26 @@ def test_measure_harmonics_returns_four_levels() -> None:
         ("FSV40", "Mark Harmonic", {"Fundamental Frequency": 3550.25})
     ]
 
+def test_measure_harmonic_manual_uses_measure_harmonic() -> None:
+    client = _Client(
+        _ok(
+            Amplitude=[-42.1, -48, -51.0, -56.2],
+            Frequency=[7100500000.0, 10650750000.0, 14201000000.0, 17751250000.0],
+        )
+    )
+
+    markers = commands.measure_harmonic_manual(client, fundamental=3550.25)
+
+    assert [(marker.order, marker.amplitude_dbm, marker.peak_frequency_mhz) for marker in markers] == [
+        (2, -42.1, 7100.5),
+        (3, -48.0, 10650.75),
+        (4, -51.0, 14201.0),
+        (5, -56.2, 17751.25),
+    ]
+    assert client.calls == [
+        ("FSV40", "Measure Harmonic", {"Fundamental Frequency": 3550.25})
+    ]
+
 
 def test_measure_inband_returns_amplitude() -> None:
     client = _Client(_ok(Amplitude=-42.1))
@@ -479,6 +499,32 @@ def test_measure_inband_returns_amplitude() -> None:
     assert commands.measure_inband(client, limit=-30.0) == -42.1
     assert client.calls == [
         ("FSV40", "Mark Inband", {"Limit": -30.0})
+    ]
+
+def test_measure_inband_manual_uses_measure_inband() -> None:
+    client = _Client(_ok(Amplitude=-42.1))
+
+    assert commands.measure_inband_manual(client, limit=-30.0) == -42.1
+    assert client.calls == [
+        ("FSV40", "Measure Inband", {"Limit": -30.0})
+    ]
+
+
+def test_manual_marker_commands_use_expected_protocol() -> None:
+    client = _Client(_default_ok(), _default_ok(), _default_ok(), _default_ok(), _default_ok())
+
+    assert commands.get_screenshot(client)
+    assert commands.marker_peak(client, marker_index=2, excursion=6.5)
+    assert commands.marker_next(client, marker_index=3, excursion=7.5)
+    assert commands.marker_off(client, marker_index=4, excursion=8.5)
+    assert commands.marker_all_off(client)
+
+    assert client.calls == [
+        ("FSV40", "Get Screenshot", {}),
+        ("FSV40", "Marker Peak", {"Marker Index": 2, "Excursion": 6.5}),
+        ("FSV40", "Marker Next", {"Marker Index": 3, "Excursion": 7.5}),
+        ("FSV40", "Marker OFF", {"Marker Index": 4, "Excursion": 8.5}),
+        ("FSV40", "Marker ALL OFF", {}),
     ]
 
 
@@ -812,3 +858,4 @@ def test_measure_harmonic_precision_rejects_missing_amplitude() -> None:
         match=r"Result\.Amplitude must be a number",
     ):
         commands.measure_harmonic_precision(client)
+

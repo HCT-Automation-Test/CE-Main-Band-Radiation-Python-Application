@@ -19,13 +19,14 @@ from app.core.fsm.states.measurement.common import (
     SetupSpectrumAnalyzerStartupLevelState,
     measurement_start_state_for,
 )
-from app.core.fsm.states.measurement.bilog import MeasureBilogState
+from app.core.fsm.states.measurement.bilog import MeasureBilogManualState, MeasureBilogState
 from app.core.fsm.states.measurement.harmonic import (
     MeasureHarmonicPrecisionState,
     MeasureFundamentalState,
+    MeasureHarmonicsManualState,
     MeasureHarmonicsState,
 )
-from app.core.fsm.states.measurement.inband import MeasureInBandState
+from app.core.fsm.states.measurement.inband import MeasureInBandManualState, MeasureInBandState
 from app.core.fsm.states.nr_setup import LTECallAnchorState, NRCallConnectState
 from app.core.fsm.states.session import IdleState
 from app.core.fsm.states.transition import AntPolChangeState
@@ -164,7 +165,9 @@ def test_idle_starts_with_turntable_zero_before_ant_pol_change() -> None:
     [
         (MeasureHarmonicPrecisionState, TestType.HARMONIC, "ResetSwitchBox"),
         (MeasureInBandState, TestType.INBAND, "ResetSwitchBox"),
+        (MeasureInBandManualState, TestType.INBAND, "ResetSwitchBox"),
         (MeasureBilogState, TestType.BILOG, "ResetSwitchBox"),
+        (MeasureBilogManualState, TestType.BILOG, "ResetSwitchBox"),
     ],
 )
 def test_measurement_states_route_to_expected_next_state(
@@ -213,6 +216,30 @@ def test_measurement_start_state_for_helper() -> None:
         measurement_start_state_for(TestType.BILOG, after_rotate=True)
         == "MeasureBilog"
     )
+    assert (
+        measurement_start_state_for(
+            TestType.HARMONIC,
+            after_rotate=True,
+            manual_marker=True,
+        )
+        == "MeasureHarmonicsManual"
+    )
+    assert (
+        measurement_start_state_for(
+            TestType.INBAND,
+            after_rotate=True,
+            manual_marker=True,
+        )
+        == "MeasureInBandManual"
+    )
+    assert (
+        measurement_start_state_for(
+            TestType.BILOG,
+            after_rotate=True,
+            manual_marker=True,
+        )
+        == "MeasureBilogManual"
+    )
 
 
 def test_build_session_engine_registers_all_states_without_duplicates() -> None:
@@ -243,11 +270,15 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "ResetSwitchBox",
         "MeasureFundamental",
         "MeasureHarmonics",
+        "MeasureHarmonicsManual",
         "MeasureHarmonicPrecision",
         "MeasureInBand",
+        "MeasureInBandManual",
         "MeasureBilog",
+        "MeasureBilogManual",
     }
     registered = set(engine._states.keys())  # noqa: SLF001 — 내부 등록 확인 목적
     assert expected_state_names <= registered, (
         f"등록 누락: {expected_state_names - registered}"
     )
+

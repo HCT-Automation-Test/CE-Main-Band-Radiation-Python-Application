@@ -12,6 +12,11 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.equipment import is_equipment_connected
+from app.core.fsm.states.measurement.manual_marker import (
+    complete_manual_marker_edit,
+    manual_screenshot_path,
+    remove_stale_manual_screenshot,
+)
 from app.core.fsm.states.measurement.reporting import append_and_write_report
 from app.models.measurement_result import BilogResult
 
@@ -41,6 +46,21 @@ def _recordable_peak(level_dbm: float, threshold_dbm: float) -> float | None:
     if level_dbm > threshold_dbm:
         return level_dbm
     return None
+
+
+def _build_bilog_result(
+    ctx: "SessionContext",
+    *,
+    screenshot_path: Path,
+    amplitude_dbm: float,
+) -> BilogResult:
+    """Bilog amplitude를 기존 판정 기준의 리포트 결과로 변환한다."""
+
+    threshold_dbm = ctx.current_case.range_definition.limit - 10.0
+    return BilogResult(
+        screenshot_path=screenshot_path,
+        bilog_peak_level_dbm=_recordable_peak(amplitude_dbm, threshold_dbm),
+    )
 
 
 class MeasureBilogState(State):
@@ -78,9 +98,10 @@ class MeasureBilogState(State):
             )
             return StateResult.FAIL
 
-        result = BilogResult(
+        result = _build_bilog_result(
+            ctx,
             screenshot_path=screenshot_path,
-            bilog_peak_level_dbm=_recordable_peak(amplitude_dbm, threshold_dbm),
+            amplitude_dbm=amplitude_dbm,
         )
         return append_and_write_report(
             ctx,
@@ -95,3 +116,60 @@ class MeasureBilogState(State):
         if result is not StateResult.OK:
             return None
         return "ResetSwitchBox"
+
+
+class MeasureBilogManualState(State):
+    """수동 마커 모드 Bilog 측정 후 사용자 편집 스크린샷을 저장한다."""
+
+    name = "MeasureBilogManual"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "FSV40"):
+            _emit_error(ctx, "Bilog 수동 측정 스킵: FSV40이 연결되어 있지 않습니다.")
+            return StateResult.OK
+
+        if ctx.temp_dir is None:
+            _emit_error(ctx, "Bilog 수동 스크린샷 경로 생성 실패: temp_dir is not set")
+            return StateResult.FAIL
+
+        screenshot_path = manual_screenshot_path(ctx.temp_dir)
+        threshold_dbm = ctx.current_case.range_definition.limit - 10.0
+        try:
+            remove_stale_manual_screenshot(screenshot_path)
+            amplitude_dbm = float(
+                ctx.commands.measure_bilog_manual(
+                    ctx.client,
+                    limit=threshold_dbm,
+                )
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"Bilog 수동 측정 실패: {exc}")
+            return StateResult.FAIL
+
+        result = complete_manual_marker_edit(
+            ctx,
+            test_type=ctx.current_case.test_type,
+            screenshot_path=screenshot_path,
+        )
+        if result is not StateResult.OK:
+            return result
+
+        bilog_result = _build_bilog_result(
+            ctx,
+            screenshot_path=screenshot_path,
+            amplitude_dbm=amplitude_dbm,
+        )
+        return append_and_write_report(
+            ctx,
+            bilog_result,
+            lambda writer: writer.write_bilog(ctx.current_case, bilog_result),
+            "Bilog 리포트 작성 실패: write_bilog returned false",
+        )
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return "ResetSwitchBox"
+

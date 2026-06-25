@@ -651,7 +651,9 @@ class TestManagerPanel(QWidget):
                 "Excel Template",
             )
             screenshot_root_dir = default_screenshot_root_dir()
-            if self._custom_option_check_box.isChecked():
+            custom_option_enabled = self._custom_option_check_box.isChecked()
+            manual_marker_enabled = False
+            if custom_option_enabled:
                 saturation_time_sec = self._float_field(
                     "saturationTimeEdit",
                     "Saturation Time",
@@ -688,6 +690,7 @@ class TestManagerPanel(QWidget):
                         "Next Peak Search Level은 0보다 크고 "
                         f"{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g}이하의 실수여야 합니다."
                     )
+                manual_marker_enabled = self._marker_check_box.isChecked()
             else:
                 saturation_time_sec = 5
                 connection_waiting_time_sec = 5
@@ -705,6 +708,7 @@ class TestManagerPanel(QWidget):
                 next_peak_search_level_db=next_peak_search_level_db,
                 active_tdf_file_name=self._required_active_tdf_file_name(),
                 custom_turntable_speed=custom_turntable_speed,
+                manual_marker_enabled=manual_marker_enabled,
             )
         except ValueError as exc:
             self._show_warning(str(exc))
