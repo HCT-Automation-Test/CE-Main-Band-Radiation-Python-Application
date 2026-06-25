@@ -320,6 +320,40 @@ def test_main_window_stop_button_requests_runner_stop(qtbot, monkeypatch) -> Non
 
     assert not stop_button.isEnabled()
 
+
+def test_main_window_locks_tdf_controls_while_measurement_active(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    get_tdf_button = window.findChild(QPushButton, "getTdfListButton")
+    tdf_all_off_button = window.findChild(QPushButton, "tdfAllOffButton")
+    set_tdf_button = window.findChild(QPushButton, "setTdfButton")
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+
+    assert get_tdf_button is not None
+    assert tdf_all_off_button is not None
+    assert set_tdf_button is not None
+    assert tdf_list is not None
+    assert get_tdf_button.isEnabled()
+    assert tdf_all_off_button.isEnabled()
+    assert set_tdf_button.isEnabled()
+    assert tdf_list.isEnabled()
+
+    window._runner._set_measurement_active(True)
+
+    assert not get_tdf_button.isEnabled()
+    assert not tdf_all_off_button.isEnabled()
+    assert not set_tdf_button.isEnabled()
+    assert not tdf_list.isEnabled()
+
+    window._runner._set_measurement_active(False)
+
+    assert get_tdf_button.isEnabled()
+    assert tdf_all_off_button.isEnabled()
+    assert set_tdf_button.isEnabled()
+    assert tdf_list.isEnabled()
+
+
 def test_main_window_blocks_instrument_connect_while_measurement_active(
     qtbot,
     monkeypatch,

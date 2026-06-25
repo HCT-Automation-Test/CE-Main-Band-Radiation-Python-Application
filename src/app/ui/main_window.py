@@ -467,6 +467,7 @@ class MainWindow(QMainWindow):
 
         if not active:
             self._test_manager_panel.clear_running_test_case()
+        self._test_manager_panel.set_tdf_operation_locked(active)
         self._update_instrument_operation_lock()
 
     def on_instrument_set_started(self) -> None:
