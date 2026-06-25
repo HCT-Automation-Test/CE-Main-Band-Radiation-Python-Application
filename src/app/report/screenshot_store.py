@@ -73,8 +73,8 @@ def build_sa_screenshot_path(
     generation_dir = _generation_dir(test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{band}_{dut_ant_position}_"
-        f"{generation_dir}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
+        f"{dut_ant_position}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_format_range_frequency(test_range.start_freq)}_"
         f"{_format_range_frequency(test_range.stop_freq)}_{axis_pol}.png"
     )
@@ -144,8 +144,8 @@ def build_fundamental_screenshot_path(
     generation_dir = _generation_dir(test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{band}_{dut_ant_position}_"
-        f"{generation_dir}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
+        f"{dut_ant_position}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_FUNDAMENTAL_SUFFIX}.png"
     )
 

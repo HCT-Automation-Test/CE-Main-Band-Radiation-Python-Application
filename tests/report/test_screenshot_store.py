@@ -73,7 +73,7 @@ def _make_case(
                 test_channel=TestChannel.MID,
                 dut_ant_position=DUTAntPosition.LOWER,
             ),
-            "SM-000_Traffic_5G_n5_LOWER_SA_836.500MHz_30MHz_1GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n5_LOWER_836.500MHz_30MHz_1GHz_XH.png",
         ),
         (
             _make_case(
@@ -83,7 +83,7 @@ def _make_case(
                 test_channel=TestChannel.MID,
                 dut_ant_position=DUTAntPosition.LOWER,
             ),
-            "SM-000_Traffic_5G_n5_LOWER_SA_836.500MHz_1GHz_12.75GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n5_LOWER_836.500MHz_1GHz_12.75GHz_XH.png",
         ),
         (
             _make_case(
@@ -93,7 +93,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.LOWER,
             ),
-            "SM-000_Traffic_5G_n1_LOWER_SA_1925.000MHz_30MHz_1GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n1_LOWER_1925.000MHz_30MHz_1GHz_XH.png",
         ),
         (
             _make_case(
@@ -103,7 +103,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.LOWER,
             ),
-            "SM-000_Traffic_5G_n1_LOWER_SA_1925.000MHz_1GHz_3GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n1_LOWER_1925.000MHz_1GHz_3GHz_XH.png",
         ),
         (
             _make_case(
@@ -113,7 +113,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.LOWER,
             ),
-            "SM-000_Traffic_5G_n1_LOWER_SA_1925.000MHz_3GHz_12.75GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n1_LOWER_1925.000MHz_3GHz_12.75GHz_XH.png",
         ),
         (
             _make_case(
@@ -123,7 +123,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.UPPER,
             ),
-            "SM-000_Traffic_5G_n77_UPPER_SA_3315.000MHz_30MHz_1GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n77_UPPER_3315.000MHz_30MHz_1GHz_XH.png",
         ),
         (
             _make_case(
@@ -133,7 +133,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.UPPER,
             ),
-            "SM-000_Traffic_5G_n77_UPPER_SA_3315.000MHz_1GHz_6GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n77_UPPER_3315.000MHz_1GHz_6GHz_XH.png",
         ),
         (
             _make_case(
@@ -143,7 +143,7 @@ def _make_case(
                 test_channel=TestChannel.LOW,
                 dut_ant_position=DUTAntPosition.UPPER,
             ),
-            "SM-000_Traffic_5G_n77_UPPER_SA_3315.000MHz_6GHz_18GHz_XH.png",
+            "SM-000_Traffic_5G_SA_n77_UPPER_3315.000MHz_6GHz_18GHz_XH.png",
         ),
     ],
 )
@@ -194,7 +194,7 @@ def test_build_nsa_screenshot_path_uses_nsa_dir_and_filename(tmp_path: Path) -> 
         / "n78"
         / "UPPER"
         / "NSA"
-        / "SM-000_Traffic_5G_n78_UPPER_NSA_3549.990MHz_1GHz_6GHz_XH.png"
+        / "SM-000_Traffic_5G_NSA_n78_UPPER_3549.990MHz_1GHz_6GHz_XH.png"
     )
 
 def test_finalize_sa_screenshot_copies_file_and_emits_event(tmp_path: Path) -> None:
@@ -343,7 +343,7 @@ def test_build_fundamental_screenshot_path_uses_lookup_and_fixed_suffix(
         / "n78"
         / "UPPER"
         / "SA"
-        / "SM-000_Traffic_5G_n78_UPPER_SA_3549.990MHz_Fundamental Frequency.png"
+        / "SM-000_Traffic_5G_SA_n78_UPPER_3549.990MHz_Fundamental Frequency.png"
     )
 
 
@@ -373,7 +373,7 @@ def test_build_nsa_fundamental_screenshot_path_uses_nsa_dir_and_filename(
         / "n78"
         / "UPPER"
         / "NSA"
-        / "SM-000_Traffic_5G_n78_UPPER_NSA_3549.990MHz_Fundamental Frequency.png"
+        / "SM-000_Traffic_5G_NSA_n78_UPPER_3549.990MHz_Fundamental Frequency.png"
     )
 
 def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
