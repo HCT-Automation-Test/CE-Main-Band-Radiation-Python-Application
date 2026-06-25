@@ -361,6 +361,9 @@ def test_start_populates_context_and_sets_start_request(
     assert runner.is_measurement_active
 
     runner.events.state_changed.emit("Idle")
+    assert runner.is_measurement_active
+
+    runner.events.session_finished.emit()
     assert not runner.is_measurement_active
 
     runner.stop()
@@ -447,6 +450,9 @@ def test_start_after_stop_initializes_new_worker(
     assert runner.context.queue == [case]
     assert runner.context.start_index == 0
     assert runner.context.test_start_requested.is_set()
+    assert runner.is_measurement_active
+
+    runner.events.state_changed.emit("Idle")
     assert runner.is_measurement_active
 
     runner.stop()

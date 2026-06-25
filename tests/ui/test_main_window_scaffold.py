@@ -1773,12 +1773,13 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         "clearButton",
         "loadItemButton",
         "saveItemButton",
+        "caseConfirmButton",
         "nrButton",
         "lteButton",
         "wcdmaButton",
         "gsmButton",
     )
-    unlocked_buttons = ("stopButton", "caseConfirmButton")
+    unlocked_buttons = ("stopButton",)
     custom_option_check_box = window.findChild(QCheckBox, "customOptionCheckBox")
     marker_check_box = window.findChild(QCheckBox, "markerCheckBox")
     assert custom_option_check_box is not None
@@ -1813,6 +1814,12 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
     assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert custom_option_check_box.isEnabled()
     assert marker_check_box.isEnabled()
+
+    window._runner._set_measurement_active(True)
+
+    for object_name in locked_buttons:
+        assert not window.findChild(QPushButton, object_name).isEnabled()
+    assert window.findChild(QPushButton, "stopButton").isEnabled()
 
 
 def test_main_window_locks_instrument_operations_while_set_active(
