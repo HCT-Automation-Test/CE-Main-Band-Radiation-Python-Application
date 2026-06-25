@@ -1,14 +1,16 @@
 """Excel 템플릿 셀 매핑 상수."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
-from openpyxl.utils.cell import coordinate_to_tuple
+from openpyxl.utils.cell import coordinate_to_tuple, get_column_letter
 
-from app.models.enums import AntennaPol, DUTAxis, NRBand
+from app.models.enums import AntennaPol, DUTAxis, Generation, NRBand
 
 DEFAULT_LAYOUT_KEY = "default"
 LB_LAYOUT_KEY = "lb"
+NSA_LB_ROW_OFFSET = -37
+NSA_DEFAULT_ROW_OFFSET = -42
 ALLOWED_BAND_GROUP_KEYS: frozenset[str] = frozenset(
     {LB_LAYOUT_KEY, "mhb_fdd", "mhb_tdd", "uhb_tdd"}
 )
@@ -114,13 +116,73 @@ def layout_key_for_group(group_key: str) -> str:
 def layout_for_group_key(group_key: str) -> ReportLayout:
     """Band group key에 대응하는 layout을 반환한다."""
 
+    return layout_for_group_key_and_generation(group_key, Generation.NR_SA)
+
+
+def layout_for_group_key_and_generation(
+    group_key: str,
+    generation: Generation,
+) -> ReportLayout:
+    """Band group/generation에 대응하는 layout을 반환한다."""
+
     if group_key not in ALLOWED_BAND_GROUP_KEYS:
         raise ValueError(f"Unknown band group key: {group_key!r}")
     layout_key = layout_key_for_group(group_key)
     try:
-        return LAYOUTS[layout_key]
+        layout = LAYOUTS[layout_key]
     except KeyError as exc:
         raise ValueError(f"No report layout for band group: {group_key!r}") from exc
+    if generation is Generation.NR_NSA:
+        return offset_layout_rows(
+            layout,
+            NSA_LB_ROW_OFFSET if layout.key == LB_LAYOUT_KEY else NSA_DEFAULT_ROW_OFFSET,
+            f"{layout.key}_nsa",
+        )
+    return layout
+
+
+def offset_layout_rows(
+    layout: ReportLayout,
+    row_offset: int,
+    key: str,
+) -> ReportLayout:
+    """Layout의 행 위치만 row_offset만큼 이동한다."""
+
+    return replace(
+        layout,
+        key=key,
+        band_info_cells=BandInfoCells(
+            channel=offset_cell_row(layout.band_info_cells.channel, row_offset),
+            bandwidth=offset_cell_row(layout.band_info_cells.bandwidth, row_offset),
+            rb_size=offset_cell_row(layout.band_info_cells.rb_size, row_offset),
+            rb_offset=offset_cell_row(layout.band_info_cells.rb_offset, row_offset),
+            modulation=offset_cell_row(layout.band_info_cells.modulation, row_offset),
+            dut_ant_position=offset_cell_row(
+                layout.band_info_cells.dut_ant_position,
+                row_offset,
+            ),
+        ),
+        fundamental_frequency_cell=offset_cell_row(
+            layout.fundamental_frequency_cell,
+            row_offset,
+        ),
+        harmonic_base_row=layout.harmonic_base_row + row_offset,
+        inband_base_row=layout.inband_base_row + row_offset,
+        bilog_base_row=_offset_optional_row(layout.bilog_base_row, row_offset),
+    )
+
+
+def offset_cell_row(cell: str, row_offset: int) -> str:
+    """셀 좌표의 행 위치만 row_offset만큼 이동한다."""
+
+    row, column = coordinate_to_tuple(validate_single_cell(cell))
+    return validate_single_cell(f"{get_column_letter(column)}{row + row_offset}")
+
+
+def _offset_optional_row(row: int | None, row_offset: int) -> int | None:
+    if row is None:
+        return None
+    return row + row_offset
 
 
 def axis_pol_cell(base_row: int, axis: DUTAxis, antenna_pol: AntennaPol) -> str:

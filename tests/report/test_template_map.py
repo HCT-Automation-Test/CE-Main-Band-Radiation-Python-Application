@@ -4,7 +4,7 @@ import pytest
 from openpyxl.utils.cell import coordinate_to_tuple
 
 from app.models.band_group import BAND_GROUPS
-from app.models.enums import AntennaPol, DUTAxis, NRBand
+from app.models.enums import AntennaPol, DUTAxis, Generation, NRBand
 from app.report.template_map import (
     ALLOWED_BAND_GROUP_KEYS,
     LAYOUTS,
@@ -13,6 +13,7 @@ from app.report.template_map import (
     harmonic_frequency_cell,
     harmonic_level_cell,
     inband_level_cell,
+    layout_for_group_key_and_generation,
     sheet_name_for_band,
 )
 
@@ -63,3 +64,33 @@ def test_lb_layout_is_independent_from_default_layout() -> None:
     assert lb.band_info_cells.dut_ant_position == "I44"
     assert default.harmonic_base_row == 66
     assert lb.harmonic_base_row == 56
+
+
+def test_nsa_default_layout_offsets_rows_only() -> None:
+    layout = layout_for_group_key_and_generation("uhb_tdd", Generation.NR_NSA)
+
+    assert layout.key == "default_nsa"
+    assert layout.band_info_cells.channel == "C7"
+    assert layout.fundamental_frequency_cell == "J7"
+    assert layout.bilog_base_row == 14
+    assert layout.inband_base_row == 19
+    assert layout.harmonic_base_row == 24
+    assert bilog_level_cell(layout, DUTAxis.X, AntennaPol.V) == "B14"
+    assert inband_level_cell(layout, DUTAxis.Z, AntennaPol.H) == "D20"
+    assert harmonic_frequency_cell(layout, 2) == "A24"
+
+
+def test_nsa_lb_layout_offsets_rows_only_and_keeps_bilog_unsupported() -> None:
+    layout = layout_for_group_key_and_generation("lb", Generation.NR_NSA)
+
+    assert layout.key == "lb_nsa"
+    assert layout.band_info_cells.channel == "C7"
+    assert layout.fundamental_frequency_cell == "J7"
+    assert layout.bilog_base_row is None
+    assert layout.inband_base_row == 14
+    assert layout.harmonic_base_row == 19
+    assert inband_level_cell(layout, DUTAxis.Z, AntennaPol.H) == "D15"
+    assert harmonic_frequency_cell(layout, 2) == "A19"
+
+    with pytest.raises(ValueError, match="Bilog layout is not supported"):
+        bilog_level_cell(layout, DUTAxis.X, AntennaPol.V)
