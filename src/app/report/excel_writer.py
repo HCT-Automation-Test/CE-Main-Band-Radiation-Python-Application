@@ -17,13 +17,12 @@ from app.models.measurement_result import (
 )
 from app.models.test_case import TestCase
 from app.report.template_map import (
-    BandInfoCells,
     ReportLayout,
     bilog_level_cell,
     harmonic_frequency_cell,
     harmonic_level_cell,
     inband_level_cell,
-    layout_for_group_key,
+    layout_for_group_key_and_generation,
     sheet_name_for_band,
     validate_single_cell,
 )
@@ -51,7 +50,7 @@ class ExcelReportWriter:
         )
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
-        self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
+        self._write_band_info_once(worksheet, layout, test_case)
 
         frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
         self._set_cell(worksheet, frequency_cell, frequency_mhz)
@@ -90,7 +89,7 @@ class ExcelReportWriter:
 
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
-        self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
+        self._write_band_info_once(worksheet, layout, test_case)
 
         levels_by_order = {
             2: _harmonic_level_value(result.harmonic_2nd_peak_level_dbm),
@@ -124,7 +123,7 @@ class ExcelReportWriter:
         level_dbm = _harmonic_level_value(result.inband_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
-        self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
+        self._write_band_info_once(worksheet, layout, test_case)
         self._set_cell(
             worksheet,
             inband_level_cell(layout, test_case.dut_axis, test_case.antenna_pol),
@@ -143,7 +142,7 @@ class ExcelReportWriter:
         level_dbm = _harmonic_level_value(result.bilog_peak_level_dbm)
         worksheet = self._worksheet_for_case(test_case)
         layout = self._layout_for_case(test_case)
-        self._write_band_info_once(worksheet, layout.band_info_cells, test_case)
+        self._write_band_info_once(worksheet, layout, test_case)
         self._set_cell(
             worksheet,
             bilog_level_cell(layout, test_case.dut_axis, test_case.antenna_pol),
@@ -173,16 +172,19 @@ class ExcelReportWriter:
 
     def _layout_for_case(self, test_case: TestCase) -> ReportLayout:
         group = find_band_group(test_case.band)
-        return layout_for_group_key(group.key)
+        return layout_for_group_key_and_generation(group.key, test_case.generation)
 
     def _write_band_info_once(
         self,
         worksheet: Worksheet,
-        cells: BandInfoCells,
+        layout: ReportLayout,
         test_case: TestCase,
     ) -> None:
-        if worksheet.title in self._written_band_info:
+        band_info_key = f"{worksheet.title}:{layout.key}"
+        if band_info_key in self._written_band_info:
             return
+
+        cells = layout.band_info_cells
 
         self._set_cell(
             worksheet,
@@ -210,7 +212,7 @@ class ExcelReportWriter:
             validate_single_cell(cells.dut_ant_position),
             test_case.dut_ant_position.value,
         )
-        self._written_band_info.add(worksheet.title)
+        self._written_band_info.add(band_info_key)
 
     def _set_cell(self, worksheet: Worksheet, cell: str, value: Any) -> None:
         worksheet[cell] = value
