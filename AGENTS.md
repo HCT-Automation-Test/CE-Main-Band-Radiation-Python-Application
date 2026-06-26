@@ -80,6 +80,7 @@ uv run --no-sync pytest tests/core -k harmonic
 - `net`과 `report`는 `ui`에 의존하지 않는다.
 - `core`는 UI 알림 전달을 위해 `QObject`/시그널 사용이 가능하다.
 - TCP 송수신과 파일 I/O는 이벤트 루프를 막지 않도록 `QThread` 또는 비동기 시그널 흐름으로 분리한다.
+- RF Switch Box 수동 SET/THRU UI처럼 짧은 수동 명령은 별도 RF 전용 worker thread보다 공용 `TcpClient` 호출 경로를 우선한다.
 - `.ui`에서 생성된 `*_ui.py`는 `src/app/ui/generated/`에만 두고 직접 편집하지 않는다.
 - UI 로직은 생성물이 아닌 래퍼/상속 클래스에 작성한다.
 - 경로는 항상 `pathlib.Path`를 사용한다.

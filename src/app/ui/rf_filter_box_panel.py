@@ -152,7 +152,10 @@ def _point_on_button(center: tuple[int, int]) -> tuple[int, int]:
 
 
 class RFSwitchBoxService(QObject):
-    """RF Switch Box 수동 조작을 즉시 실행한다."""
+    """RF Switch Box 수동 조작을 공용 TCP client 경로로 처리한다.
+
+    짧은 수동 명령이라 별도 RF worker lifecycle은 두지 않는다.
+    """
 
     operation_started = Signal()
     switch_box_set = Signal(object, object)
