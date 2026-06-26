@@ -44,6 +44,7 @@ _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
 _COMMAND_GET_TURNTABLE_ANGLE = "Get TurnTable Angle"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
+_COMMAND_SET_PATH = "Set Path"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
 _COMMAND_GET_TDF_LIST = "Get TDF List"
@@ -354,23 +355,16 @@ def set_switch_filter(client: Any, *, filter_path: FilterPath) -> bool:
 
 def set_switch_box(client: Any, *, input_path: InputPath, filter_path: FilterPath) -> bool:
     """Switch Box 경로 설정. §4.4 / §4.8."""
-    input_response = _send_request(
+    response = _send_request(
         client,
         _TARGET_SWITCH_BOX,
-        _COMMAND_SET_INPUT,
-        {"Input Path": int(input_path)},
+        _COMMAND_SET_PATH,
+        {
+            "Input Path": int(input_path),
+            "Filter Path": int(filter_path),
+        },
     )
-    input_ok = _action_ok(input_response, _TARGET_SWITCH_BOX, _COMMAND_SET_INPUT)
-    if not input_ok:
-        return False
-
-    filter_response = _send_request(
-        client,
-        _TARGET_SWITCH_BOX,
-        _COMMAND_SET_FILTER,
-        {"Filter Path": int(filter_path)},
-    )
-    return _action_ok(filter_response, _TARGET_SWITCH_BOX, _COMMAND_SET_FILTER)
+    return _action_ok(response, _TARGET_SWITCH_BOX, _COMMAND_SET_PATH)
 
 
 def setup_sa(client: Any, test_range: TestRange) -> bool:
@@ -757,5 +751,3 @@ def _coerce_number(value: Any, target: str, command: str, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float):
         raise CommandError(f"{target} / {command} Result.{key} must be a number")
     return float(value)
-
-
