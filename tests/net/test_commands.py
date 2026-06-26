@@ -132,7 +132,7 @@ def test_connect_equipment_with_config_sends_switch_box_only_when_complete() -> 
     ]
 
 
-def test_connect_equipment_raises_when_target_connect_returns_error() -> None:
+def test_connect_equipment_marks_target_false_and_continues_on_error_response() -> None:
     client = _Client(
         _default_ok(),
         Response(
@@ -141,14 +141,34 @@ def test_connect_equipment_raises_when_target_connect_returns_error() -> None:
             error={"message": "mt8000 failed"},
         ),
         _default_ok(),
+        _default_ok(),
+        _default_ok(),
     )
 
-    with pytest.raises(commands.CommandError, match="MT8000A / Connect failed"):
-        commands.connect_equipment(client)
+    assert commands.connect_equipment(client) == {
+        "FSV40": True,
+        "MT8000A": False,
+        "CO3000": True,
+        "Switch Box": True,
+        "3D Controller": True,
+    }
     assert client.calls == [
         ("FSV40", "Connect", {}),
         ("MT8000A", "Connect", {}),
+        ("CO3000", "Connect", {}),
+        ("Switch Box", "Connect", {}),
+        ("3D Controller", "Connect", {}),
     ]
+
+
+def test_connect_equipment_raises_transport_errors() -> None:
+    class _TransportClient:
+        def send_request(self, target: str, command: str, params: dict[str, Any]) -> Response:
+            _ = target, command, params
+            raise RuntimeError("transport down")
+
+    with pytest.raises(RuntimeError, match="transport down"):
+        commands.connect_equipment(_TransportClient())
 
 
 def test_setup_mt8000_sends_nr_call_params() -> None:
