@@ -404,6 +404,159 @@ def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
     assert events.screenshot_saved.messages == [str(destination)]
 
 
+
+def test_finalize_sa_screenshot_preserves_existing_file_and_saves_numbered_copy(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N5,
+        bandwidth=20.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+    root_dir = tmp_path / "out"
+    source = tmp_path / "temp" / "harmonic.png"
+    source.parent.mkdir()
+    source.write_bytes(b"new")
+    original = build_sa_screenshot_path(
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+    )
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"existing")
+    events = _Events()
+
+    destination = finalize_sa_screenshot(
+        source_path=source,
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+        events=events,
+    )
+
+    assert original.read_bytes() == b"existing"
+    assert destination == original.with_name(f"{original.stem}(1){original.suffix}")
+    assert destination.read_bytes() == b"new"
+    assert events.screenshot_saved.messages == [str(destination)]
+
+
+def test_finalize_sa_screenshot_uses_next_available_numbered_copy(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N5,
+        bandwidth=20.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+    root_dir = tmp_path / "out"
+    source = tmp_path / "temp" / "harmonic.png"
+    source.parent.mkdir()
+    source.write_bytes(b"new")
+    original = build_sa_screenshot_path(
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+    )
+    first_copy = original.with_name(f"{original.stem}(1){original.suffix}")
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"existing")
+    first_copy.write_bytes(b"existing-1")
+
+    destination = finalize_sa_screenshot(
+        source_path=source,
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert original.read_bytes() == b"existing"
+    assert first_copy.read_bytes() == b"existing-1"
+    assert destination == original.with_name(f"{original.stem}(2){original.suffix}")
+    assert destination.read_bytes() == b"new"
+
+
+def test_finalize_harmonic_precision_screenshot_preserves_existing_file(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N79,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+    root_dir = tmp_path / "out"
+    source = tmp_path / "temp" / "precision.png"
+    source.parent.mkdir()
+    source.write_bytes(b"new-precision")
+    original = build_harmonic_precision_screenshot_path(
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=14088.3,
+        sweep_time_ms=500,
+    )
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"existing-precision")
+    events = _Events()
+
+    destination = finalize_harmonic_precision_screenshot(
+        source_path=source,
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=14088.3,
+        sweep_time_ms=500,
+        events=events,
+    )
+
+    assert original.read_bytes() == b"existing-precision"
+    assert destination == original.with_name(f"{original.stem}(1){original.suffix}")
+    assert destination.read_bytes() == b"new-precision"
+    assert events.screenshot_saved.messages == [str(destination)]
+
+
+def test_finalize_fundamental_screenshot_preserves_existing_file(
+    tmp_path: Path,
+) -> None:
+    case = _make_case(
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        test_channel=TestChannel.MID,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+    root_dir = tmp_path / "out"
+    source = tmp_path / "temp" / "fundamental.png"
+    source.parent.mkdir()
+    source.write_bytes(b"new-fundamental")
+    original = build_fundamental_screenshot_path(
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+    )
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"existing-fundamental")
+    events = _Events()
+
+    destination = finalize_fundamental_screenshot(
+        source_path=source,
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+        events=events,
+    )
+
+    assert original.read_bytes() == b"existing-fundamental"
+    assert destination == original.with_name(f"{original.stem}(1){original.suffix}")
+    assert destination.read_bytes() == b"new-fundamental"
+    assert events.screenshot_saved.messages == [str(destination)]
+
+
 def test_build_sa_screenshot_path_sanitizes_model_name(tmp_path: Path) -> None:
     case = _make_case(
         band=NRBand.N1,

@@ -52,6 +52,19 @@ def _generation_dir(test_case: TestCase) -> str:
         return _NSA_DIR
     return _SA_DIR
 
+
+def _available_numbered_path(path: Path) -> Path:
+    if not path.exists():
+        return path
+
+    index = 1
+    while True:
+        candidate = path.with_name(f"{path.stem}({index}){path.suffix}")
+        if not candidate.exists():
+            return candidate
+        index += 1
+
+
 def build_sa_screenshot_path(
     *,
     root_dir: Path,
@@ -182,6 +195,7 @@ def finalize_sa_screenshot(
         test_case=test_case,
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    destination = _available_numbered_path(destination)
     shutil.copy2(source_path, destination)
 
     if events is not None and hasattr(events, "screenshot_saved"):
@@ -214,6 +228,7 @@ def finalize_harmonic_precision_screenshot(
         sweep_time_ms=sweep_time_ms,
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    destination = _available_numbered_path(destination)
     shutil.copy2(source_path, destination)
 
     if events is not None and hasattr(events, "screenshot_saved"):
@@ -242,6 +257,7 @@ def finalize_fundamental_screenshot(
         test_case=test_case,
     )
     destination.parent.mkdir(parents=True, exist_ok=True)
+    destination = _available_numbered_path(destination)
     shutil.copy2(source_path, destination)
 
     if events is not None and hasattr(events, "screenshot_saved"):
