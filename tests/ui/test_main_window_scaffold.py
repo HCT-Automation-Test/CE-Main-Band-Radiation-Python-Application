@@ -79,7 +79,7 @@ def _make_test_case() -> TestCase:
     )
 
 
-def test_main_window_has_five_navigation_buttons_and_pages(qtbot) -> None:
+def test_main_window_has_five_navigation_buttons_and_four_pages(qtbot) -> None:
     """메인 윈도우가 5개 서브 패널 전환 구조를 가진다."""
 
     window = MainWindow()
@@ -104,7 +104,7 @@ def test_main_window_has_five_navigation_buttons_and_pages(qtbot) -> None:
     stack = window.findChild(QStackedWidget, "subWindowStack")
 
     assert stack is not None
-    assert stack.count() == 5
+    assert stack.count() == 4
 
 
 def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
@@ -119,7 +119,6 @@ def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
     expected_panels = [
         InstrumentCheckPanel,
         ManualTestPanel,
-        RFFilterBoxPanel,
         ManagerPanel,
         PlotScreenshotPanel,
     ]
@@ -127,6 +126,25 @@ def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
     for index, panel_class in enumerate(expected_panels):
         page = stack.widget(index)
         assert page.findChild(panel_class) is not None
+
+
+def test_main_window_rf_filter_box_button_opens_modeless_window(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    rf_window = window.findChild(QDialog, "rfSwitchBoxWindow")
+    assert rf_window is not None
+    assert not rf_window.isVisible()
+
+    button = window.findChild(QPushButton, "rfFilterBoxNavigationButton")
+    button.click()
+    qtbot.wait(0)
+
+    assert rf_window.isVisible()
+    assert rf_window.findChild(RFFilterBoxPanel) is not None
+    stack = window.findChild(QStackedWidget, "subWindowStack")
+    assert stack is not None
+    assert stack.count() == 4
 
 
 def test_main_window_user_action_popup_completes_runner_action(
@@ -463,7 +481,7 @@ def test_main_window_blocks_instrument_connect_while_measurement_active(
 
 
 def test_main_window_page_content_aligns_with_navigation_panel(qtbot) -> None:
-    """좌측 버튼 영역과 우측 서브패널 content 영역의 위치/크기를 맞춘다."""
+    """좌측 버튼 영역과 우측 sub panel content 영역의 위치/크기를 맞춘다."""
 
     window = MainWindow()
     qtbot.addWidget(window)
@@ -487,7 +505,6 @@ def test_main_window_page_content_aligns_with_navigation_panel(qtbot) -> None:
     expected_panels = [
         InstrumentCheckPanel,
         ManualTestPanel,
-        RFFilterBoxPanel,
         ManagerPanel,
         PlotScreenshotPanel,
     ]
@@ -629,7 +646,7 @@ def test_test_manager_panel_test_case_table_fits_default_window(qtbot) -> None:
     qtbot.addWidget(window)
     stack = window.findChild(QStackedWidget, "subWindowStack")
     assert stack is not None
-    stack.setCurrentIndex(3)
+    stack.setCurrentIndex(2)
 
     window.show()
     qtbot.wait(0)
@@ -1400,7 +1417,7 @@ def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) ->
         lambda cases, **kwargs: starts.append(True),
     )
 
-    window._rf_switch_box_service._thread = object()
+    window._rf_switch_box_service._running = True
     try:
         window.on_start_requested()
 
@@ -1409,7 +1426,7 @@ def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) ->
             ("RF Switch Box", RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE),
         ]
     finally:
-        window._rf_switch_box_service._thread = None
+        window._rf_switch_box_service._running = False
 
 
 def test_main_window_blocks_start_without_active_tdf(
@@ -1987,7 +2004,7 @@ def test_main_window_blocks_instrument_connect_while_rf_switch_running(
     }
     window._runner._equipment_state = dict(connected_state)
 
-    window._rf_switch_box_service._thread = object()
+    window._rf_switch_box_service._running = True
     try:
         with qtbot.waitSignal(service.error_occurred, timeout=1000) as blocker:
             service.connect_equipment(config)
@@ -1996,7 +2013,7 @@ def test_main_window_blocks_instrument_connect_while_rf_switch_running(
         assert window._runner.equipment_state == connected_state
         assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
     finally:
-        window._rf_switch_box_service._thread = None
+        window._rf_switch_box_service._running = False
 
 
 def test_main_window_blocks_tdf_when_fsv40_is_not_connected(
@@ -2029,7 +2046,7 @@ def test_main_window_blocks_tdf_while_rf_switch_running(qtbot, monkeypatch) -> N
     )
     monkeypatch.setattr(window._tdf_service, "get_tdf_list", lambda: calls.append(True))
 
-    window._rf_switch_box_service._thread = object()
+    window._rf_switch_box_service._running = True
     try:
         window.on_get_tdf_list_requested()
 
@@ -2038,7 +2055,7 @@ def test_main_window_blocks_tdf_while_rf_switch_running(qtbot, monkeypatch) -> N
             ("TDF", RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE),
         ]
     finally:
-        window._rf_switch_box_service._thread = None
+        window._rf_switch_box_service._running = False
 
 
 def test_main_window_updates_tdf_list_from_service_signal(qtbot) -> None:
