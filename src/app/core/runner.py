@@ -21,6 +21,7 @@ from app.core.instrument_connection import (
 from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
 from app.net import commands as default_commands
+from app.net.lv_server_process import LvServerManager
 from app.net.tcp_client import TcpClient
 from app.report.excel_writer import ExcelReportWriter
 from app.report.report_writer import ReportWriter
@@ -105,6 +106,7 @@ class Runner(QObject):
         tcp_host: str = "127.0.0.1",
         tcp_port: int = 5025,
         temp_dir: Path = _TEMP_DIR,
+        lv_server_manager: Any | None = None,
     ) -> None:
         super().__init__(parent)
         self.events = RunnerEvents(self)
@@ -119,6 +121,11 @@ class Runner(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._temp_dir = Path(temp_dir)
+        self._lv_server_manager = (
+            lv_server_manager
+            if lv_server_manager is not None
+            else LvServerManager(host=self._tcp_host, port=self._tcp_port)
+        )
         self._equipment_state: dict[str, bool] = {}
         self._measurement_active = False
         self._shutting_down = False
@@ -133,6 +140,7 @@ class Runner(QObject):
                 tcp_host=self._tcp_host,
                 tcp_port=self._tcp_port,
                 connection_guard=self._instrument_connection_block_reason,
+                lv_server_manager=self._lv_server_manager,
             )
         )
         self.events.session_finished.connect(self._on_session_finished)

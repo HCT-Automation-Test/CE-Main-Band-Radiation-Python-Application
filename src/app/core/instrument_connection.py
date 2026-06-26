@@ -12,7 +12,9 @@ from app.core import instrument_set
 from app.models.enums import AntennaPol, InputPath
 from app.net import commands as default_commands
 from app.net.commands import EquipmentConnectionConfig
-from app.net.tcp_client import TcpClient
+from app.net.lv_server_process import LvServerManager
+from app.net.protocol import ProtocolError
+from app.net.tcp_client import TcpClient, TcpClientError, TcpClientTimeoutError
 
 logger = logging.getLogger(__name__)
 _DETACHED_THREADS: list[QThread] = []
@@ -166,6 +168,10 @@ def disconnected_equipment_state() -> dict[str, bool]:
 
     return {name: False for name in REQUIRED_EQUIPMENT_NAMES}
 
+def _is_tcp_transport_error(exc: BaseException) -> bool:
+    """LV가 응답하지 못한 TCP transport 계층 오류인지 판정한다."""
+
+    return isinstance(exc, (TcpClientError, TcpClientTimeoutError, ProtocolError))
 
 def discover_visa_resources(
     provider: VisaResourceProvider | None = None,
@@ -190,7 +196,7 @@ def discover_visa_resources(
 
 
 class _VisaDiscoveryWorker(QObject):
-    """VISA Resource 탐색을 UI thread 밖에서 수행한다."""
+    """VISA Resource 검색을 UI thread 밖에서 수행한다."""
 
     finished = Signal(list)
     failed = Signal(str)
@@ -227,6 +233,7 @@ class _ConnectionWorker(QObject):
         tcp_host: str,
         tcp_port: int,
         config: EquipmentConnectionConfig,
+        lv_server_manager: LvServerManager | None = None,
     ) -> None:
         super().__init__()
         self._client_factory = client_factory
@@ -235,12 +242,13 @@ class _ConnectionWorker(QObject):
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._config = config
+        self._lv_server_manager = lv_server_manager
         self._lock = threading.Lock()
         self._client: Any | None = None
         self._cancel_requested = False
 
     def cancel(self) -> None:
-        """실행 중인 연결 작업에 취소를 요청하고 client를 닫는다."""
+        """실행 중인 연결 작업의 취소를 요청하고 client를 닫는다."""
 
         with self._lock:
             self._cancel_requested = True
@@ -250,6 +258,34 @@ class _ConnectionWorker(QObject):
 
     @Slot()
     def run(self) -> None:
+        try:
+            self.started.emit()
+            states = self._connect_once(ensure_lv_server=True)
+        except Exception as exc:
+            if self._is_cancel_requested():
+                self.done.emit()
+                return
+            if self._lv_server_manager is not None and _is_tcp_transport_error(exc):
+                try:
+                    self._lv_server_manager.restart()
+                    states = self._connect_once(ensure_lv_server=False)
+                except Exception as retry_exc:
+                    self._emit_failed(retry_exc)
+                    self.done.emit()
+                    return
+            else:
+                self._emit_failed(exc)
+                self.done.emit()
+                return
+
+        if not self._is_cancel_requested():
+            self.finished.emit(dict(states))
+        self.done.emit()
+
+    def _connect_once(self, *, ensure_lv_server: bool) -> dict[str, bool]:
+        if ensure_lv_server and self._lv_server_manager is not None:
+            self._lv_server_manager.ensure_running()
+
         client = None
         try:
             client = self._client_factory()
@@ -257,28 +293,25 @@ class _ConnectionWorker(QObject):
                 self._client = client
                 cancel_requested = self._cancel_requested
             if cancel_requested:
-                return
+                return {}
 
-            self.started.emit()
             connect_to = getattr(client, "connect_to", None)
             if connect_to is not None:
                 connect_to(self._tcp_host, self._tcp_port)
             states = self._commands.connect_equipment(client, config=self._config)
-            if self._is_cancel_requested():
-                return
-            self.finished.emit(dict(states))
-        except Exception as exc:
-            if self._is_cancel_requested():
-                return
-            logger.exception("장비 연결 실패")
-            self.failed.emit(str(exc))
+            return dict(states)
         finally:
             if self._owns_client:
                 self._close_client(client)
             with self._lock:
                 if self._client is client:
                     self._client = None
-            self.done.emit()
+
+    def _emit_failed(self, exc: BaseException) -> None:
+        if self._is_cancel_requested():
+            return
+        logger.exception("장비 연결 실패")
+        self.failed.emit(str(exc))
 
     def _is_cancel_requested(self) -> bool:
         with self._lock:
@@ -290,7 +323,6 @@ class _ConnectionWorker(QObject):
         close = getattr(client, "close", None)
         if close is not None:
             close()
-
 
 class _EquipmentSetWorker(QObject):
     """장비 Set 작업을 UI thread 밖에서 순차 실행한다."""
@@ -325,7 +357,7 @@ class _EquipmentSetWorker(QObject):
         self._cancel_requested = False
 
     def cancel(self) -> None:
-        """실행 중인 장비 Set 작업에 취소를 요청하고 client를 닫는다."""
+        """실행 중인 장비 Set 작업의 취소를 요청하고 client를 닫는다."""
 
         with self._lock:
             self._cancel_requested = True
@@ -491,7 +523,6 @@ class _EquipmentSetWorker(QObject):
         if close is not None:
             close()
 
-
 class InstrumentConnectionService(QObject):
     """Instrument Check 패널에서 사용하는 비동기 서비스."""
 
@@ -518,6 +549,7 @@ class InstrumentConnectionService(QObject):
         visa_resource_provider: VisaResourceProvider | None = None,
         connection_guard: ConnectionGuard | None = None,
         instrument_set_timeout_s: float = 900.0,
+        lv_server_manager: LvServerManager | None = None,
     ) -> None:
         super().__init__(parent)
         if client is not None and client_factory is not None:
@@ -534,6 +566,7 @@ class InstrumentConnectionService(QObject):
         self._visa_resource_provider = visa_resource_provider
         self._connection_guard = connection_guard
         self._instrument_set_timeout_s = instrument_set_timeout_s
+        self._lv_server_manager = lv_server_manager
         self._discovery_thread: QThread | None = None
         self._connection_thread: QThread | None = None
         self._set_thread: QThread | None = None
@@ -606,6 +639,7 @@ class InstrumentConnectionService(QObject):
             tcp_host=self._tcp_host,
             tcp_port=self._tcp_port,
             config=config,
+            lv_server_manager=self._lv_server_manager,
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
@@ -716,6 +750,8 @@ class InstrumentConnectionService(QObject):
         self._discovery_worker = None
         self._connection_worker = None
         self._set_worker = None
+        if self._lv_server_manager is not None:
+            self._lv_server_manager.shutdown()
 
     @Slot(list)
     def _on_visa_resources_discovered(self, resources: list[str]) -> None:
