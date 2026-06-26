@@ -135,7 +135,7 @@ class Runner(QObject):
                 connection_guard=self._instrument_connection_block_reason,
             )
         )
-        self.events.state_changed.connect(self._on_state_changed)
+        self.events.session_finished.connect(self._on_session_finished)
         self._instrument_connection_service.connection_finished.connect(
             self._on_instrument_connection_finished
         )
@@ -493,10 +493,9 @@ class Runner(QObject):
         self._thread = None
         self._worker = None
 
-    @Slot(str)
-    def _on_state_changed(self, state_name: str) -> None:
-        if state_name == _START_READY_STATE:
-            self._set_measurement_active(False)
+    @Slot()
+    def _on_session_finished(self) -> None:
+        self._set_measurement_active(False)
 
     @Slot(dict)
     def _on_instrument_connection_finished(self, states: dict[str, bool]) -> None:
