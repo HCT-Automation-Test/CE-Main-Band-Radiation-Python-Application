@@ -37,6 +37,8 @@ from app.core.runner import (
 )
 from app.models.enums import (
     AntennaPol,
+    FilterPath,
+    InputPath,
     DUTAntPosition,
     DUTAxis,
     Modulation,
@@ -132,8 +134,9 @@ def test_main_window_rf_filter_box_button_opens_modeless_window(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
 
-    rf_window = window.findChild(QDialog, "rfSwitchBoxWindow")
+    rf_window = window._rf_switch_box_window
     assert rf_window is not None
+    assert rf_window.parent() is None
     assert not rf_window.isVisible()
 
     button = window.findChild(QPushButton, "rfFilterBoxNavigationButton")
@@ -145,6 +148,68 @@ def test_main_window_rf_filter_box_button_opens_modeless_window(qtbot) -> None:
     stack = window.findChild(QStackedWidget, "subWindowStack")
     assert stack is not None
     assert stack.count() == 4
+
+
+def test_rf_switch_box_window_maximize_close_hides_and_reopen_keeps_state(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    rf_window = window._rf_switch_box_window
+    button = window.findChild(QPushButton, "rfFilterBoxNavigationButton")
+    assert rf_window is not None
+    assert button is not None
+
+    button.click()
+    qtbot.waitUntil(rf_window.isVisible, timeout=1000)
+    rf_window.showMaximized()
+    qtbot.waitUntil(rf_window.isMaximized, timeout=1000)
+
+    panel = rf_window.findChild(RFFilterBoxPanel)
+    assert panel is not None
+    panel.set_switch_box_info(
+        {"input_path": InputPath.INPUT2, "filter_path": FilterPath.HPF_6G}
+    )
+
+    rf_window.close()
+    qtbot.waitUntil(lambda: not rf_window.isVisible(), timeout=1000)
+    assert window._rf_switch_box_window is rf_window
+
+    button.click()
+    qtbot.waitUntil(rf_window.isVisible, timeout=1000)
+
+    assert rf_window.findChild(RFFilterBoxPanel) is panel
+    assert panel.findChild(QLabel, "currentInputLabel").text() == "Input: 3M HORN"
+    assert panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: 6 GHz HPF"
+
+def test_rf_switch_box_window_minimize_reopen_keeps_state(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    rf_window = window._rf_switch_box_window
+    button = window.findChild(QPushButton, "rfFilterBoxNavigationButton")
+    assert rf_window is not None
+    assert button is not None
+
+    button.click()
+    qtbot.waitUntil(rf_window.isVisible, timeout=1000)
+    panel = rf_window.findChild(RFFilterBoxPanel)
+    assert panel is not None
+    panel.set_switch_box_info(
+        {"input_path": InputPath.INPUT2, "filter_path": FilterPath.HPF_6G}
+    )
+
+    rf_window.showMinimized()
+    qtbot.waitUntil(rf_window.isMinimized, timeout=1000)
+
+    button.click()
+    qtbot.waitUntil(
+        lambda: rf_window.isVisible() and not rf_window.isMinimized(),
+        timeout=1000,
+    )
+
+    assert rf_window.findChild(RFFilterBoxPanel) is panel
+    assert panel.findChild(QLabel, "currentInputLabel").text() == "Input: 3M HORN"
+    assert panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: 6 GHz HPF"
 
 
 def test_main_window_user_action_popup_completes_runner_action(
@@ -1981,12 +2046,12 @@ def test_main_window_blocks_instrument_connect_while_rf_switch_running(
     qtbot.addWidget(window)
     service = window._runner.instrument_connection_service
     instrument_panel = window.findChild(InstrumentCheckPanel)
-    rf_panel = window.findChild(RFFilterBoxPanel)
+    rf_panel = window._rf_filter_box_panel
     assert instrument_panel is not None
     assert rf_panel is not None
     monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
     rf_panel.set_connection_state({"Switch Box": True})
-    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    assert rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
     config = build_equipment_connection_config(
         mt8000a_visa_resource="MT",
         fsv40_visa_resource="FS",
@@ -2011,7 +2076,7 @@ def test_main_window_blocks_instrument_connect_while_rf_switch_running(
 
         assert blocker.args == [RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE]
         assert window._runner.equipment_state == connected_state
-        assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+        assert rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
     finally:
         window._rf_switch_box_service._running = False
 
@@ -2337,14 +2402,14 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
     window = MainWindow()
     qtbot.addWidget(window)
     service = window._runner.instrument_connection_service
-    rf_panel = window.findChild(RFFilterBoxPanel)
+    rf_panel = window._rf_filter_box_panel
     assert rf_panel is not None
     rf_panel.set_connection_state({"Switch Box": True})
-    window.findChild(QPushButton, "inputButton3").click()
-    window.findChild(QPushButton, "filterButton06").click()
+    rf_panel.findChild(QPushButton, "inputButton3").click()
+    rf_panel.findChild(QPushButton, "filterButton06").click()
 
-    assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
-    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    assert rf_panel.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+    assert rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
     service._connection_thread = object()
     try:
@@ -2355,9 +2420,9 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
             assert indicator is not None
             assert indicator.property("connectionStatus") == "connecting"
             assert indicator.property("connected") is False
-        assert not window.findChild(QPushButton, "inputButton1").isEnabled()
-        assert not window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
-        assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+        assert not rf_panel.findChild(QPushButton, "inputButton1").isEnabled()
+        assert not rf_panel.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert not rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
         service.connection_finished.emit(
             {
@@ -2369,9 +2434,9 @@ def test_main_window_mirrors_instrument_connection_state_to_test_manager(
             }
         )
 
-        assert window.findChild(QPushButton, "inputButton1").isEnabled()
-        assert window.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
-        assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+        assert rf_panel.findChild(QPushButton, "inputButton1").isEnabled()
+        assert rf_panel.findChild(QPushButton, "setSwitchBoxButton").isEnabled()
+        assert rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
         expected_statuses = [
             "connected",
@@ -2406,10 +2471,11 @@ def test_main_window_applies_initial_switch_box_101_after_connection(
         }
     )
 
-    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
-    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
-    assert window.findChild(QPushButton, "inputButton1").isChecked()
-    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    rf_panel = window._rf_filter_box_panel
+    assert rf_panel.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert rf_panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert rf_panel.findChild(QPushButton, "inputButton1").isChecked()
+    assert rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
     assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
 
@@ -2451,10 +2517,11 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
     )
     service.connection_finished.emit(states)
 
-    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
-    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
-    assert not window.findChild(QPushButton, "inputButton1").isChecked()
-    assert not window.findChild(QPushButton, "filterButton01").isChecked()
+    rf_panel = window._rf_filter_box_panel
+    assert rf_panel.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
+    assert rf_panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: Unknown"
+    assert not rf_panel.findChild(QPushButton, "inputButton1").isChecked()
+    assert not rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == ""
     assert window.findChild(QLineEdit, "filterEdit").text() == ""
 
@@ -2490,10 +2557,11 @@ def test_main_window_preserves_switch_box_path_on_guard_connection_error(
 
     service.error_occurred.emit(message)
 
-    assert window.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
-    assert window.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
-    assert window.findChild(QPushButton, "inputButton1").isChecked()
-    assert window.findChild(QPushButton, "filterButton01").isChecked()
+    rf_panel = window._rf_filter_box_panel
+    assert rf_panel.findChild(QLabel, "currentInputLabel").text() == "Input: Bilog"
+    assert rf_panel.findChild(QLabel, "currentFilterLabel").text() == "Filter: Thru"
+    assert rf_panel.findChild(QPushButton, "inputButton1").isChecked()
+    assert rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
     assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
 
@@ -2512,8 +2580,9 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
     service = window._runner.instrument_connection_service
 
     service.connection_started.emit()
-    window.findChild(RFFilterBoxPanel).set_connection_state({"Switch Box": True})
-    assert window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    rf_panel = window._rf_filter_box_panel
+    rf_panel.set_connection_state({"Switch Box": True})
+    assert rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
     service.connection_started.emit()
     service.error_occurred.emit("boom")
@@ -2523,10 +2592,10 @@ def test_main_window_marks_connecting_indicators_failed_on_connection_error(
         assert indicator is not None
         assert indicator.property("connectionStatus") == "failed"
         assert indicator.property("connected") is False
-    assert not window.findChild(QPushButton, "inputButton1").isEnabled()
-    assert not window.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
+    assert not rf_panel.findChild(QPushButton, "inputButton1").isEnabled()
+    assert not rf_panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
     assert (
-        window.findChild(QLabel, "operationStatusLabel").text()
+        rf_panel.findChild(QLabel, "operationStatusLabel").text()
         == "Switch Box not connected"
     )
 

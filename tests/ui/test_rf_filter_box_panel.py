@@ -123,6 +123,32 @@ def test_rf_filter_box_canvas_follows_visible_panel_size(qtbot) -> None:
     assert canvas.height() > 747
 
 
+def test_panel_controls_scale_with_large_window(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.resize(1200, 820)
+    panel.show()
+    qtbot.wait(0)
+
+    set_button = panel.findChild(QPushButton, "setSwitchBoxButton")
+    thru_button = panel.findChild(QPushButton, "thruSwitchBoxButton")
+    input_button = panel.findChild(QPushButton, "inputButton1")
+    assert set_button is not None
+    assert thru_button is not None
+    assert input_button is not None
+
+    base_set_height = set_button.height()
+    base_thru_height = thru_button.height()
+    base_input_height = input_button.height()
+    base_input_font = input_button.font().pointSize()
+
+    panel.resize(1920, 1230)
+    qtbot.wait(0)
+
+    assert set_button.height() > base_set_height
+    assert thru_button.height() > base_thru_height
+    assert input_button.height() > base_input_height
+    assert input_button.font().pointSize() > base_input_font
+
 def test_select_buttons_do_not_send_until_set(qtbot) -> None:
     panel, service = _connected_panel(qtbot)
 

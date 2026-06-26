@@ -33,6 +33,14 @@ _BUTTON_WIDTH = 80
 _BUTTON_HEIGHT = 20
 _OUTPUT_WIDTH = 80
 _OUTPUT_HEIGHT = 21
+_PANEL_BASE_WIDTH = 1200
+_PANEL_BASE_HEIGHT = 820
+_PANEL_SCALE_MAX = 1.6
+_HEADER_BASE_SPACING = 8
+_HEADER_BASE_BUTTON_HEIGHT = 34
+_HEADER_BASE_BUTTON_WIDTH = 76
+_HEADER_BASE_FONT_SIZE = 11
+_CANVAS_BASE_FONT_SIZE = 11
 
 _INPUT_BUTTONS: tuple[tuple[str, InputPath, tuple[int, int]], ...] = (
     ("Bilog", InputPath.INPUT1, (50, 369)),
@@ -108,7 +116,6 @@ def _style_button(button: QPushButton) -> None:
             background: #f7f7f7;
             border: 1px solid #808080;
             color: #111111;
-            font-size: 11px;
             padding: 0;
         }
         QPushButton:checked {
@@ -365,6 +372,9 @@ class _CircuitCanvas(QWidget):
             max(1, round(width * scale)),
             max(1, round(height * scale)),
         )
+        font = widget.font()
+        font.setPointSize(max(8, round(_CANVAS_BASE_FONT_SIZE * min(scale, 1.6))))
+        widget.setFont(font)
 
     def _scaled_content_rect(self) -> QRectF:
         base_width = self._base_size.width()
@@ -479,10 +489,15 @@ class RFFilterBoxPanel(QWidget):
         self._operation_locked = False
         self._service_running = False
         self._build_ui()
+        self._apply_control_scale()
         self._connect_canvas_buttons()
         self._connect_service()
         self._update_status()
         self._update_button_state()
+
+    def resizeEvent(self, event: object) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_control_scale()
 
     def shutdown(self) -> None:
         if self._service is not None:
@@ -525,12 +540,14 @@ class RFFilterBoxPanel(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(10)
+        self._root_layout = root_layout
 
         header = QWidget(self)
         header.setObjectName("rfSwitchHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(_HEADER_BASE_SPACING)
+        self._header_layout = header_layout
 
         self._current_input_label = QLabel("Input: Unknown", header)
         self._current_input_label.setObjectName("currentInputLabel")
@@ -545,11 +562,11 @@ class RFFilterBoxPanel(QWidget):
 
         self._set_button = QPushButton("SET", header)
         self._set_button.setObjectName("setSwitchBoxButton")
-        self._set_button.setFixedHeight(34)
+        self._set_button.setFixedHeight(_HEADER_BASE_BUTTON_HEIGHT)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._thru_button = QPushButton("Thru!", header)
         self._thru_button.setObjectName("thruSwitchBoxButton")
-        self._thru_button.setFixedHeight(34)
+        self._thru_button.setFixedHeight(_HEADER_BASE_BUTTON_HEIGHT)
         self._thru_button.clicked.connect(self._on_thru_clicked)
 
         header_layout.addWidget(self._current_input_label)
@@ -566,6 +583,40 @@ class RFFilterBoxPanel(QWidget):
         self._canvas = _CircuitCanvas(scroll_area)
         scroll_area.setWidget(self._canvas)
         root_layout.addWidget(scroll_area, 1)
+
+    def _control_scale(self) -> float:
+        width_scale = self.width() / _PANEL_BASE_WIDTH if self.width() > 0 else 1.0
+        height_scale = self.height() / _PANEL_BASE_HEIGHT if self.height() > 0 else 1.0
+        return max(1.0, min(_PANEL_SCALE_MAX, min(width_scale, height_scale)))
+
+    def _apply_control_scale(self) -> None:
+        scale = self._control_scale()
+        self._root_layout.setSpacing(round(10 * scale))
+        self._header_layout.setSpacing(round(_HEADER_BASE_SPACING * scale))
+        self._apply_scaled_font(
+            self._current_input_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_scaled_font(
+            self._current_filter_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_scaled_font(
+            self._status_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_header_button_scale(self._set_button, scale)
+        self._apply_header_button_scale(self._thru_button, scale)
+
+    def _apply_header_button_scale(self, button: QPushButton, scale: float) -> None:
+        button.setFixedHeight(round(_HEADER_BASE_BUTTON_HEIGHT * scale))
+        button.setMinimumWidth(round(_HEADER_BASE_BUTTON_WIDTH * scale))
+        self._apply_scaled_font(button, round(_HEADER_BASE_FONT_SIZE * scale))
+
+    def _apply_scaled_font(self, widget: QWidget, point_size: int) -> None:
+        font = widget.font()
+        font.setPointSize(max(_HEADER_BASE_FONT_SIZE, point_size))
+        widget.setFont(font)
 
     def _connect_canvas_buttons(self) -> None:
         for button, input_path in self._canvas.input_selected.items():

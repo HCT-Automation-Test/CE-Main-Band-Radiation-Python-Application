@@ -95,6 +95,9 @@ class RFSwitchBoxWindow(QDialog):
         self.setObjectName("rfSwitchBoxWindow")
         self.setWindowTitle("RF Filter Box")
         self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setWindowFlag(Qt.WindowType.Window, True)
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
         self.resize(1200, 820)
         self._allow_close = False
 
@@ -115,6 +118,10 @@ class RFSwitchBoxWindow(QDialog):
         self.hide()
 
     def show_window(self) -> None:
+        if self.isMinimized():
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowState.WindowMinimized,
+            )
         self.show()
         self.raise_()
         self.activateWindow()
@@ -287,7 +294,6 @@ class MainWindow(QMainWindow):
         self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
         self._rf_switch_box_window = RFSwitchBoxWindow(
-            self,
             service=self._rf_switch_box_service,
         )
         self._rf_filter_box_panel = self._rf_switch_box_window.panel
