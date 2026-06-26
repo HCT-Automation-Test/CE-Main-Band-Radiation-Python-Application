@@ -61,6 +61,7 @@ _COMMAND_STOP_TURNTABLE = "Stop TurnTable"
 _COMMAND_GET_TURNTABLE_ANGLE = "Get TurnTable Angle"
 _COMMAND_SET_INPUT = "Set Input"
 _COMMAND_SET_FILTER = "Set Filter"
+_COMMAND_SET_PATH = "Set Path"
 _COMMAND_SET_REFERENCE = "Set Reference"
 _COMMAND_SELF_ALIGNMENT = "Self Alignment"
 _COMMAND_GET_TDF_LIST = "Get TDF List"
@@ -319,6 +320,14 @@ class MockLvServer:
             )
             return _ok(request)
         if request.command == _COMMAND_SET_FILTER:
+            self.state.switch_filter_path = _coerce_int(
+                request.params.get("Filter Path"), 0
+            )
+            return _ok(request)
+        if request.command == _COMMAND_SET_PATH:
+            self.state.switch_input_path = _coerce_int(
+                request.params.get("Input Path"), 0
+            )
             self.state.switch_filter_path = _coerce_int(
                 request.params.get("Filter Path"), 0
             )

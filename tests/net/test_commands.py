@@ -599,8 +599,8 @@ def test_measure_bilog_rejects_non_numeric_amplitude() -> None:
         commands.measure_bilog(client, limit=-46.0)
 
 
-def test_set_switch_box_sends_input_then_filter() -> None:
-    client = _Client(_default_ok(), _default_ok())
+def test_set_switch_box_sends_set_path() -> None:
+    client = _Client(_default_ok())
 
     assert commands.set_switch_box(
         client,
@@ -608,8 +608,7 @@ def test_set_switch_box_sends_input_then_filter() -> None:
         filter_path=FilterPath.HPF_6G,
     ) is True
     assert client.calls == [
-        ("Switch Box", "Set Input", {"Input Path": 3}),
-        ("Switch Box", "Set Filter", {"Filter Path": 6}),
+        ("Switch Box", "Set Path", {"Input Path": 3, "Filter Path": 6}),
     ]
 
 
@@ -631,23 +630,24 @@ def test_set_switch_filter_sends_filter_only() -> None:
     ]
 
 
-def test_set_switch_box_raises_when_set_input_returns_error() -> None:
+def test_set_switch_box_raises_when_set_path_returns_error() -> None:
     client = _Client(
         Response(
             id="response-id",
             status="error",
-            error={"message": "input failed"},
+            error={"message": "path failed"},
         ),
-        _default_ok(),
     )
 
-    with pytest.raises(commands.CommandError, match="Switch Box / Set Input failed"):
+    with pytest.raises(commands.CommandError, match="Switch Box / Set Path failed"):
         commands.set_switch_box(
             client,
             input_path=InputPath.INPUT1,
             filter_path=FilterPath.THRU,
         )
-    assert client.calls == [("Switch Box", "Set Input", {"Input Path": 1})]
+    assert client.calls == [
+        ("Switch Box", "Set Path", {"Input Path": 1, "Filter Path": 1})
+    ]
 
 
 def test_rotate_and_stop_turntable_send_co3000_commands() -> None:
@@ -858,4 +858,3 @@ def test_measure_harmonic_precision_rejects_missing_amplitude() -> None:
         match=r"Result\.Amplitude must be a number",
     ):
         commands.measure_harmonic_precision(client)
-

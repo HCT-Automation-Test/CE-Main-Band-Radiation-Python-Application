@@ -73,12 +73,64 @@ class _InstrumentOperationLockState:
 
 
 class _UserActionDialog(QDialog):
-    """수동 조작 팝업이 Esc/reject로 사라지지 않도록 제한한다."""
+    """수동 조작 팝업을 Esc/reject로 사라지지 않도록 제한한다."""
 
     def reject(self) -> None:
         return
 
     def close_without_action(self) -> None:
+        super().reject()
+
+
+class RFSwitchBoxWindow(QDialog):
+    """RF Switch Box 조작 화면을 별도 modeless 창으로 표시한다."""
+
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        service: RFSwitchBoxService,
+    ) -> None:
+        super().__init__(parent)
+        self.setObjectName("rfSwitchBoxWindow")
+        self.setWindowTitle("RF Filter Box")
+        self.setWindowModality(Qt.WindowModality.NonModal)
+        self.setWindowFlag(Qt.WindowType.Window, True)
+        self.setWindowFlag(Qt.WindowType.WindowMinimizeButtonHint, True)
+        self.setWindowFlag(Qt.WindowType.WindowMaximizeButtonHint, True)
+        self.resize(1200, 820)
+        self._allow_close = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(0)
+        self.panel = RFFilterBoxPanel(self, service=service)
+        layout.addWidget(self.panel, 1)
+
+    def reject(self) -> None:
+        self.hide()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
+        if self._allow_close:
+            super().closeEvent(event)
+            return
+        event.ignore()
+        self.hide()
+
+    def show_window(self) -> None:
+        if self.isMinimized():
+            self.setWindowState(
+                self.windowState() & ~Qt.WindowState.WindowMinimized,
+            )
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def shutdown(self) -> None:
+        self.panel.shutdown()
+
+    def close_without_action(self) -> None:
+        self._allow_close = True
         super().reject()
 
 
@@ -241,11 +293,10 @@ class MainWindow(QMainWindow):
         )
         self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
-        self._rf_filter_box_panel = RFFilterBoxPanel(
-            self._page_stack,
+        self._rf_switch_box_window = RFSwitchBoxWindow(
             service=self._rf_switch_box_service,
         )
-
+        self._rf_filter_box_panel = self._rf_switch_box_window.panel
         self._add_navigation_page(
             navigation_layout,
             index=0,
@@ -260,23 +311,22 @@ class MainWindow(QMainWindow):
             object_name="manualTest",
             page_widget=ManualTestPanel(self._page_stack),
         )
-        self._add_navigation_page(
+        self._add_window_button(
             navigation_layout,
-            index=2,
             button_text="RF Filter\nBox",
             object_name="rfFilterBox",
-            page_widget=self._rf_filter_box_panel,
+            callback=self._show_rf_switch_box_window,
         )
         self._add_navigation_page(
             navigation_layout,
-            index=3,
+            index=2,
             button_text="Test\nManager",
             object_name="testManager",
             page_widget=self._test_manager_panel,
         )
         self._add_navigation_page(
             navigation_layout,
-            index=4,
+            index=3,
             button_text="Test Plot\nScreenshot",
             object_name="testPlotScreenshot",
             page_widget=self._test_plot_screenshot_panel,
@@ -328,24 +378,42 @@ class MainWindow(QMainWindow):
         object_name: str,
         page_widget: QWidget,
     ) -> None:
-        """내비게이션 버튼과 연결된 스택 페이지를 추가한다."""
+        """네비게이션 버튼과 연결되는 스택 페이지를 추가한다."""
 
-        button = QPushButton(button_text, self)
-        button.setObjectName(f"{object_name}NavigationButton")
-        button.setProperty("navigationButton", True)
+        button = self._create_navigation_button(button_text, object_name)
         button.setCheckable(True)
-        button.setCursor(Qt.CursorShape.PointingHandCursor)
-        button.setFixedHeight(70)
-        button.setSizePolicy(
-            QSizePolicy.Policy.Expanding,
-            QSizePolicy.Policy.Fixed,
-        )
         self._navigation_button_group.addButton(button, index)
         navigation_layout.addWidget(button)
 
         page = self._create_page(page_widget)
         page.setObjectName(f"{object_name}Page")
         self._page_stack.addWidget(page)
+
+    def _add_window_button(
+        self,
+        navigation_layout: QVBoxLayout,
+        *,
+        button_text: str,
+        object_name: str,
+        callback: object,
+    ) -> None:
+        """스택 전환 없이 별도 창을 여는 네비게이션 버튼을 추가한다."""
+
+        button = self._create_navigation_button(button_text, object_name)
+        button.clicked.connect(callback)
+        navigation_layout.addWidget(button)
+
+    def _create_navigation_button(self, button_text: str, object_name: str) -> QPushButton:
+        button = QPushButton(button_text, self)
+        button.setObjectName(f"{object_name}NavigationButton")
+        button.setProperty("navigationButton", True)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFixedHeight(70)
+        button.setSizePolicy(
+            QSizePolicy.Policy.Expanding,
+            QSizePolicy.Policy.Fixed,
+        )
+        return button
 
     def _create_page(self, content_widget: QWidget) -> QWidget:
         """서브 윈도우 페이지 공통 외곽을 만든다."""
@@ -362,6 +430,9 @@ class MainWindow(QMainWindow):
         )
         page_layout.addWidget(content_widget, 1)
         return page
+
+    def _show_rf_switch_box_window(self) -> None:
+        self._rf_switch_box_window.show_window()
 
     def on_navigation_button_clicked(self, index: int) -> None:
         """내비게이션 버튼 클릭 시 우측 서브 윈도우를 전환한다."""
@@ -777,6 +848,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         """윈도우 종료 전에 worker를 가진 하위 패널을 정리한다."""
 
+        self._close_rf_switch_box_window()
         self._shutdown_child_panels()
         self._close_tdf_progress_dialog()
         self._close_manual_marker_dialog()
@@ -786,6 +858,7 @@ class MainWindow(QMainWindow):
 
     def event(self, event: QEvent) -> bool:
         if event.type() == QEvent.Type.Destroy:
+            self._close_rf_switch_box_window()
             self._shutdown_child_panels()
             self._close_tdf_progress_dialog()
             self._close_manual_marker_dialog()
@@ -805,6 +878,16 @@ class MainWindow(QMainWindow):
             dialog.close()
         dialog.setParent(None)
         dialog.deleteLater()
+
+    def _close_rf_switch_box_window(self) -> None:
+        window = getattr(self, "_rf_switch_box_window", None)
+        if window is None:
+            return
+        self._rf_switch_box_window = None
+        window.shutdown()
+        window.close_without_action()
+        window.setParent(None)
+        window.deleteLater()
 
     def _shutdown_child_panels(self) -> None:
         seen: set[int] = set()
@@ -890,4 +973,3 @@ class MainWindow(QMainWindow):
             0,
             _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOZORDER | _SWP_FRAMECHANGED,
         )
-

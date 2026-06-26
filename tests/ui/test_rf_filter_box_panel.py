@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
@@ -10,11 +9,7 @@ from app.models.enums import FilterPath, InputPath
 from app.net.mock_lv_server import MockLvServer
 from app.net.tcp_client import TcpClient
 from app.net import commands
-from app.ui.rf_filter_box_panel import (
-    RFFilterBoxPanel,
-    RFSwitchBoxService,
-    _DETACHED_THREADS,
-)
+from app.ui.rf_filter_box_panel import RFFilterBoxPanel, RFSwitchBoxService
 
 
 class _Service(QObject):
@@ -54,11 +49,19 @@ class _Service(QObject):
         return
 
 
-class _BlockingCommands:
-    def __init__(self, *, release_timeout_s: float = 5.0) -> None:
-        self.started = threading.Event()
-        self.release = threading.Event()
-        self.release_timeout_s = release_timeout_s
+class _Commands:
+    def __init__(
+        self,
+        *,
+        switch_box_result: bool = True,
+        filter_result: bool = True,
+        exception: Exception | None = None,
+    ) -> None:
+        self.switch_box_result = switch_box_result
+        self.filter_result = filter_result
+        self.exception = exception
+        self.switch_box_calls: list[tuple[Any, InputPath, FilterPath]] = []
+        self.filter_calls: list[tuple[Any, FilterPath]] = []
 
     def set_switch_box(
         self,
@@ -67,16 +70,16 @@ class _BlockingCommands:
         input_path: InputPath,
         filter_path: FilterPath,
     ) -> bool:
-        _ = client, input_path, filter_path
-        self.started.set()
-        self.release.wait(self.release_timeout_s)
-        return True
+        self.switch_box_calls.append((client, input_path, filter_path))
+        if self.exception is not None:
+            raise self.exception
+        return self.switch_box_result
 
     def set_switch_filter(self, client: Any, *, filter_path: FilterPath) -> bool:
-        _ = client, filter_path
-        self.started.set()
-        self.release.wait(self.release_timeout_s)
-        return True
+        self.filter_calls.append((client, filter_path))
+        if self.exception is not None:
+            raise self.exception
+        return self.filter_result
 
 
 def _connected_panel(qtbot) -> tuple[RFFilterBoxPanel, _Service]:
@@ -119,6 +122,32 @@ def test_rf_filter_box_canvas_follows_visible_panel_size(qtbot) -> None:
     assert canvas.width() > 1098
     assert canvas.height() > 747
 
+
+def test_panel_controls_scale_with_large_window(qtbot) -> None:
+    panel, _service = _connected_panel(qtbot)
+    panel.resize(1200, 820)
+    panel.show()
+    qtbot.wait(0)
+
+    set_button = panel.findChild(QPushButton, "setSwitchBoxButton")
+    thru_button = panel.findChild(QPushButton, "thruSwitchBoxButton")
+    input_button = panel.findChild(QPushButton, "inputButton1")
+    assert set_button is not None
+    assert thru_button is not None
+    assert input_button is not None
+
+    base_set_height = set_button.height()
+    base_thru_height = thru_button.height()
+    base_input_height = input_button.height()
+    base_input_font = input_button.font().pointSize()
+
+    panel.resize(1920, 1230)
+    qtbot.wait(0)
+
+    assert set_button.height() > base_set_height
+    assert thru_button.height() > base_thru_height
+    assert input_button.height() > base_input_height
+    assert input_button.font().pointSize() > base_input_font
 
 def test_select_buttons_do_not_send_until_set(qtbot) -> None:
     panel, service = _connected_panel(qtbot)
@@ -203,32 +232,56 @@ def test_panel_disables_controls_when_locked_or_disconnected(qtbot) -> None:
     assert not panel.findChild(QPushButton, "thruSwitchBoxButton").isEnabled()
 
 
-def test_rf_switch_box_service_shutdown_detaches_blocked_worker(qtbot) -> None:
-    commands = _BlockingCommands()
-    service = RFSwitchBoxService(client=object(), commands=commands)
-    detached_count = len(_DETACHED_THREADS)
+def test_rf_switch_box_service_runs_set_synchronously(qtbot) -> None:
+    command_facade = _Commands()
+    client = object()
+    service = RFSwitchBoxService(client=client, commands=command_facade)
+    started: list[bool] = []
+    finished: list[str] = []
+    set_paths: list[tuple[InputPath, FilterPath]] = []
+
+    service.operation_started.connect(lambda: started.append(service.is_running))
+    service.switch_box_set.connect(lambda input_path, filter_path: set_paths.append((input_path, filter_path)))
+    service.operation_finished.connect(finished.append)
 
     service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
-    qtbot.waitUntil(commands.started.is_set, timeout=1000)
 
-    service.shutdown()
-
-    assert len(_DETACHED_THREADS) == detached_count + 1
+    assert started == [True]
+    assert command_facade.switch_box_calls == [(client, InputPath.INPUT3, FilterPath.HPF_6G)]
+    assert set_paths == [(InputPath.INPUT3, FilterPath.HPF_6G)]
+    assert finished == ["Switch Box 경로 설정 완료"]
     assert not service.is_running
 
-    commands.release.set()
-    qtbot.waitUntil(lambda: len(_DETACHED_THREADS) == detached_count, timeout=1000)
+
+def test_rf_switch_box_service_runs_thru_synchronously(qtbot) -> None:
+    command_facade = _Commands()
+    client = object()
+    service = RFSwitchBoxService(client=client, commands=command_facade)
+    filters: list[FilterPath] = []
+    finished: list[str] = []
+
+    service.switch_filter_set.connect(filters.append)
+    service.operation_finished.connect(finished.append)
+
+    service.set_thru()
+
+    assert command_facade.filter_calls == [(client, FilterPath.THRU)]
+    assert filters == [FilterPath.THRU]
+    assert finished == ["Switch Box THRU 설정 완료"]
+    assert not service.is_running
 
 
-def test_rf_switch_box_service_releases_worker_when_operation_finishes(qtbot) -> None:
-    commands = _BlockingCommands(release_timeout_s=0.0)
-    service = RFSwitchBoxService(client=object(), commands=commands)
+def test_rf_switch_box_service_reports_failure_and_releases_running_flag(qtbot) -> None:
+    command_facade = _Commands(exception=RuntimeError("instrument timeout"))
+    service = RFSwitchBoxService(client=object(), commands=command_facade)
+    failed: list[str] = []
+
+    service.operation_failed.connect(failed.append)
 
     service.set_switch_box(InputPath.INPUT3, FilterPath.HPF_6G)
 
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-
-    assert service._worker is None
+    assert failed == ["instrument timeout"]
+    assert not service.is_running
 
 
 def test_rf_switch_box_service_repeated_operations_with_tcp_client(qtbot, tmp_path) -> None:

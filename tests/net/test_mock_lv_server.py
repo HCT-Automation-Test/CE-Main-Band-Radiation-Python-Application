@@ -112,6 +112,12 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
         )
         assert server.state.switch_input_path == 3
         assert server.state.switch_filter_path == 6
+        switch_request = next(
+            request
+            for request in server.received_requests
+            if request.target == "Switch Box" and request.command == "Set Path"
+        )
+        assert switch_request.params == {"Input Path": 3, "Filter Path": 6}
         assert server.state.antenna_pol == "V"
     finally:
         client.disconnect_from_host()

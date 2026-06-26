@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import logging
-import threading
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from PySide6.QtCore import QObject, QRectF, QSize, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QRectF, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -26,7 +24,6 @@ from app.net import commands as default_commands
 
 logger = logging.getLogger(__name__)
 
-_DETACHED_THREADS: list[QThread] = []
 _BACKGROUND_PATH = (
     Path(__file__).resolve().parents[3] / "resources" / "images" / "rf_switch_box_bd.png"
 )
@@ -36,24 +33,14 @@ _BUTTON_WIDTH = 80
 _BUTTON_HEIGHT = 20
 _OUTPUT_WIDTH = 80
 _OUTPUT_HEIGHT = 21
-
-
-def _disconnect_safely(signal: Any, slot: Any) -> None:
-    try:
-        signal.disconnect(slot)
-    except (RuntimeError, TypeError):
-        pass
-
-
-def _forget_detached_thread(thread: QThread) -> None:
-    if thread in _DETACHED_THREADS:
-        _DETACHED_THREADS.remove(thread)
-
-
-def _delete_detached_thread(thread: QThread) -> None:
-    _forget_detached_thread(thread)
-    thread.deleteLater()
-
+_PANEL_BASE_WIDTH = 1200
+_PANEL_BASE_HEIGHT = 820
+_PANEL_SCALE_MAX = 1.6
+_HEADER_BASE_SPACING = 8
+_HEADER_BASE_BUTTON_HEIGHT = 34
+_HEADER_BASE_BUTTON_WIDTH = 76
+_HEADER_BASE_FONT_SIZE = 11
+_CANVAS_BASE_FONT_SIZE = 11
 
 _INPUT_BUTTONS: tuple[tuple[str, InputPath, tuple[int, int]], ...] = (
     ("Bilog", InputPath.INPUT1, (50, 369)),
@@ -129,7 +116,6 @@ def _style_button(button: QPushButton) -> None:
             background: #f7f7f7;
             border: 1px solid #808080;
             color: #111111;
-            font-size: 11px;
             padding: 0;
         }
         QPushButton:checked {
@@ -165,79 +151,11 @@ def _point_on_button(center: tuple[int, int]) -> tuple[int, int]:
     return (center[0] - _BUTTON_WIDTH // 2, center[1] - _BUTTON_HEIGHT // 2)
 
 
-@dataclass(frozen=True)
-class _SwitchOperation:
-    kind: Literal["set", "thru"]
-    input_path: InputPath | None
-    filter_path: FilterPath
-
-
-class _SwitchBoxWorker(QObject):
-    started = Signal()
-    set_finished = Signal(object, object)
-    filter_finished = Signal(object)
-    failed = Signal(str)
-    done = Signal()
-
-    def __init__(self, *, client: Any, commands: Any, operation: _SwitchOperation) -> None:
-        super().__init__()
-        self._client = client
-        self._commands = commands
-        self._operation = operation
-        self._lock = threading.Lock()
-        self._cancel_requested = False
-
-    def cancel(self) -> None:
-        with self._lock:
-            self._cancel_requested = True
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            self.started.emit()
-            if self._is_cancel_requested():
-                return
-            if self._operation.kind == "set":
-                input_path = self._operation.input_path
-                if input_path is None:
-                    self.failed.emit("Input path is not selected")
-                    return
-                ok = self._commands.set_switch_box(
-                    self._client,
-                    input_path=input_path,
-                    filter_path=self._operation.filter_path,
-                )
-                if self._is_cancel_requested():
-                    return
-                if ok:
-                    self.set_finished.emit(input_path, self._operation.filter_path)
-                else:
-                    self.failed.emit("Switch Box SET returned false")
-                return
-            ok = self._commands.set_switch_filter(
-                self._client,
-                filter_path=self._operation.filter_path,
-            )
-            if self._is_cancel_requested():
-                return
-            if ok:
-                self.filter_finished.emit(self._operation.filter_path)
-            else:
-                self.failed.emit("Switch Box Thru returned false")
-        except Exception as exc:
-            if not self._is_cancel_requested():
-                logger.exception("Switch Box 수동 제어 실패")
-                self.failed.emit(str(exc))
-        finally:
-            self.done.emit()
-
-    def _is_cancel_requested(self) -> bool:
-        with self._lock:
-            return self._cancel_requested
-
-
 class RFSwitchBoxService(QObject):
-    """RF Switch Box 수동 조작을 UI thread 밖에서 실행한다."""
+    """RF Switch Box 수동 조작을 공용 TCP client 경로로 처리한다.
+
+    짧은 수동 명령이라 별도 RF worker lifecycle은 두지 않는다.
+    """
 
     operation_started = Signal()
     switch_box_set = Signal(object, object)
@@ -255,107 +173,67 @@ class RFSwitchBoxService(QObject):
         super().__init__(parent)
         self._client = client
         self._commands = commands
-        self._thread: QThread | None = None
-        self._worker: _SwitchBoxWorker | None = None
+        self._running = False
         self._shutting_down = False
 
     @property
     def is_running(self) -> bool:
-        return self._thread is not None
+        return self._running
 
     def set_switch_box(self, input_path: InputPath, filter_path: FilterPath) -> None:
-        self._start_operation(
-            _SwitchOperation(kind="set", input_path=input_path, filter_path=filter_path)
-        )
+        if not self._begin_operation():
+            return
+        try:
+            ok = self._commands.set_switch_box(
+                self._client,
+                input_path=input_path,
+                filter_path=filter_path,
+            )
+            if ok:
+                self.switch_box_set.emit(input_path, filter_path)
+                self.operation_finished.emit("Switch Box 경로 설정 완료")
+            else:
+                self.operation_failed.emit("Switch Box SET returned false")
+        except Exception as exc:
+            logger.exception("Switch Box 수동 제어 실패")
+            self.operation_failed.emit(str(exc))
+        finally:
+            self._finish_operation()
 
     def set_thru(self) -> None:
-        self._start_operation(
-            _SwitchOperation(
-                kind="thru",
-                input_path=None,
+        if not self._begin_operation():
+            return
+        try:
+            ok = self._commands.set_switch_filter(
+                self._client,
                 filter_path=FilterPath.THRU,
             )
-        )
+            if ok:
+                self.switch_filter_set.emit(FilterPath.THRU)
+                self.operation_finished.emit("Switch Box THRU 설정 완료")
+            else:
+                self.operation_failed.emit("Switch Box Thru returned false")
+        except Exception as exc:
+            logger.exception("Switch Box 수동 제어 실패")
+            self.operation_failed.emit(str(exc))
+        finally:
+            self._finish_operation()
 
     def shutdown(self) -> None:
-        if self._shutting_down:
-            return
         self._shutting_down = True
-        if self._worker is not None:
-            self._worker.cancel()
-        if self._thread is not None:
-            thread = self._thread
-            _disconnect_safely(thread.finished, self._on_thread_finished)
-            _disconnect_safely(thread.finished, self._on_worker_done)
-            _disconnect_safely(thread.finished, thread.deleteLater)
-            thread.quit()
-            if not thread.wait(1000):
-                logger.error("RF Switch Box worker thread did not stop cleanly")
-                self._detach_running_thread(thread)
-            else:
-                thread.deleteLater()
-        self._thread = None
-        self._worker = None
 
-    def _start_operation(self, operation: _SwitchOperation) -> None:
+    def _begin_operation(self) -> bool:
         if self._shutting_down:
-            return
-        if self._thread is not None:
+            return False
+        if self._running:
             self.operation_failed.emit("Switch Box 작업이 이미 진행 중입니다.")
-            return
+            return False
+        self._running = True
+        self.operation_started.emit()
+        return True
 
-        thread = QThread(self)
-        worker = _SwitchBoxWorker(
-            client=self._client,
-            commands=self._commands,
-            operation=operation,
-        )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.started.connect(self.operation_started)
-        worker.set_finished.connect(self._on_set_finished)
-        worker.filter_finished.connect(self._on_filter_finished)
-        worker.failed.connect(self._on_failed)
-        worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
-        worker.done.connect(worker.deleteLater)
-        thread.finished.connect(self._on_thread_finished)
-        thread.finished.connect(self._on_worker_done)
-        thread.finished.connect(thread.deleteLater)
-        self._thread = thread
-        self._worker = worker
-        thread.start()
-
-    @Slot(object, object)
-    def _on_set_finished(self, input_path: InputPath, filter_path: FilterPath) -> None:
-        if not self._shutting_down:
-            self.switch_box_set.emit(input_path, filter_path)
-            self.operation_finished.emit("Switch Box 경로 설정 완료")
-
-    @Slot(object)
-    def _on_filter_finished(self, filter_path: FilterPath) -> None:
-        if not self._shutting_down:
-            self.switch_filter_set.emit(filter_path)
-            self.operation_finished.emit("Switch Box THRU 설정 완료")
-
-    @Slot(str)
-    def _on_failed(self, message: str) -> None:
-        if not self._shutting_down:
-            self.operation_failed.emit(message)
-
-    @Slot()
-    def _on_thread_finished(self) -> None:
-        self._thread = None
-
-    @Slot()
-    def _on_worker_done(self) -> None:
-        self._worker = None
-
-    def _detach_running_thread(self, thread: QThread) -> None:
-        thread.setParent(None)
-        _DETACHED_THREADS.append(thread)
-        thread.finished.connect(
-            lambda thread=thread: _delete_detached_thread(thread),
-        )
+    def _finish_operation(self) -> None:
+        self._running = False
 
 
 class _CircuitCanvas(QWidget):
@@ -497,6 +375,9 @@ class _CircuitCanvas(QWidget):
             max(1, round(width * scale)),
             max(1, round(height * scale)),
         )
+        font = widget.font()
+        font.setPointSize(max(8, round(_CANVAS_BASE_FONT_SIZE * min(scale, 1.6))))
+        widget.setFont(font)
 
     def _scaled_content_rect(self) -> QRectF:
         base_width = self._base_size.width()
@@ -611,10 +492,15 @@ class RFFilterBoxPanel(QWidget):
         self._operation_locked = False
         self._service_running = False
         self._build_ui()
+        self._apply_control_scale()
         self._connect_canvas_buttons()
         self._connect_service()
         self._update_status()
         self._update_button_state()
+
+    def resizeEvent(self, event: object) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._apply_control_scale()
 
     def shutdown(self) -> None:
         if self._service is not None:
@@ -657,12 +543,14 @@ class RFFilterBoxPanel(QWidget):
         root_layout = QVBoxLayout(self)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(10)
+        self._root_layout = root_layout
 
         header = QWidget(self)
         header.setObjectName("rfSwitchHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(8)
+        header_layout.setSpacing(_HEADER_BASE_SPACING)
+        self._header_layout = header_layout
 
         self._current_input_label = QLabel("Input: Unknown", header)
         self._current_input_label.setObjectName("currentInputLabel")
@@ -677,11 +565,11 @@ class RFFilterBoxPanel(QWidget):
 
         self._set_button = QPushButton("SET", header)
         self._set_button.setObjectName("setSwitchBoxButton")
-        self._set_button.setFixedHeight(34)
+        self._set_button.setFixedHeight(_HEADER_BASE_BUTTON_HEIGHT)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._thru_button = QPushButton("Thru!", header)
         self._thru_button.setObjectName("thruSwitchBoxButton")
-        self._thru_button.setFixedHeight(34)
+        self._thru_button.setFixedHeight(_HEADER_BASE_BUTTON_HEIGHT)
         self._thru_button.clicked.connect(self._on_thru_clicked)
 
         header_layout.addWidget(self._current_input_label)
@@ -698,6 +586,40 @@ class RFFilterBoxPanel(QWidget):
         self._canvas = _CircuitCanvas(scroll_area)
         scroll_area.setWidget(self._canvas)
         root_layout.addWidget(scroll_area, 1)
+
+    def _control_scale(self) -> float:
+        width_scale = self.width() / _PANEL_BASE_WIDTH if self.width() > 0 else 1.0
+        height_scale = self.height() / _PANEL_BASE_HEIGHT if self.height() > 0 else 1.0
+        return max(1.0, min(_PANEL_SCALE_MAX, min(width_scale, height_scale)))
+
+    def _apply_control_scale(self) -> None:
+        scale = self._control_scale()
+        self._root_layout.setSpacing(round(10 * scale))
+        self._header_layout.setSpacing(round(_HEADER_BASE_SPACING * scale))
+        self._apply_scaled_font(
+            self._current_input_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_scaled_font(
+            self._current_filter_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_scaled_font(
+            self._status_label,
+            round(_HEADER_BASE_FONT_SIZE * scale),
+        )
+        self._apply_header_button_scale(self._set_button, scale)
+        self._apply_header_button_scale(self._thru_button, scale)
+
+    def _apply_header_button_scale(self, button: QPushButton, scale: float) -> None:
+        button.setFixedHeight(round(_HEADER_BASE_BUTTON_HEIGHT * scale))
+        button.setMinimumWidth(round(_HEADER_BASE_BUTTON_WIDTH * scale))
+        self._apply_scaled_font(button, round(_HEADER_BASE_FONT_SIZE * scale))
+
+    def _apply_scaled_font(self, widget: QWidget, point_size: int) -> None:
+        font = widget.font()
+        font.setPointSize(max(_HEADER_BASE_FONT_SIZE, point_size))
+        widget.setFont(font)
 
     def _connect_canvas_buttons(self) -> None:
         for button, input_path in self._canvas.input_selected.items():
