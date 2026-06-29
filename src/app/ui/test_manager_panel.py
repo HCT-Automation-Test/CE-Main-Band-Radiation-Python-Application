@@ -117,7 +117,6 @@ _RUN_SETTING_BUTTON_NAMES = (
     "clearButton",
     "loadItemButton",
     "saveItemButton",
-    "caseConfirmButton",
     "nrButton",
     "lteButton",
     "wcdmaButton",
