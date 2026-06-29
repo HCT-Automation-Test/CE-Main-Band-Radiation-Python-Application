@@ -5,7 +5,9 @@ a = Analysis(
     ['src\\app\\__main__.py'],
     pathex=['src'],
     binaries=[],
-    datas=[],
+    datas=[
+        ('LV Inst Manager', 'LV Inst Manager'),
+    ],
     hiddenimports=['win32timezone'],
     hookspath=[],
     hooksconfig={},
