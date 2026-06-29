@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+import app.core.runner as runner_module
+
 from app.core.fsm.context import SessionContext
 from app.core.runner import (
     INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
@@ -274,6 +276,54 @@ def test_mark_equipment_ready_allows_real_fsm_to_reach_idle(
     qtbot.waitUntil(lambda: not runner.is_running)
     assert "Runner worker thread did not stop cleanly" not in caplog.text
 
+
+def test_runner_does_not_auto_manage_lv_server_for_source_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delattr(runner_module.sys, "frozen", raising=False)
+
+    runner = Runner(commands=object(), temp_dir=tmp_path / "temp")
+
+    assert runner._lv_server_manager is None
+    assert runner.instrument_connection_service._lv_server_manager is None
+
+
+def test_runner_auto_manages_lv_server_for_frozen_owned_client(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(runner_module.sys, "frozen", True, raising=False)
+
+    runner = Runner(
+        commands=object(),
+        temp_dir=tmp_path / "temp",
+        tcp_host="127.0.0.10",
+        tcp_port=5026,
+    )
+
+    assert runner._lv_server_manager is not None
+    assert runner._lv_server_manager.host == "127.0.0.10"
+    assert runner._lv_server_manager.port == 5026
+    assert runner.instrument_connection_service._lv_server_manager is runner._lv_server_manager
+
+
+def test_runner_uses_explicit_lv_server_manager_when_not_frozen(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.delattr(runner_module.sys, "frozen", raising=False)
+    lv_server_manager = object()
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        temp_dir=tmp_path / "temp",
+        lv_server_manager=lv_server_manager,
+    )
+
+    assert runner._lv_server_manager is lv_server_manager
+    assert runner.instrument_connection_service._lv_server_manager is lv_server_manager
 
 def test_runner_connection_service_uses_runner_client(
     qtbot: Any, tmp_path: Path

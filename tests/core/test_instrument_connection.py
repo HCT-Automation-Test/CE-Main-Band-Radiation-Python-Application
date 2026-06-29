@@ -25,6 +25,7 @@ from app.core.instrument_connection import (
     is_selected_equipment_ready,
 )
 from app.models.enums import AntennaPol, InputPath
+from app.net.tcp_client import TcpClientError
 
 
 class _Client:
@@ -82,6 +83,26 @@ class _BlockingCommands:
             "3D Controller": True,
         }
 
+class _FailingConnectClient(_Client):
+    def connect_to(self, host: str, port: int) -> None:
+        super().connect_to(host, port)
+        raise TcpClientError("connect down")
+
+
+class _LvServerManager:
+    def __init__(self) -> None:
+        self.ensure_calls = 0
+        self.restart_calls = 0
+        self.shutdown_calls = 0
+
+    def ensure_running(self) -> None:
+        self.ensure_calls += 1
+
+    def restart(self) -> None:
+        self.restart_calls += 1
+
+    def shutdown(self) -> None:
+        self.shutdown_calls += 1
 
 class _InstrumentSetSignal:
     def __init__(self) -> None:
@@ -346,6 +367,47 @@ def test_instrument_connection_service_connects_with_config(qtbot) -> None:
     assert client.closed is True
     assert commands.calls == [(client, config)]
 
+
+def test_instrument_connection_service_restarts_lv_once_on_tcp_connect_error(qtbot) -> None:
+    failing_client = _FailingConnectClient()
+    ok_client = _Client()
+    clients = iter([failing_client, ok_client])
+    commands = _Commands({"FSV40": True})
+    lv_server_manager = _LvServerManager()
+    service = InstrumentConnectionService(
+        client_factory=lambda: next(clients),
+        commands=commands,
+        lv_server_manager=lv_server_manager,
+    )
+
+    with qtbot.waitSignal(service.connection_finished, timeout=1000) as blocker:
+        service.connect_equipment(_connection_config())
+    qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
+
+    assert blocker.args == [{"FSV40": True}]
+    assert lv_server_manager.ensure_calls == 1
+    assert lv_server_manager.restart_calls == 1
+    assert failing_client.closed is True
+    assert ok_client.connect_calls == [("127.0.0.1", 5025)]
+
+
+def test_instrument_connection_service_does_not_restart_lv_for_connect_error_response(qtbot) -> None:
+    client = _Client()
+    commands = _Commands({"FSV40": False, "MT8000A": True})
+    lv_server_manager = _LvServerManager()
+    service = InstrumentConnectionService(
+        client_factory=lambda: client,
+        commands=commands,
+        lv_server_manager=lv_server_manager,
+    )
+
+    with qtbot.waitSignal(service.connection_finished, timeout=1000) as blocker:
+        service.connect_equipment(_connection_config())
+    qtbot.waitUntil(lambda: service._connection_thread is None, timeout=1000)
+
+    assert blocker.args == [{"FSV40": False, "MT8000A": True}]
+    assert lv_server_manager.ensure_calls == 1
+    assert lv_server_manager.restart_calls == 0
 
 def test_instrument_connection_service_keeps_injected_client_open(qtbot) -> None:
     client = _Client()

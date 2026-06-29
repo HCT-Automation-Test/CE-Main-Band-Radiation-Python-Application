@@ -180,7 +180,7 @@ def connect_equipment(
     states: dict[str, bool] = {}
     for target in _selected_connect_targets(config):
         params = _build_connect_params(config, target)
-        response = _send_request(client, target, _COMMAND_CONNECT, params)
+        response = client.send_request(target, _COMMAND_CONNECT, params)
         states[target] = _action_ok(response, target, _COMMAND_CONNECT)
     return states
 
