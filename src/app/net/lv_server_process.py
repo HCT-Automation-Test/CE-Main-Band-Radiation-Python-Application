@@ -42,7 +42,7 @@ class LvServerManager:
         exe_path: Path | str | None = None,
         host: str = DEFAULT_LV_SERVER_HOST,
         port: int = DEFAULT_LV_SERVER_PORT,
-        startup_wait_s: float = 0.2,
+        startup_wait_s: float = 10.0,
         terminate_timeout_s: float = 3.0,
         hide_window_poll_s: float = _HIDE_WINDOW_POLL_TIMEOUT_S,
     ) -> None:
@@ -64,6 +64,7 @@ class LvServerManager:
 
         if self.is_running:
             self._start_hide_window_worker()
+            self._wait_until_port_open()
             return
         self._process = None
         self._start_process()
@@ -112,12 +113,11 @@ class LvServerManager:
             startupinfo=startupinfo,
         )
         self._start_hide_window_worker()
-        if self.startup_wait_s > 0:
-            time.sleep(self.startup_wait_s)
         if self._process.poll() is not None:
             exit_code = self._process.returncode
             self._process = None
             raise LvServerError(f"LV Server가 시작 직후 종료되었습니다: exit_code={exit_code}")
+        self._wait_until_port_open()
 
     def _start_hide_window_worker(self) -> None:
         process = self._process
@@ -136,6 +136,28 @@ class LvServerManager:
                 return
             time.sleep(0.05)
 
+    def _wait_until_port_open(self) -> None:
+        if self.port <= 0 or self.startup_wait_s <= 0:
+            return
+
+        deadline = time.monotonic() + self.startup_wait_s
+        while time.monotonic() < deadline:
+            process = self._process
+            if process is not None and process.poll() is not None:
+                exit_code = process.returncode
+                self._process = None
+                raise LvServerError(
+                    f"LV Server가 시작 직후 종료되었습니다: exit_code={exit_code}"
+                )
+            if self._is_port_open():
+                return
+            time.sleep(0.05)
+
+        raise LvServerError(
+            f"LV Server port {self.host}:{self.port}가 {self.startup_wait_s:.1f}초 안에 "
+            "대기 상태로 전환되지 않았습니다."
+        )
+
     def _is_port_free(self) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
             probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -145,6 +167,13 @@ class LvServerManager:
                 return False
         return True
 
+
+    def _is_port_open(self) -> bool:
+        try:
+            with socket.create_connection((self.host, self.port), timeout=0.1):
+                return True
+        except OSError:
+            return False
 
 def _hidden_startupinfo() -> subprocess.STARTUPINFO | None:
     if sys.platform != "win32":
