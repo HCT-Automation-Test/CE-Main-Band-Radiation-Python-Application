@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -124,7 +125,11 @@ class Runner(QObject):
         self._lv_server_manager = (
             lv_server_manager
             if lv_server_manager is not None
-            else LvServerManager(host=self._tcp_host, port=self._tcp_port)
+            else (
+                LvServerManager(host=self._tcp_host, port=self._tcp_port)
+                if self._owns_client and getattr(sys, "frozen", False)
+                else None
+            )
         )
         self._equipment_state: dict[str, bool] = {}
         self._measurement_active = False
