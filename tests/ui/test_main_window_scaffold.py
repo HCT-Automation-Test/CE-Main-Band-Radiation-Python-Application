@@ -1958,7 +1958,6 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         "clearButton",
         "loadItemButton",
         "saveItemButton",
-        "caseConfirmButton",
         "nrButton",
         "lteButton",
         "wcdmaButton",
@@ -1982,6 +1981,7 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         assert not window.findChild(QPushButton, object_name).isEnabled()
     for object_name in unlocked_buttons:
         assert window.findChild(QPushButton, object_name).isEnabled()
+    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert not custom_option_check_box.isEnabled()
     assert not marker_check_box.isEnabled()
 
@@ -2004,6 +2004,7 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
 
     for object_name in locked_buttons:
         assert not window.findChild(QPushButton, object_name).isEnabled()
+    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert window.findChild(QPushButton, "stopButton").isEnabled()
 
 
