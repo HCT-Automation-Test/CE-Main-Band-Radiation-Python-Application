@@ -112,12 +112,15 @@ class LvServerManager:
             creationflags=creationflags,
             startupinfo=startupinfo,
         )
-        self._start_hide_window_worker()
-        if self._process.poll() is not None:
-            exit_code = self._process.returncode
-            self._process = None
-            raise LvServerError(f"LV Server가 시작 직후 종료되었습니다: exit_code={exit_code}")
-        self._wait_until_port_open()
+        try:
+            self._start_hide_window_worker()
+            if self._process.poll() is not None:
+                exit_code = self._process.returncode
+                raise LvServerError(f"LV Server가 시작 직후 종료되었습니다: exit_code={exit_code}")
+            self._wait_until_port_open()
+        except Exception:
+            self.shutdown()
+            raise
 
     def _start_hide_window_worker(self) -> None:
         process = self._process

@@ -77,6 +77,28 @@ def test_lv_server_manager_shutdown_terminates_owned_process(
     assert process.terminated is True
 
 
+def test_lv_server_manager_cleans_up_process_when_startup_wait_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exe = tmp_path / "Application.exe"
+    exe.write_text("", encoding="utf-8")
+    process = _Process()
+    monkeypatch.setattr("subprocess.Popen", lambda *args, **kwargs: process)
+    manager = LvServerManager(exe_path=exe, port=0, startup_wait_s=0)
+
+    def fail_wait_until_port_open() -> None:
+        raise LvServerError("port did not open")
+
+    monkeypatch.setattr(manager, "_wait_until_port_open", fail_wait_until_port_open)
+
+    with pytest.raises(LvServerError, match="port did not open"):
+        manager.ensure_running()
+
+    assert process.terminated is True
+    assert manager._process is None
+
+
 def test_lv_server_manager_rehides_window_when_already_running(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
