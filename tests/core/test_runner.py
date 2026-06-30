@@ -52,7 +52,14 @@ class _FakeEngine:
 
 
 class _ReportWriter:
-    pass
+    def __init__(self, *, prepare_exception: Exception | None = None) -> None:
+        self.prepare_exception = prepare_exception
+        self.prepare_calls: list[TestCase] = []
+
+    def prepare_for_run(self, first_case: TestCase) -> None:
+        self.prepare_calls.append(first_case)
+        if self.prepare_exception is not None:
+            raise self.prepare_exception
 
 
 class _Client:
@@ -419,6 +426,87 @@ def test_start_populates_context_and_sets_start_request(
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
 
+
+
+def test_start_prepares_report_writer_with_requested_start_case(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    report_writers: list[_ReportWriter] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    def report_writer_factory(*_: Any) -> _ReportWriter:
+        writer = _ReportWriter()
+        report_writers.append(writer)
+        return writer
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    first_case = _make_case()
+    second_case = _make_case(antenna_pol=AntennaPol.V)
+    runner.start(
+        [first_case, second_case],
+        settings=_make_settings(tmp_path),
+        start_index=1,
+    )
+
+    assert report_writers[0].prepare_calls == [second_case]
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_start_rejects_when_report_writer_prepare_fails(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    messages: list[str] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(
+            prepare_exception=RuntimeError("excel unavailable")
+        ),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.error.connect(messages.append)
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+
+    ctx = runner.context
+    assert ctx is not None
+    assert not ctx.test_start_requested.is_set()
+    assert not runner.is_measurement_active
+    assert ctx.queue == []
+    assert any("Excel report 준비 실패" in message for message in messages)
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
 
 
 def test_start_uses_requested_start_and_stop_indexes(
