@@ -81,7 +81,11 @@ class FSMEngine:
                 self._ctx.events.state_changed.emit(state.name)
             logger.info("FSM state entered: %s", state.name)
 
-            result = self._run_state(state)
+            try:
+                result = self._run_state(state)
+            except Exception:
+                self._cleanup_switch_box_on_interrupt()
+                raise
             if self._ctx.stopped:
                 self._cleanup_switch_box_on_interrupt()
                 break
@@ -94,7 +98,14 @@ class FSMEngine:
                 self._ctx.paused = True
                 continue
 
-            self._current_state_name = state.next_state(self._ctx, result)
+            try:
+                next_state_name = state.next_state(self._ctx, result)
+            except Exception:
+                self._cleanup_switch_box_on_interrupt()
+                raise
+            if result is StateResult.FAIL and next_state_name is None:
+                self._cleanup_switch_box_on_interrupt()
+            self._current_state_name = next_state_name
 
         self._current_state_name = None
 

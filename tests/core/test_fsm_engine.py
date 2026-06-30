@@ -52,12 +52,14 @@ class _State(State):
         results: Sequence[StateResult] = (StateResult.OK,),
         next_name: str | None = None,
         raises: Exception | None = None,
+        next_raises: Exception | None = None,
     ) -> None:
         self.name = name
         self._log = log
         self._results = list(results)
         self._next_name = next_name
         self._raises = raises
+        self._next_raises = next_raises
 
     def enter(self, ctx: SessionContext) -> None:
         self._log.append(f"{self.name}.enter")
@@ -75,6 +77,8 @@ class _State(State):
         self, ctx: SessionContext, result: StateResult
     ) -> str | None:
         self._log.append(f"{self.name}.next")
+        if self._next_raises is not None:
+            raise self._next_raises
         return self._next_name
 
 
@@ -330,6 +334,157 @@ def test_engine_does_not_reset_switch_box_when_disconnected_on_stop() -> None:
             return result
 
     engine.register(_StopRequestedState("Measure", log, next_name=None))
+
+    engine.run("Measure")
+
+    assert commands.switch_box_calls == []
+
+
+def test_engine_resets_switch_box_when_fail_ends_session() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=object(),
+        equipment_state={"Switch Box": True},
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+
+    engine.register(
+        _State("Measure", log, results=(StateResult.FAIL,), next_name=None)
+    )
+
+    engine.run("Measure")
+
+    assert log == [
+        "Measure.enter",
+        "Measure.run",
+        "Measure.exit",
+        "Measure.next",
+    ]
+    assert commands.switch_box_calls == [
+        {"input_path": InputPath.INPUT2, "filter_path": FilterPath.THRU}
+    ]
+    assert events.switch_box_info_changed.values == [
+        {"mast": "3m", "filter": "THRU"}
+    ]
+
+
+def test_engine_does_not_reset_switch_box_when_fail_routes_to_next_state() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=object(),
+        equipment_state={"Switch Box": True},
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+
+    engine.register(
+        _State(
+            "Measure",
+            log,
+            results=(StateResult.FAIL,),
+            next_name="NRCallDisconnected",
+        )
+    )
+    engine.register(_State("NRCallDisconnected", log, next_name=None))
+
+    engine.run("Measure")
+
+    assert log == [
+        "Measure.enter",
+        "Measure.run",
+        "Measure.exit",
+        "Measure.next",
+        "NRCallDisconnected.enter",
+        "NRCallDisconnected.run",
+        "NRCallDisconnected.exit",
+        "NRCallDisconnected.next",
+    ]
+    assert commands.switch_box_calls == []
+
+
+def test_engine_resets_switch_box_when_state_raises() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=object(),
+        equipment_state={"Switch Box": True},
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+    engine.register(_State("Measure", log, raises=RuntimeError("boom")))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        engine.run("Measure")
+
+    assert log == ["Measure.enter", "Measure.run", "Measure.exit"]
+    assert commands.switch_box_calls == [
+        {"input_path": InputPath.INPUT2, "filter_path": FilterPath.THRU}
+    ]
+
+
+def test_engine_resets_switch_box_when_next_state_raises() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=object(),
+        equipment_state={"Switch Box": True},
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+    engine.register(
+        _State(
+            "Measure",
+            log,
+            results=(StateResult.OK,),
+            next_raises=RuntimeError("route failed"),
+        )
+    )
+
+    with pytest.raises(RuntimeError, match="route failed"):
+        engine.run("Measure")
+
+    assert log == [
+        "Measure.enter",
+        "Measure.run",
+        "Measure.exit",
+        "Measure.next",
+    ]
+    assert commands.switch_box_calls == [
+        {"input_path": InputPath.INPUT2, "filter_path": FilterPath.THRU}
+    ]
+
+
+def test_engine_does_not_reset_switch_box_when_disconnected_on_fail() -> None:
+    events = _Events()
+    commands = _Commands()
+    ctx = SessionContext(
+        queue=[],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+        client=object(),
+        equipment_state={"Switch Box": False},
+    )
+    engine = FSMEngine(ctx)
+    log: list[str] = []
+
+    engine.register(
+        _State("Measure", log, results=(StateResult.FAIL,), next_name=None)
+    )
 
     engine.run("Measure")
 
