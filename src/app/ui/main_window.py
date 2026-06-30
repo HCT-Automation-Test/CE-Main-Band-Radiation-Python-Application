@@ -233,6 +233,12 @@ class MainWindow(QMainWindow):
         self._runner.events.session_finished.connect(
             self.on_session_finished,
         )
+        self._runner.events.session_stopped.connect(
+            self.on_session_stopped,
+        )
+        self._runner.events.session_failed.connect(
+            self.on_session_failed,
+        )
         self._runner.instrument_connection_service.connection_started.connect(
             self.on_instrument_connection_started,
         )
@@ -742,6 +748,12 @@ class MainWindow(QMainWindow):
 
     def on_session_finished(self) -> None:
         self._show_info("시험 완료", "모든 시험이 완료되었습니다.")
+
+    def on_session_stopped(self) -> None:
+        self._show_info("시험 중지", "시험이 중지되었습니다.")
+
+    def on_session_failed(self) -> None:
+        self._show_warning("시험 중단", "시험 중 오류가 발생하여 중단되었습니다.")
 
     def _show_info(self, title: str, message: str) -> None:
         QMessageBox.information(self, title, message)

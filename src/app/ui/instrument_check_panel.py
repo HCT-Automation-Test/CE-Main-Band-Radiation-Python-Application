@@ -750,22 +750,22 @@ class InstrumentCheckPanel(QWidget):
         box.setStyleSheet(
             """
             QMessageBox {
-                background: #202124;
-                color: #ffffff;
+                background: #ffffff;
+                color: #111111;
             }
             QMessageBox QLabel {
-                color: #ffffff;
+                color: #111111;
                 background: transparent;
             }
             QMessageBox QPushButton {
-                background: #3b3f45;
-                color: #ffffff;
-                border: 1px solid #8a9199;
+                background: #f8f8f8;
+                color: #111111;
+                border: 1px solid #b8c2cc;
                 padding: 5px 18px;
                 min-width: 72px;
             }
             QMessageBox QPushButton:hover {
-                background: #4b5159;
+                background: #eef5ff;
             }
             """
         )
@@ -782,22 +782,22 @@ class InstrumentCheckPanel(QWidget):
         box.setStyleSheet(
             """
             QMessageBox {
-                background: #202124;
-                color: #ffffff;
+                background: #ffffff;
+                color: #111111;
             }
             QMessageBox QLabel {
-                color: #ffffff;
+                color: #111111;
                 background: transparent;
             }
             QMessageBox QPushButton {
-                background: #3b3f45;
-                color: #ffffff;
-                border: 1px solid #8a9199;
+                background: #f8f8f8;
+                color: #111111;
+                border: 1px solid #b8c2cc;
                 padding: 5px 18px;
                 min-width: 72px;
             }
             QMessageBox QPushButton:hover {
-                background: #4b5159;
+                background: #eef5ff;
             }
             """
         )
