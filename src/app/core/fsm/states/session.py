@@ -40,8 +40,14 @@ def _wait_for_event(ctx: "SessionContext", event_name: str) -> bool:
     return False
 
 
-def _uses_3d_controller_mast(input_path: InputPath) -> bool:
-    return input_path is InputPath.INPUT3
+def _antenna_pol_mast_key(input_path: InputPath) -> tuple[str, int]:
+    if input_path is InputPath.INPUT1:
+        return "CO3000", 2
+    if input_path is InputPath.INPUT2:
+        return "CO3000", 1
+    if input_path is InputPath.INPUT3:
+        return "3D Controller", 3
+    raise ValueError(f"Unknown input path: {input_path!r}")
 
 
 def _antenna_pol_setup_required(
@@ -51,13 +57,9 @@ def _antenna_pol_setup_required(
     if prev_case.antenna_pol != current_case.antenna_pol:
         return True
 
-    prev_uses_3d_mast = _uses_3d_controller_mast(
+    return _antenna_pol_mast_key(
         prev_case.range_definition.input_path
-    )
-    current_uses_3d_mast = _uses_3d_controller_mast(
-        current_case.range_definition.input_path
-    )
-    return prev_uses_3d_mast != current_uses_3d_mast
+    ) != _antenna_pol_mast_key(current_case.range_definition.input_path)
 
 
 def _transition_states_for(

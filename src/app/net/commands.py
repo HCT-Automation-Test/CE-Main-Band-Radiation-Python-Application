@@ -60,6 +60,10 @@ _CONNECT_TARGETS = (
     _TARGET_SWITCH_BOX,
     _TARGET_3D_CONTROLLER,
 )
+_CO3000_MAST_INDEX_BY_INPUT_PATH = {
+    InputPath.INPUT1: 2,
+    InputPath.INPUT2: 1,
+}
 
 
 class CommandError(RuntimeError):
@@ -611,18 +615,32 @@ def check_call_status(client: Any) -> bool:
     )
 
 
+def _antenna_pol_target_and_params(
+    *,
+    pol: AntennaPol,
+    input_path: InputPath,
+) -> tuple[str, dict[str, Any]]:
+    if input_path is InputPath.INPUT3:
+        return _TARGET_3D_CONTROLLER, {"pol": pol.value}
+
+    try:
+        mast_index = _CO3000_MAST_INDEX_BY_INPUT_PATH[input_path]
+    except KeyError as exc:
+        raise CommandError(f"Unsupported antenna input path: {input_path!r}") from exc
+    return _TARGET_CO3000, {"pol": pol.value, "Mast Index": mast_index}
+
+
 def set_antenna_pol(client: Any, *, pol: AntennaPol, input_path: InputPath) -> bool:
     """안테나 편파 전환 (사용자 개입 훅과 연동)."""
-    target = (
-        _TARGET_3D_CONTROLLER
-        if input_path is InputPath.INPUT3
-        else _TARGET_CO3000
+    target, params = _antenna_pol_target_and_params(
+        pol=pol,
+        input_path=input_path,
     )
     response = _send_request(
         client,
         target,
         _COMMAND_CHANGE_ANT_POL,
-        {"pol": pol.value},
+        params,
     )
     return _action_ok(response, target, _COMMAND_CHANGE_ANT_POL)
 

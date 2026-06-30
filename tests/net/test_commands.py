@@ -744,7 +744,7 @@ def test_check_call_status_raises_when_status_check_failed() -> None:
 
 
 def test_set_antenna_pol_routes_by_input_path() -> None:
-    co3000_client = _Client(_default_ok())
+    co3000_client = _Client(_default_ok(), _default_ok())
     controller_client = _Client(_default_ok())
 
     assert commands.set_antenna_pol(
@@ -753,18 +753,23 @@ def test_set_antenna_pol_routes_by_input_path() -> None:
         input_path=InputPath.INPUT1,
     ) is True
     assert commands.set_antenna_pol(
+        co3000_client,
+        pol=AntennaPol.V,
+        input_path=InputPath.INPUT2,
+    ) is True
+    assert commands.set_antenna_pol(
         controller_client,
         pol=AntennaPol.V,
         input_path=InputPath.INPUT3,
     ) is True
 
     assert co3000_client.calls == [
-        ("CO3000", "Change Ant Pol", {"pol": "H"})
+        ("CO3000", "Change Ant Pol", {"pol": "H", "Mast Index": 2}),
+        ("CO3000", "Change Ant Pol", {"pol": "V", "Mast Index": 1}),
     ]
     assert controller_client.calls == [
         ("3D Controller", "Change Ant Pol", {"pol": "V"})
     ]
-
 
 def test_status_error_raises_command_error() -> None:
     client = _Client(
