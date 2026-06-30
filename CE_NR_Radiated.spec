@@ -26,7 +26,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='CE_NR_Radiated',
+    name='CE_MainBand_Radiation',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,6 +45,6 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='CE_NR_Radiated',
+    name='CE_MainBand_Radiation',
 )
 
