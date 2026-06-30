@@ -309,6 +309,8 @@ class Runner(QObject):
         if not cases:
             self._emit_error("시험 시작 실패: TestCase queue is empty")
             return
+        if start_index is None or start_index < 0 or start_index >= len(cases):
+            start_index = 0
         normalized_model_name = settings.eut_name
         template = settings.template_path
         screenshot_root = settings.screenshot_root_dir
@@ -323,12 +325,15 @@ class Runner(QObject):
         except Exception as exc:
             self._emit_error(f"시험 시작 실패: report writer 생성 실패: {exc}")
             return
+        try:
+            report_writer.prepare_for_run(cases[start_index])
+        except Exception as exc:
+            self._emit_error(f"시험 시작 실패: Excel report 준비 실패: {exc}")
+            return
 
         ctx = self._ctx
         ctx.queue = list(cases)
         ctx.report_writer = report_writer
-        if start_index is None or start_index < 0 or start_index >= len(cases):
-            start_index = 0
         ctx.start_index = start_index
         ctx.stop_index = stop_index
         ctx.current_index = start_index
@@ -537,4 +542,3 @@ class Runner(QObject):
         ):
             self._equipment_state = {}
         self._emit_error(f"장비 연결 실패: {message}")
-

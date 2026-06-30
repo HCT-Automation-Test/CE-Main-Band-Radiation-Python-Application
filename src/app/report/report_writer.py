@@ -33,6 +33,11 @@ class ReportWriter:
         self.model_name = model_name
         self.events = events
 
+    def prepare_for_run(self, first_case: TestCase) -> None:
+        """시험 시작 전 Excel 파일을 열고 시작 Band sheet를 표시한다."""
+
+        self.excel_writer.prepare_live_monitoring(first_case)
+
     def write_fundamental(
         self,
         test_case: TestCase,

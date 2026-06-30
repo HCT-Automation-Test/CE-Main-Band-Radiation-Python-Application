@@ -80,18 +80,28 @@ class _FakeWorkbook:
         if full_name is not None:
             self.FullName = str(full_name)
         self.saved = False
+        self.activated = False
+        self.Application = _FakeExcelApplication()
         self.sheets: dict[str, _FakeSheet] = {}
 
     def Worksheets(self, sheet_name: str) -> "_FakeSheet":
-        return self.sheets.setdefault(sheet_name, _FakeSheet())
+        return self.sheets.setdefault(sheet_name, _FakeSheet(sheet_name))
+
+    def Activate(self) -> None:
+        self.activated = True
 
     def Save(self) -> None:
         self.saved = True
 
 
 class _FakeSheet:
-    def __init__(self) -> None:
+    def __init__(self, name: str = "") -> None:
+        self.name = name
+        self.activated = False
         self.ranges: dict[str, _FakeRange] = {}
+
+    def Activate(self) -> None:
+        self.activated = True
 
     def Range(self, cell: str) -> "_FakeRange":
         return self.ranges.setdefault(cell, _FakeRange())
@@ -100,6 +110,19 @@ class _FakeSheet:
 class _FakeRange:
     def __init__(self) -> None:
         self.Value: object = None
+        self.selected = False
+        self.activated = False
+
+    def Select(self) -> None:
+        self.selected = True
+
+    def Activate(self) -> None:
+        self.activated = True
+
+
+class _FakeExcelApplication:
+    def __init__(self) -> None:
+        self.Visible = False
 
 
 class _BrokenWorkbook:
@@ -144,10 +167,17 @@ class _FakePythoncom:
 
 
 class _FakeWin32Client:
-    def __init__(self, active_excel: Any | None = None) -> None:
+    def __init__(
+        self,
+        active_excel: Any | None = None,
+        dispatch_excel: Any | None = None,
+    ) -> None:
         self._active_excel = active_excel
+        self._dispatch_excel = dispatch_excel
 
     def Dispatch(self, candidate: Any) -> Any:
+        if candidate == "Excel.Application" and self._dispatch_excel is not None:
+            return self._dispatch_excel
         return candidate
 
     def GetActiveObject(self, _: str) -> Any:
@@ -156,9 +186,22 @@ class _FakeWin32Client:
         return self._active_excel
 
 
+class _FakeWorkbooks(list[Any]):
+    def __init__(self, workbooks: list[Any]) -> None:
+        super().__init__(workbooks)
+        self.open_calls: list[str] = []
+
+    def Open(self, path: str) -> Any:
+        self.open_calls.append(path)
+        workbook = _FakeWorkbook(path)
+        self.append(workbook)
+        return workbook
+
+
 class _FakeExcel:
     def __init__(self, workbooks: list[Any]) -> None:
-        self.Workbooks = workbooks
+        self.Visible = False
+        self.Workbooks = _FakeWorkbooks(workbooks)
 
 
 def _install_fake_com_modules(
@@ -586,6 +629,136 @@ def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(
 
     assert ("Sub6 n78", "D62", -45.5) in fallback_cells
     assert writer._pending_cells == []
+
+
+def test_prepare_live_monitoring_opens_excel_and_activates_start_sheet(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    pythoncom, win32_client = _install_fake_com_modules(monkeypatch)
+    excel = _FakeExcel([])
+    fake_client = _FakeWin32Client(dispatch_excel=excel)
+    win32_client.GetActiveObject = fake_client.GetActiveObject  # type: ignore[attr-defined]
+    win32_client.Dispatch = fake_client.Dispatch  # type: ignore[attr-defined]
+
+    writer.prepare_live_monitoring(_make_case())
+
+    opened_workbook = excel.Workbooks[-1]
+    assert excel.Visible
+    assert opened_workbook.activated
+    assert opened_workbook.Worksheets("Sub6 n78").activated
+    assert writer._live_monitoring_enabled
+    assert pythoncom.calls == [  # type: ignore[attr-defined]
+        "initialize",
+        "uninitialize",
+    ]
+
+
+def test_prepare_live_monitoring_reuses_already_open_workbook(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    workbook = _FakeWorkbook(path)
+    _install_fake_com_modules(monkeypatch)
+    monkeypatch.setattr(
+        excel_writer,
+        "_find_open_excel_workbook",
+        lambda *_: workbook,
+    )
+
+    writer.prepare_live_monitoring(_make_case())
+
+    assert workbook.activated
+    assert workbook.Worksheets("Sub6 n78").activated
+    assert writer._live_monitoring_enabled
+
+
+def test_live_monitoring_write_uses_excel_and_selects_last_cell(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    workbook = _FakeWorkbook(path)
+    writer._live_monitoring_enabled = True
+    monkeypatch.setattr(
+        excel_writer,
+        "_get_or_open_excel_workbook",
+        lambda *_: workbook,
+    )
+
+    writer.write_inband(
+        _make_case(
+            test_type=MeasurementTestType.INBAND,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.Z,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.5),
+    )
+
+    sheet = workbook.Worksheets("Sub6 n78")
+    assert sheet.activated
+    assert sheet.Range("D62").Value == -45.5
+    assert sheet.Range("D62").selected
+    assert workbook.saved
+    assert writer._pending_cells == []
+
+
+def test_live_monitoring_switches_sheet_when_band_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78, NRBand.N5)
+    writer = ExcelReportWriter(path)
+    workbook = _FakeWorkbook(path)
+    writer._live_monitoring_enabled = True
+    monkeypatch.setattr(
+        excel_writer,
+        "_get_or_open_excel_workbook",
+        lambda *_: workbook,
+    )
+
+    writer.write_inband(
+        _make_case(
+            test_type=MeasurementTestType.INBAND,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.Z,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.5),
+    )
+    writer.write_inband(
+        _make_case(
+            band=NRBand.N5,
+            bandwidth=20.0,
+            test_type=MeasurementTestType.INBAND,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.Z,
+        ),
+        InbandResult(inband_peak_level_dbm=-47.0),
+    )
+
+    assert workbook.Worksheets("Sub6 n78").activated
+    assert workbook.Worksheets("Sub6 n5").activated
+    assert workbook.Worksheets("Sub6 n78").Range("D62").Value == -45.5
+    assert workbook.Worksheets("Sub6 n5").Range("D52").Value == -47.0
+    assert workbook.Worksheets("Sub6 n5").Range("D52").selected
+
+
+def test_prepare_live_monitoring_raises_when_excel_cannot_open(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    _install_fake_com_modules(monkeypatch)
+    monkeypatch.setattr(excel_writer, "_get_excel_application", lambda *_: object())
+
+    with pytest.raises(RuntimeError, match="live monitoring"):
+        writer.prepare_live_monitoring(_make_case())
 
 
 def test_save_open_workbook_with_excel_writes_cells_to_found_workbook(
