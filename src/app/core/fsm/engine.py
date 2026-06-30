@@ -98,7 +98,11 @@ class FSMEngine:
                 self._ctx.paused = True
                 continue
 
-            next_state_name = state.next_state(self._ctx, result)
+            try:
+                next_state_name = state.next_state(self._ctx, result)
+            except Exception:
+                self._cleanup_switch_box_on_interrupt()
+                raise
             if result is StateResult.FAIL and next_state_name is None:
                 self._cleanup_switch_box_on_interrupt()
             self._current_state_name = next_state_name
