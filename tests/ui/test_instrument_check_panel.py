@@ -87,7 +87,7 @@ def test_instrument_check_panel_exposes_expected_widgets(qtbot) -> None:
     assert panel.findChild(QLineEdit, "switchBoxIpEdit") is not None
     assert panel.findChild(QLineEdit, "switchBoxPortEdit") is not None
     assert any(
-        label.text() == "CO3000(T.T, 3m/Bilog Mast)"
+        label.text() == "CO3000(T.T, 3m Mast, Bilog Mast)"
         for label in panel.findChildren(QLabel)
     )
     assert any(

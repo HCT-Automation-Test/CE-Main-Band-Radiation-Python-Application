@@ -429,7 +429,7 @@ def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
     assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
 
 
-def test_check_next_case_does_not_treat_co3000_mast_change_as_ant_pol_change() -> None:
+def test_check_next_case_treats_co3000_mast_change_as_ant_pol_change() -> None:
     events = _Events()
     prev_case = _make_case(TestType.HARMONIC, band=NRBand.N1, bandwidth=20.0)
     next_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
@@ -445,7 +445,7 @@ def test_check_next_case_does_not_treat_co3000_mast_change_as_ant_pol_change() -
     assert prev_case.range_definition.input_path is InputPath.INPUT2
     assert next_case.range_definition.input_path is InputPath.INPUT1
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "TestTypeChange"
+    assert state.next_state(ctx, result) == "AntPolChange"
 
 
 def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() -> None:

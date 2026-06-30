@@ -228,7 +228,7 @@ def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
                 test_type=NRTestType.HARMONIC,
                 antenna_pol=AntennaPol.H,
             ),
-            {"polarization_3m": "H", "polarization_bilog": "H"},
+            {"polarization_3m": "H"},
         ),
         (
             _make_case(
@@ -237,7 +237,7 @@ def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
                 test_type=NRTestType.HARMONIC,
                 antenna_pol=AntennaPol.V,
             ),
-            {"polarization_3m": "V", "polarization_bilog": "V"},
+            {"polarization_3m": "V"},
         ),
         (
             _make_case(
@@ -246,7 +246,7 @@ def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
                 test_type=NRTestType.BILOG,
                 antenna_pol=AntennaPol.H,
             ),
-            {"polarization_3m": "H", "polarization_bilog": "H"},
+            {"polarization_bilog": "H"},
         ),
         (
             _make_case(
@@ -255,7 +255,7 @@ def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
                 test_type=NRTestType.BILOG,
                 antenna_pol=AntennaPol.V,
             ),
-            {"polarization_3m": "V", "polarization_bilog": "V"},
+            {"polarization_bilog": "V"},
         ),
         (
             _make_case(test_type=NRTestType.HARMONIC, antenna_pol=AntennaPol.V),

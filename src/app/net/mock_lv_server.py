@@ -114,6 +114,9 @@ class MockLvState:
     switch_input_path: int | None = None
     switch_filter_path: int | None = None
     antenna_pol: str | None = None
+    antenna_pol_3m: str | None = None
+    antenna_pol_bilog: str | None = None
+    antenna_pol_1m: str | None = None
     last_sa_range_params: dict[str, Any] | None = None
     last_sa_level_params: dict[str, Any] | None = None
     last_sa_precision_params: dict[str, Any] | None = None
@@ -204,7 +207,9 @@ class MockLvServer:
         if target == _TARGET_CO3000:
             return self._handle_co3000(request)
         if target == _TARGET_3D_CONTROLLER and command == _COMMAND_CHANGE_ANT_POL:
-            self.state.antenna_pol = str(params.get("pol", ""))
+            pol = str(params.get("pol", ""))
+            self.state.antenna_pol = pol
+            self.state.antenna_pol_1m = pol
             return _ok(request)
 
         return _error(request, "unsupported command")
@@ -344,8 +349,17 @@ class MockLvServer:
         if request.command == _COMMAND_GET_TURNTABLE_ANGLE:
             return _ok(request, {"Current Angle": self.state.current_angle})
         if request.command == _COMMAND_CHANGE_ANT_POL:
-            self.state.antenna_pol = str(request.params.get("pol", ""))
-            return _ok(request)
+            mast_index = _coerce_int(request.params.get("Mast Index"), 0)
+            pol = str(request.params.get("pol", ""))
+            if mast_index == 1:
+                self.state.antenna_pol = pol
+                self.state.antenna_pol_3m = pol
+                return _ok(request)
+            if mast_index == 2:
+                self.state.antenna_pol = pol
+                self.state.antenna_pol_bilog = pol
+                return _ok(request)
+            return _error(request, "unsupported Mast Index")
         if request.command == _COMMAND_SET_REFERENCE:
             self._start_set_event(
                 target=_TARGET_CO3000,

@@ -107,6 +107,16 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
         assert (tmp_path / "precision.png").is_file()
         assert commands.set_antenna_pol(
             client,
+            pol=AntennaPol.H,
+            input_path=InputPath.INPUT1,
+        )
+        assert commands.set_antenna_pol(
+            client,
+            pol=AntennaPol.V,
+            input_path=InputPath.INPUT2,
+        )
+        assert commands.set_antenna_pol(
+            client,
             pol=AntennaPol.V,
             input_path=InputPath.INPUT3,
         )
@@ -118,6 +128,9 @@ def test_mock_lv_server_harmonic_flow_creates_screenshots(
             if request.target == "Switch Box" and request.command == "Set Path"
         )
         assert switch_request.params == {"Input Path": 3, "Filter Path": 6}
+        assert server.state.antenna_pol_bilog == "H"
+        assert server.state.antenna_pol_3m == "V"
+        assert server.state.antenna_pol_1m == "V"
         assert server.state.antenna_pol == "V"
     finally:
         client.disconnect_from_host()
