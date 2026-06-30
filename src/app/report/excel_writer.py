@@ -15,6 +15,7 @@ from app.models.measurement_result import (
     InbandResult,
     MeasurementResult,
 )
+from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.test_case import TestCase
 from app.report.template_map import (
     ReportLayout,
@@ -223,7 +224,11 @@ class ExcelReportWriter:
         self._set_cell(
             worksheet,
             validate_single_cell(cells.channel),
-            test_case.test_channel.value,
+            resolve_call_channel(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
+            ),
         )
         self._set_cell(
             worksheet,
