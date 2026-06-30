@@ -45,6 +45,7 @@ def _make_case(
     dut_axis: DUTAxis = DUTAxis.X,
     dut_ant_position: DUTAntPosition = DUTAntPosition.UPPER,
     generation: Generation = Generation.NR_SA,
+    test_channel: ChannelEnum = ChannelEnum.MID,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -52,7 +53,7 @@ def _make_case(
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
-        test_channel=ChannelEnum.MID,
+        test_channel=test_channel,
         antenna_pol=antenna_pol,
         dut_axis=dut_axis,
         dut_ant_position=dut_ant_position,
@@ -241,7 +242,7 @@ def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) 
     sheet = "Sub6 n78"
     workbook = load_workbook(path)
     worksheet = workbook[sheet]
-    assert worksheet["C49"].value == "mid"
+    assert worksheet["C49"].value == 636666
     assert worksheet["D49"].value == 100
     assert worksheet["E49"].value == case.rb_size
     assert worksheet["F49"].value == case.rb_offset
@@ -252,6 +253,44 @@ def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) 
     assert worksheet["A68"].value == 10650.75
     assert worksheet["A70"].value == 14201
     assert worksheet["A72"].value == 17751.25
+
+
+def test_write_fundamental_writes_resolved_low_and_high_channels(
+    tmp_path: Path,
+) -> None:
+    low_path = _make_workbook(tmp_path / "low.xlsx", NRBand.N78)
+    low_writer = ExcelReportWriter(low_path)
+    low_writer.write_fundamental(
+        _make_case(test_channel=ChannelEnum.LOW),
+        FundamentalResult(fundamental_frequency_mhz=3350.01),
+    )
+    assert _cell(low_path, "Sub6 n78", "C49") == 623334
+
+    high_path = _make_workbook(tmp_path / "high.xlsx", NRBand.N78)
+    high_writer = ExcelReportWriter(high_path)
+    high_writer.write_fundamental(
+        _make_case(test_channel=ChannelEnum.HIGH),
+        FundamentalResult(fundamental_frequency_mhz=3750.0),
+    )
+    assert _cell(high_path, "Sub6 n78", "C49") == 650000
+
+
+def test_write_fundamental_raises_for_missing_channel_lookup(
+    tmp_path: Path,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N28)
+    writer = ExcelReportWriter(path)
+    case = _make_case(
+        band=NRBand.N28,
+        bandwidth=25.0,
+        test_channel=ChannelEnum.MID,
+    )
+
+    with pytest.raises(ValueError, match="No NR channel lookup"):
+        writer.write_fundamental(
+            case,
+            FundamentalResult(fundamental_frequency_mhz=725.5),
+        )
 
 
 def test_read_fundamental_frequency_returns_none_for_empty_cell(
@@ -383,7 +422,7 @@ def test_write_fundamental_and_harmonic_use_lb_layout(tmp_path: Path) -> None:
 
     workbook = load_workbook(path)
     worksheet = workbook["Sub6 n5"]
-    assert worksheet["C44"].value == "mid"
+    assert worksheet["C44"].value == 167300
     assert worksheet["D44"].value == 20
     assert worksheet["I44"].value == "Lower"
     assert worksheet["J44"].value == 836.5
@@ -464,7 +503,7 @@ def test_write_nsa_default_cells_use_shifted_rows(tmp_path: Path) -> None:
     writer.write_bilog(bilog_case, BilogResult(bilog_peak_level_dbm=-38.25))
 
     worksheet = load_workbook(path)["Sub6 n78"]
-    assert worksheet["C7"].value == "mid"
+    assert worksheet["C7"].value == 636666
     assert worksheet["J7"].value == 3550.25
     assert worksheet["A24"].value == 7100.5
     assert worksheet["B24"].value == -41.0
@@ -502,7 +541,7 @@ def test_write_nsa_lb_cells_use_shifted_rows(tmp_path: Path) -> None:
     writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=-47.0))
 
     worksheet = load_workbook(path)["Sub6 n5"]
-    assert worksheet["C7"].value == "mid"
+    assert worksheet["C7"].value == 167300
     assert worksheet["J7"].value == 836.5
     assert worksheet["A19"].value == 1673
     assert worksheet["B19"].value == -42.0
