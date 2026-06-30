@@ -27,10 +27,16 @@ def default_lv_server_exe_path() -> Path:
     """실행 파일 또는 개발 작업 디렉터리 기준 LV Server exe 경로를 반환한다."""
 
     if getattr(sys, "frozen", False):
-        base_dir = Path(sys.executable).resolve().parent
-    else:
-        base_dir = Path.cwd()
-    return base_dir / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates = [
+            Path(getattr(sys, "_MEIPASS", exe_dir)) / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME,
+            exe_dir / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME,
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return candidate
+        return candidates[0]
+    return Path.cwd() / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME
 
 
 class LvServerManager:

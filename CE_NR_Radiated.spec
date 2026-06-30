@@ -7,6 +7,9 @@ a = Analysis(
     binaries=[],
     datas=[
         ('LV Inst Manager', 'LV Inst Manager'),
+        ('resources', 'resources'),
+        ('config', 'config'),
+        ('testcases', 'testcases'),
     ],
     hiddenimports=['win32timezone'],
     hookspath=[],
@@ -44,3 +47,4 @@ coll = COLLECT(
     upx_exclude=[],
     name='CE_NR_Radiated',
 )
+

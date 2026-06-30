@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,9 +25,13 @@ from app.net import commands as default_commands
 
 logger = logging.getLogger(__name__)
 
-_BACKGROUND_PATH = (
-    Path(__file__).resolve().parents[3] / "resources" / "images" / "rf_switch_box_bd.png"
-)
+def _resource_root() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+    return Path(__file__).resolve().parents[3]
+
+
+_BACKGROUND_PATH = _resource_root() / "resources" / "images" / "rf_switch_box_bd.png"
 _CANVAS_WIDTH = 1098
 _CANVAS_HEIGHT = 747
 _BUTTON_WIDTH = 80
