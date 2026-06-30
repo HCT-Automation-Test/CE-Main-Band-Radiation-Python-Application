@@ -51,6 +51,22 @@ class _FakeEngine:
             time.sleep(0.01)
 
 
+class _ExitAfterStartEngine:
+    def __init__(self, ctx: SessionContext) -> None:
+        self.ctx = ctx
+        self.initial_state: str | None = None
+        self.current_state_name: str | None = None
+        self.started = threading.Event()
+
+    def run(self, initial_state: str = "SessionInit") -> None:
+        self.initial_state = initial_state
+        self.current_state_name = "Idle"
+        self.started.set()
+        while not self.ctx.test_start_requested.is_set() and not self.ctx.stopped:
+            time.sleep(0.01)
+        self.current_state_name = "MeasureFundamental"
+
+
 class _ReportWriter:
     def __init__(self, *, prepare_exception: Exception | None = None) -> None:
         self.prepare_exception = prepare_exception
@@ -426,6 +442,109 @@ def test_start_populates_context_and_sets_start_request(
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
 
+
+
+def test_runner_emits_session_stopped_when_active_run_is_stopped(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    stopped: list[None] = []
+    failed: list[None] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.session_stopped.connect(lambda: stopped.append(None))
+    runner.events.session_failed.connect(lambda: failed.append(None))
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+    runner.stop()
+    qtbot.waitUntil(lambda: stopped == [None])
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+    assert stopped == [None]
+    assert failed == []
+
+
+def test_runner_emits_session_failed_when_active_run_exits_without_completion(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_ExitAfterStartEngine] = []
+    stopped: list[None] = []
+    failed: list[None] = []
+
+    def engine_factory(ctx: SessionContext) -> _ExitAfterStartEngine:
+        engine = _ExitAfterStartEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.session_stopped.connect(lambda: stopped.append(None))
+    runner.events.session_failed.connect(lambda: failed.append(None))
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+    qtbot.waitUntil(lambda: failed == [None])
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+    assert stopped == []
+    assert failed == [None]
+
+
+def test_runner_does_not_emit_stop_or_failure_after_normal_completion_cleanup(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    stopped: list[None] = []
+    failed: list[None] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.session_stopped.connect(lambda: stopped.append(None))
+    runner.events.session_failed.connect(lambda: failed.append(None))
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+    runner.events.session_finished.emit()
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+    assert stopped == []
+    assert failed == []
 
 
 def test_start_prepares_report_writer_with_requested_start_case(

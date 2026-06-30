@@ -133,6 +133,7 @@ class Runner(QObject):
         )
         self._equipment_state: dict[str, bool] = {}
         self._measurement_active = False
+        self._session_completed_normally = False
         self._shutting_down = False
         self._instrument_connection_blockers: list[InstrumentConnectionBlocker] = []
         self._instrument_connection_service = (
@@ -347,6 +348,7 @@ class Runner(QObject):
         ctx.model_name = normalized_model_name
         ctx.template_path = template
         ctx.screenshot_root_dir = screenshot_root
+        self._session_completed_normally = False
         self._set_measurement_active(True)
         ctx.test_start_requested.set()
 
@@ -507,12 +509,23 @@ class Runner(QObject):
         self.measurement_active_changed.emit(active)
 
     def _on_thread_finished(self) -> None:
+        ctx = self._ctx
+        was_measurement_active = self._measurement_active
+        completed_normally = self._session_completed_normally
+        stopped = bool(ctx is not None and ctx.stopped)
         self._set_measurement_active(False)
         self._thread = None
         self._worker = None
+        if not was_measurement_active or completed_normally or self._shutting_down:
+            return
+        if stopped:
+            self.events.session_stopped.emit()
+            return
+        self.events.session_failed.emit()
 
     @Slot()
     def _on_session_finished(self) -> None:
+        self._session_completed_normally = True
         self._set_measurement_active(False)
 
     @Slot(dict)

@@ -341,6 +341,38 @@ def test_main_window_session_finished_shows_completion_popup(
     assert infos == [("시험 완료", "모든 시험이 완료되었습니다.")]
 
 
+def test_main_window_session_stopped_shows_stop_popup(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    infos: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        window,
+        "_show_info",
+        lambda title, message: infos.append((title, message)),
+    )
+
+    window._runner.events.session_stopped.emit()
+
+    assert infos == [("시험 중지", "시험이 중지되었습니다.")]
+
+
+def test_main_window_session_failed_shows_failure_popup(qtbot, monkeypatch) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        window,
+        "_show_warning",
+        lambda title, message: warnings.append((title, message)),
+    )
+
+    window._runner.events.session_failed.emit()
+
+    assert warnings == [("시험 중단", "시험 중 오류가 발생하여 중단되었습니다.")]
+
+
 def test_main_window_wires_runner_owned_instrument_service(qtbot) -> None:
     """Instrument Check가 Runner 소유 연결 서비스를 사용한다."""
 
