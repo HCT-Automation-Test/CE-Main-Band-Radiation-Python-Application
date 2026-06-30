@@ -1,4 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
+import shutil
+
+from PyInstaller.config import CONF
+
+LV_SERVER_DIR_NAME = 'LV Inst Manager'
+APP_NAME = 'CE_MainBand_Radiation'
 
 
 a = Analysis(
@@ -6,7 +13,6 @@ a = Analysis(
     pathex=['src'],
     binaries=[],
     datas=[
-        ('LV Inst Manager', 'LV Inst Manager'),
         ('resources', 'resources'),
         ('config', 'config'),
         ('testcases', 'testcases'),
@@ -26,7 +32,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='CE_MainBand_Radiation',
+    name=APP_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -45,6 +51,14 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='CE_MainBand_Radiation',
+    name=APP_NAME,
 )
 
+# LV 실행 파일은 LabVIEW 쪽 상대 경로 기준을 유지하기 위해 exe 옆에 둔다.
+lv_source = Path(LV_SERVER_DIR_NAME)
+if not lv_source.is_dir():
+    raise SystemExit(f'LV Inst Manager directory not found: {lv_source}')
+lv_target = Path(CONF['distpath']) / APP_NAME / LV_SERVER_DIR_NAME
+if lv_target.exists():
+    shutil.rmtree(lv_target)
+shutil.copytree(lv_source, lv_target)

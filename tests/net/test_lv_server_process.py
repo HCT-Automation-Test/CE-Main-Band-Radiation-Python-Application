@@ -10,6 +10,30 @@ from app.net import lv_server_process
 from app.net.lv_server_process import LvServerError, LvServerManager
 
 
+def test_default_lv_server_exe_path_prefers_side_by_side_lv_server(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exe_dir = tmp_path / "dist" / "CE_MainBand_Radiation"
+    internal_dir = exe_dir / "_internal"
+    bundled_lv_dir = internal_dir / "LV Inst Manager"
+    side_by_side_lv_dir = exe_dir / "LV Inst Manager"
+    bundled_lv_exe = bundled_lv_dir / "LV Inst Manager.exe"
+    side_by_side_lv_exe = side_by_side_lv_dir / "LV Inst Manager.exe"
+    bundled_lv_dir.mkdir(parents=True)
+    side_by_side_lv_dir.mkdir(parents=True)
+    bundled_lv_exe.write_text("", encoding="utf-8")
+    side_by_side_lv_exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(lv_server_process.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(
+        lv_server_process.sys,
+        "executable",
+        str(exe_dir / "CE_MainBand_Radiation.exe"),
+    )
+    monkeypatch.setattr(lv_server_process.sys, "_MEIPASS", str(internal_dir), raising=False)
+
+    assert lv_server_process.default_lv_server_exe_path() == side_by_side_lv_exe.resolve()
 def test_default_lv_server_exe_path_prefers_pyinstaller_internal(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

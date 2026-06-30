@@ -29,8 +29,8 @@ def default_lv_server_exe_path() -> Path:
     if getattr(sys, "frozen", False):
         exe_dir = Path(sys.executable).resolve().parent
         candidates = [
-            Path(getattr(sys, "_MEIPASS", exe_dir)) / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME,
             exe_dir / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME,
+            Path(getattr(sys, "_MEIPASS", exe_dir)) / LV_SERVER_DIR_NAME / LV_SERVER_EXE_NAME,
         ]
         for candidate in candidates:
             if candidate.is_file():
