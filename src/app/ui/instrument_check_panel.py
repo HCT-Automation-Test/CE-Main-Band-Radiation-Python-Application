@@ -21,6 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.instrument_connection_settings import (
+    InstrumentConnectionSettings,
+    InstrumentConnectionSettingsStore,
+)
 from app.core.instrument_connection import (
     InstrumentConnectionService,
     build_equipment_connection_config,
@@ -82,11 +86,13 @@ class InstrumentCheckPanel(QWidget):
         parent: QWidget | None = None,
         *,
         service: InstrumentConnectionService | None = None,
+        settings_store: InstrumentConnectionSettingsStore | None = None,
     ) -> None:
         super().__init__(parent)
         self.setObjectName("instrumentCheckPanel")
         self._owns_service = service is None
         self._service = service or InstrumentConnectionService(self)
+        self._settings_store = settings_store
         self._resource_combos: dict[str, QComboBox] = {}
         self._status_labels: dict[str, QLabel] = {}
         self._last_connection_config: EquipmentConnectionConfig | None = None
@@ -101,6 +107,7 @@ class InstrumentCheckPanel(QWidget):
         self._visa_initial_refresh_timer.setSingleShot(True)
         self._visa_initial_refresh_timer.setInterval(_VISA_INITIAL_REFRESH_DELAY_MSEC)
         self._setup_layout()
+        self._load_saved_connection_settings()
         self._connect_signals()
         self._apply_styles()
 
@@ -488,6 +495,7 @@ class InstrumentCheckPanel(QWidget):
         logger.info("Instrument 연결 결과: %s", states)
         self._connection_in_progress = False
         self._equipment_state = normalize_equipment_state(states)
+        self._save_successful_connection_settings(states)
         for target, key in _RESULT_KEY_TO_STATUS_KEY.items():
             if target in states:
                 self._set_status(key, "connected" if states.get(target) else "failed")
@@ -810,6 +818,71 @@ class InstrumentCheckPanel(QWidget):
         if combo.findText(value) < 0:
             combo.addItem(value)
         combo.setCurrentText(value)
+
+    def _load_saved_connection_settings(self) -> None:
+        """저장된 연결 설정을 Instrument Check 입력 필드에 반영한다."""
+
+        if self._settings_store is None:
+            return
+
+        settings = self._settings_store.load()
+        if settings.mt8000a_visa_resource:
+            self.set_resource_text("mt8000a", settings.mt8000a_visa_resource)
+        if settings.fsv40_visa_resource:
+            self.set_resource_text("fsv40", settings.fsv40_visa_resource)
+        if settings.co3000_visa_resource:
+            self.set_resource_text("co3000", settings.co3000_visa_resource)
+        if settings.controller_3d_visa_resource:
+            self.set_resource_text(
+                "controller_3d",
+                settings.controller_3d_visa_resource,
+            )
+        if settings.switch_box_ip_address:
+            self._switch_box_ip_edit.setText(settings.switch_box_ip_address)
+        if settings.switch_box_port is not None:
+            self._switch_box_port_edit.setText(str(settings.switch_box_port))
+
+    def _save_successful_connection_settings(self, states: dict[str, bool]) -> None:
+        """성공한 장비의 연결 입력값만 저장 설정에 병합한다."""
+
+        if self._settings_store is None or self._last_connection_config is None:
+            return
+
+        config = self._last_connection_config
+        current = self._settings_store.load()
+        settings = InstrumentConnectionSettings(
+            mt8000a_visa_resource=(
+                config.mt8000a_visa_resource
+                if states.get("MT8000A") is True
+                else current.mt8000a_visa_resource
+            ),
+            fsv40_visa_resource=(
+                config.fsv40_visa_resource
+                if states.get("FSV40") is True
+                else current.fsv40_visa_resource
+            ),
+            co3000_visa_resource=(
+                config.co3000_visa_resource
+                if states.get("CO3000") is True
+                else current.co3000_visa_resource
+            ),
+            controller_3d_visa_resource=(
+                config.controller_3d_visa_resource
+                if states.get("3D Controller") is True
+                else current.controller_3d_visa_resource
+            ),
+            switch_box_ip_address=(
+                config.switch_box_ip_address
+                if states.get("Switch Box") is True
+                else current.switch_box_ip_address
+            ),
+            switch_box_port=(
+                config.switch_box_port
+                if states.get("Switch Box") is True
+                else current.switch_box_port
+            ),
+        )
+        self._settings_store.save(settings)
 
     def service(self) -> Any:
         """테스트에서 주입된 서비스를 확인할 수 있게 한다."""
