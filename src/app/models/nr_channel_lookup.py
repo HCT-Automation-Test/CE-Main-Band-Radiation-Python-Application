@@ -489,7 +489,7 @@ _CHANNEL_LOOKUP_BY_BAND: dict[NRBand, BandLookupTable] = {
         15.0: _profiles(
             low=(500700, 2503.5),
             mid=(518598, 2592.99),
-            high=(536498, 2682.49),
+            high=(536496, 2682.48),
         ),
         20.0: _profiles(
             low=(501204, 2506.02),
@@ -504,7 +504,7 @@ _CHANNEL_LOOKUP_BY_BAND: dict[NRBand, BandLookupTable] = {
         30.0: _profiles(
             low=(502200, 2511.0),
             mid=(518598, 2592.99),
-            high=(534998, 2674.99),
+            high=(534996, 2674.98),
         ),
         40.0: _profiles(
             low=(503202, 2516.01),
@@ -519,7 +519,7 @@ _CHANNEL_LOOKUP_BY_BAND: dict[NRBand, BandLookupTable] = {
         60.0: _profiles(
             low=(505200, 2526.0),
             mid=(518598, 2592.99),
-            high=(531998, 2659.99),
+            high=(531996, 2659.98),
         ),
         70.0: _profiles(
             low=(506202, 2531.01),
@@ -534,7 +534,7 @@ _CHANNEL_LOOKUP_BY_BAND: dict[NRBand, BandLookupTable] = {
         90.0: _profiles(
             low=(508200, 2541.0),
             mid=(518598, 2592.99),
-            high=(528998, 2644.99),
+            high=(528996, 2644.98),
         ),
         100.0: _profiles(
             low=(509202, 2546.01),

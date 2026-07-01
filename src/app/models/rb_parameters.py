@@ -22,7 +22,7 @@ _RB_PARAMETERS_BY_KEY: dict[tuple[float, int, RBAllocation], tuple[int, int]] = 
     (10.0, 30, RBAllocation.INNER_FULL): (12, 6),
     (10.0, 30, RBAllocation.INNER_1RB_LEFT): (1, 1),
     (10.0, 30, RBAllocation.INNER_1RB_RIGHT): (1, 22),
-    (15.0, 15, RBAllocation.INNER_FULL): (38, 18),
+    (15.0, 15, RBAllocation.INNER_FULL): (36, 18),
     (15.0, 15, RBAllocation.INNER_1RB_LEFT): (1, 1),
     (15.0, 15, RBAllocation.INNER_1RB_RIGHT): (1, 77),
     (15.0, 30, RBAllocation.INNER_FULL): (18, 9),
