@@ -6,6 +6,7 @@ from PyInstaller.config import CONF
 
 LV_SERVER_DIR_NAME = 'LV Inst Manager'
 APP_NAME = 'CE_MainBand_Radiation'
+APP_ICON = 'resources\\icons\\app_icon.ico'
 
 
 a = Analysis(
@@ -43,6 +44,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=APP_ICON,
 )
 coll = COLLECT(
     exe,
