@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
 from app.logging_setup import setup_logging
@@ -15,9 +17,15 @@ from app.logging_setup import setup_logging
 logger = logging.getLogger(__name__)
 
 
+def _resource_path(relative_path: str) -> Path:
+    base_path = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
+    return base_path / relative_path
+
+
 def main() -> int:
     setup_logging()
     app = QApplication(sys.argv)
+    app.setWindowIcon(QIcon(str(_resource_path("resources/icons/app_icon.ico"))))
     try:
         from app.ui.main_window import MainWindow
     except ImportError as exc:
