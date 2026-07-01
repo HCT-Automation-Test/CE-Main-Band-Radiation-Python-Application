@@ -1,0 +1,8 @@
+{
+  "mt8000a_visa_resource": "TCPIP0::192.168.0.3::inst0::INSTR",
+  "fsv40_visa_resource": "TCPIP0::192.168.0.2::inst0::INSTR",
+  "co3000_visa_resource": "ASRL1::INSTR",
+  "controller_3d_visa_resource": "ASRL2::INSTR",
+  "switch_box_ip_address": "192.168.0.10",
+  "switch_box_port": 5000
+}

@@ -40,5 +40,6 @@ Thumbs.db
 # Local configs
 config/app_config.json
 config/excel_template_map.json
+config/instrument_connection.json
 /LV Inst Manager/
 *.log

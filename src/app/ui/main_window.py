@@ -22,6 +22,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.instrument_connection_settings import (
+    InstrumentConnectionSettingsStore,
+)
 from app.core.instrument_connection import (
     should_preserve_equipment_state_on_connection_error,
 )
@@ -296,6 +299,7 @@ class MainWindow(QMainWindow):
         self._instrument_check_panel = InstrumentCheckPanel(
             self._page_stack,
             service=self._runner.instrument_connection_service,
+            settings_store=InstrumentConnectionSettingsStore(),
         )
         self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)

@@ -11,6 +11,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.instrument_connection_settings import (
+    InstrumentConnectionSettings,
+    InstrumentConnectionSettingsStore,
+)
 from app.core.instrument_connection import CONNECTION_IN_PROGRESS_MESSAGE
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
@@ -887,3 +891,131 @@ def test_instrument_check_panel_emits_failure_for_missing_equipment(
 
     assert not panel.is_fully_connected
     assert blocker.args[0].endswith("disconnected equipment: FSV40")
+
+
+def test_instrument_check_panel_missing_settings_file_starts_empty(qtbot, tmp_path) -> None:
+    service = _Service()
+    store = InstrumentConnectionSettingsStore(tmp_path / "missing.json")
+
+    panel = InstrumentCheckPanel(service=service, settings_store=store)
+    qtbot.addWidget(panel)
+
+    assert panel.findChild(QComboBox, "mt8000aResourceCombo").currentText() == ""
+    assert panel.findChild(QComboBox, "fsv40ResourceCombo").currentText() == ""
+    assert panel.findChild(QComboBox, "co3000ResourceCombo").currentText() == ""
+    assert panel.findChild(QComboBox, "controller3dResourceCombo").currentText() == ""
+    assert panel.findChild(QLineEdit, "switchBoxIpEdit").text() == ""
+    assert panel.findChild(QLineEdit, "switchBoxPortEdit").text() == ""
+
+
+def test_instrument_check_panel_loads_saved_connection_settings(qtbot, tmp_path) -> None:
+    service = _Service()
+    store = InstrumentConnectionSettingsStore(tmp_path / "instrument_connection.json")
+    store.save(
+        InstrumentConnectionSettings(
+            mt8000a_visa_resource="TCPIP0::192.168.0.3::inst0::INSTR",
+            fsv40_visa_resource="TCPIP0::192.168.0.2::inst0::INSTR",
+            co3000_visa_resource="ASRL1::INSTR",
+            controller_3d_visa_resource="ASRL2::INSTR",
+            switch_box_ip_address="192.168.0.10",
+            switch_box_port=5000,
+        )
+    )
+
+    panel = InstrumentCheckPanel(service=service, settings_store=store)
+    qtbot.addWidget(panel)
+
+    assert panel.findChild(QComboBox, "mt8000aResourceCombo").currentText() == (
+        "TCPIP0::192.168.0.3::inst0::INSTR"
+    )
+    assert panel.findChild(QComboBox, "fsv40ResourceCombo").currentText() == (
+        "TCPIP0::192.168.0.2::inst0::INSTR"
+    )
+    assert panel.findChild(QComboBox, "co3000ResourceCombo").currentText() == "ASRL1::INSTR"
+    assert panel.findChild(QComboBox, "controller3dResourceCombo").currentText() == (
+        "ASRL2::INSTR"
+    )
+    assert panel.findChild(QLineEdit, "switchBoxIpEdit").text() == "192.168.0.10"
+    assert panel.findChild(QLineEdit, "switchBoxPortEdit").text() == "5000"
+
+
+def test_instrument_check_panel_saved_settings_survive_visa_refresh(
+    qtbot,
+    tmp_path,
+) -> None:
+    service = _Service()
+    store = InstrumentConnectionSettingsStore(tmp_path / "instrument_connection.json")
+    store.save(
+        InstrumentConnectionSettings(
+            fsv40_visa_resource="MANUAL::FSV40::INSTR",
+        )
+    )
+    panel = InstrumentCheckPanel(service=service, settings_store=store)
+    qtbot.addWidget(panel)
+    panel.show()
+    qtbot.waitUntil(lambda: service.refresh_calls == 1, timeout=1000)
+
+    service.visa_resources_discovered.emit(["ASRL1::INSTR", "ASRL2::INSTR"])
+
+    combo = panel.findChild(QComboBox, "fsv40ResourceCombo")
+    assert combo.currentText() == "MANUAL::FSV40::INSTR"
+    assert combo.itemText(0) == "MANUAL::FSV40::INSTR"
+
+
+def test_instrument_check_panel_saves_successful_equipment_only(
+    qtbot,
+    tmp_path,
+    monkeypatch,
+) -> None:
+    service = _Service()
+    store = InstrumentConnectionSettingsStore(tmp_path / "instrument_connection.json")
+    store.save(
+        InstrumentConnectionSettings(
+            mt8000a_visa_resource="OLD::MT",
+            fsv40_visa_resource="OLD::FS",
+            co3000_visa_resource="OLD::CO",
+            controller_3d_visa_resource="OLD::3D",
+            switch_box_ip_address="192.168.0.1",
+            switch_box_port=1000,
+        )
+    )
+    panel = InstrumentCheckPanel(service=service, settings_store=store)
+    qtbot.addWidget(panel)
+    monkeypatch.setattr(panel, "_show_warning", lambda message: None)
+    _fill_valid_connection_fields(panel)
+
+    panel.findChild(QPushButton, "connectInstrumentButton").click()
+    service.connection_finished.emit(
+        {
+            "FSV40": True,
+            "MT8000A": False,
+            "CO3000": False,
+            "Switch Box": True,
+        }
+    )
+
+    settings = store.load()
+    assert settings.mt8000a_visa_resource == "OLD::MT"
+    assert settings.fsv40_visa_resource == "TCPIP0::192.168.0.2::inst0::INSTR"
+    assert settings.co3000_visa_resource == "OLD::CO"
+    assert settings.controller_3d_visa_resource == "OLD::3D"
+    assert settings.switch_box_ip_address == "192.168.0.10"
+    assert settings.switch_box_port == 5000
+
+
+def test_instrument_check_panel_ignores_invalid_saved_settings(
+    qtbot,
+    tmp_path,
+    caplog,
+) -> None:
+    settings_path = tmp_path / "instrument_connection.json"
+    settings_path.write_text("{bad json", encoding="utf-8")
+    service = _Service()
+    store = InstrumentConnectionSettingsStore(settings_path)
+
+    panel = InstrumentCheckPanel(service=service, settings_store=store)
+    qtbot.addWidget(panel)
+
+    assert "Instrument connection settings load failed" in caplog.text
+    assert panel.findChild(QComboBox, "fsv40ResourceCombo").currentText() == ""
+    assert panel.findChild(QLineEdit, "switchBoxIpEdit").text() == ""
