@@ -9,13 +9,14 @@
 시험 오퍼레이터가 Test Case를 관리하고 시퀀스를 실행하며 결과 리포트를 생성하는
 **오케스트레이션 + UI + 리포트** 계층을 담당한다.
 
-- 도메인: NR SA (MVP), 이후 NSA / LTE 확장 예정
-- 시험 종류: Harmonic, In-band, Bilog
-- 장비:
+- 도메인: NR SA + NSA (구현 완료), 이후 LTE 확장 예정
+- 시험 종류: Harmonic, In-band, Bilog (모두 구현)
+- 장비 5종:
   - `MT8000A`: NR Callbox
   - `FSV40`: Spectrum Analyzer
-  - `Switch Box`: 입력/필터 경로 선택
-  - `CO3000`: Turntable
+  - `Switch Box`: 입력/필터 경로 선택 (IP/Port)
+  - `CO3000`: Turntable + 3m/Bilog Mast 편파
+  - `3D Controller`: 1m Mast 편파 제어
 - 장비의 **VISA 직접 제어는 외부 LabVIEW 프로그램 책임**이다.
 - Python 앱은 장비 제어를 위해 VISA 세션을 직접 열거나 SCPI/장비 명령을 직접 전송하지 않는다.
 - 장비 연결, 설정, 측정, 상태 확인은 외부 프로그램과 **TCP 기반 JSON 프로토콜**로만 수행한다.
@@ -33,7 +34,7 @@ Bilog와 In-band의 차이는 방사원 신호와 스펙트럼 분석 대역/Ran
 
 ## Python Responsibilities
 
-1. CSV Test Case 로드, 편집, Range 확장
+1. CSV Test Case 로드, 편집, 검증 (Range 매핑은 `TestCase` 파생 프로퍼티가 수행)
 2. 코드 상수 기반 TestRange 정의 및 매핑
 3. FSM 기반 시퀀스 실행
 4. 외부 프로그램과 TCP/JSON 명령 송수신
@@ -52,9 +53,9 @@ Bilog와 In-band의 차이는 방사원 신호와 스펙트럼 분석 대역/Ran
 
 ## Key Paths
 
-- `src/app/core/`: 테스트케이스 로딩, 검증, runner, FSM
-- `src/app/net/`: TCP client, protocol, commands, mock server
-- `src/app/report/`: Excel writer, template loader, screenshot store
+- `src/app/core/`: 테스트케이스 로딩, 검증, runner, 장비 연결/Set·TDF 서비스, FSM
+- `src/app/net/`: TCP client, protocol, commands, LV 서버 프로세스 관리, mock server/client
+- `src/app/report/`: report writer facade, Excel writer(COM 라이브 모니터링), template map(코드 상수), screenshot store
 - `src/app/ui/`: PySide6 UI 로직
 - `src/app/ui/generated/`: `pyside6-uic` 생성물, 직접 수정 금지
 - `testcases/`: 샘플 CSV
@@ -123,11 +124,18 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 
 ## When Adding A New Test Type
 
-1. `src/app/core/fsm/<type>/` 아래에 `states.py`, `sequence.py`를 추가한다.
-2. `src/app/core/fsm/registry.py`의 `SEQUENCES`에 등록한다.
-3. `src/app/net/commands.py`에 필요한 facade 함수를 추가한다.
-4. `src/app/models/enums.py`의 `TestType`에 항목을 추가한다.
-5. `tests/core/test_fsm_<type>.py`에 테스트를 작성한다.
+1. `src/app/models/enums.py`의 `TestType`에 항목을 추가하고,
+   `band_group.RANGE_BY_BAND_TEST` band별 매핑과 `measurement_result.py` 결과 dataclass를 추가한다.
+2. `src/app/core/fsm/states/measurement/<type>.py`에 측정 상태를 추가한다 (`inband.py`가 최소 템플릿).
+3. `src/app/core/fsm/states/measurement/common.py`의 `measurement_start_state_for()`
+   매핑 3개(진입/회전후/회전후+수동)에 항목을 추가한다.
+4. `src/app/core/fsm/engine.py`의 `build_session_engine()`에 상태를 register한다.
+5. `src/app/net/commands.py`에 facade 함수를 추가하고 `mock_lv_server.py`에 핸들러를 추가한다.
+6. `src/app/report/template_map.py` 레이아웃/좌표 함수와
+   `excel_writer.py`/`report_writer.py`의 `write_<type>`을 추가한다.
+7. `src/app/ui/nr_select.py`의 `_test_range_options_for_group`에 라벨↔TestType 매핑을 추가한다.
+8. `tests/core/test_fsm_<type>.py`(harmonic 하네스 재사용), `tests/core/test_fsm_routing.py`,
+   `tests/net/test_commands.py`에 테스트를 작성한다.
 
 ## Forbidden / Requires Extra Care
 
@@ -150,5 +158,8 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 
 ## Reference Notes
 
-- 기존 프로젝트 설명 문서는 `CLAUDE.md`에 남아 있다.
+- 프로젝트 상세 스펙: `docs/PROJECT_SPEC_1.0.1.md` (메인), `docs/ARCHITECTURE.md` (개요),
+  심화 문서 `docs/FSM.md` / `docs/PROTOCOL.md` / `docs/DOMAIN_MODELS.md` /
+  `docs/REPORTING.md` / `docs/UI_GUIDE.md`.
+- 기존 프로젝트 규칙 문서는 `CLAUDE.md`에 남아 있다.
 - Claude 전용 스킬/에이전트 경로가 문서에 남아 있을 수 있지만, Codex 작업 시에는 이 `AGENTS.md`를 우선 지침으로 사용한다.
