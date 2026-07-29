@@ -149,6 +149,15 @@ class MockLvClientConsole:
                 max_retry_count=_int_arg(args, "max_retry_count", default=3),
                 waiting_time=_int_arg(args, "waiting_time", default=5),
             )
+        if name == "setup-lte-mt8000":
+            return commands.setup_lte_mt8000(
+                self._recording_client,
+                bw=_float_arg(args, "bw"),
+                ul_channel=_int_arg(args, "ul_channel"),
+                rb_offset=_int_arg(args, "rb_offset"),
+                max_retry_count=_int_arg(args, "max_retry_count", default=3),
+                waiting_time=_int_arg(args, "waiting_time", default=5),
+            )
         if name == "handover":
             return commands.call_handover(
                 self._recording_client,
@@ -159,6 +168,18 @@ class MockLvClientConsole:
                 rb_size=_int_arg(args, "rb_size"),
                 rb_offset=_int_arg(args, "rb_offset"),
                 channel=_int_arg(args, "channel"),
+                max_retry_count=_int_arg(args, "max_retry_count", default=3),
+                waiting_time=_int_arg(args, "waiting_time", default=5),
+            )
+        if name == "lte-handover":
+            return commands.lte_call_handover(
+                self._recording_client,
+                bw=_float_arg(args, "bw"),
+                mid_channel=_int_arg(args, "mid_channel"),
+                ul_channel=_int_arg(args, "ul_channel"),
+                rb_offset=_int_arg(args, "rb_offset"),
+                max_retry_count=_int_arg(args, "max_retry_count", default=3),
+                waiting_time=_int_arg(args, "waiting_time", default=5),
             )
         if name == "setup-sa-level":
             return commands.setup_sa_startup_levels(
@@ -271,7 +292,7 @@ class MockLvClientConsole:
                 self._recording_client,
                 tdf_file_name=_str_arg(args, "file", "tdf_file_name"),
             )
-        if name == "check-call":
+        if name in {"check-call", "check-call-status"}:
             return commands.check_call_status(self._recording_client)
         if name == "set-ant-pol":
             return commands.set_antenna_pol(
@@ -417,8 +438,25 @@ class MockLvClientConsole:
                 [
                     "Commands:",
                     "  connect [fsv40=...] [mt8000a=...] [co3000=...]",
-                    "  setup-mt8000 band=78 bw=100 modulation=QPSK rb_size=135 rb_offset=67 channel=636666",
-                    "  handover mid_channel=636666 band=78 bw=100 modulation=QPSK rb_size=135 rb_offset=67 channel=640000",
+                    (
+                        "  setup-mt8000 band=78 bw=100 modulation=QPSK "
+                        "rb_size=135 rb_offset=67 channel=636666 "
+                        "[max_retry_count=3] [waiting_time=5]"
+                    ),
+                    (
+                        "  setup-lte-mt8000 bw=20 ul_channel=18100 rb_offset=0 "
+                        "[max_retry_count=3] [waiting_time=5]"
+                    ),
+                    (
+                        "  handover mid_channel=636666 band=78 bw=100 "
+                        "modulation=QPSK rb_size=135 rb_offset=67 channel=640000 "
+                        "[max_retry_count=3] [waiting_time=5]"
+                    ),
+                    (
+                        "  lte-handover bw=20 mid_channel=18300 "
+                        "ul_channel=18500 rb_offset=99 "
+                        "[max_retry_count=3] [waiting_time=5]"
+                    ),
                     "  setup-sa-level atten=1.5 next_peak=-20",
                     "  setup-sa range=RANGE_6",
                     "  measure-fundamental target_freq=3550",
@@ -439,7 +477,7 @@ class MockLvClientConsole:
                     "  tdf-list",
                     "  tdf-all-off",
                     "  set-tdf file=NR_Radiated.tdf",
-                    "  check-call",
+                    "  check-call-status (alias: check-call)",
                     "  set-ant-pol pol=V input_path=3",
                     "  raw target=FSV40 command=\"Unknown Command\" params='{}'",
                     "  events",

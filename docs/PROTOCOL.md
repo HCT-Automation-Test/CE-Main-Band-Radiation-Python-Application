@@ -161,6 +161,15 @@ uv run python -m app
 `--screenshot-fixture-dir <실제 SA 캡처 폴더>` (없으면 1x1 투명 PNG 생성).
 
 콘솔 클라이언트: `uv run python -m app.net.mock_lv_client --host 127.0.0.1 --port 5025`.
+LTE Call/Handover 수동 검증 예:
+
+```text
+lv> setup-lte-mt8000 bw=20 ul_channel=18100 rb_offset=0
+lv> check-call-status
+lv> lte-handover bw=20 mid_channel=18300 ul_channel=18500 rb_offset=99 max_retry_count=7 waiting_time=11
+lv> check-call-status
+```
+
 
 ## 6. 함정 정리
 
