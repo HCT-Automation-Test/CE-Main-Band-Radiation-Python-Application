@@ -111,6 +111,7 @@ def _make_ctx(
     commands: _Commands | None = None,
     queue: list[TestCase] | None = None,
     current_index: int = 0,
+    settings: Any | None = None,
 ) -> tuple[SessionContext, _Commands, _Events, object]:
     client = object()
     events = _Events()
@@ -121,6 +122,7 @@ def _make_ctx(
         events=events,  # type: ignore[arg-type]
         client=client,
         current_index=current_index,
+        settings=settings,
     )
     ctx.equipment_state = {
         "CO3000": True,
@@ -428,10 +430,30 @@ def test_handover_calls_command_with_current_case_params() -> None:
                 "rb_size": 135,
                 "rb_offset": 67,
                 "channel": 650000,
+                "waiting_time": 5,
             },
         )
     ]
     assert events.error.messages == []
+
+
+def test_handover_uses_connection_waiting_time_setting() -> None:
+    class _Settings:
+        connection_waiting_time_sec = 7
+
+    prev_case = _make_case(band=NRBand.N28, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N78, bandwidth=100.0)
+    ctx, commands, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+        settings=_Settings(),
+    )
+
+    result = HandoverState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.handover_calls[0][1]["waiting_time"] == 7
 
 
 @pytest.mark.parametrize(

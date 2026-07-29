@@ -54,6 +54,8 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_LTE_CALL = "LTE Call"
+_COMMAND_LTE_HANDOVER = "LTE Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
@@ -215,10 +217,10 @@ class MockLvServer:
         return _error(request, "unsupported command")
 
     def _handle_mt8000a(self, request: Request) -> Response:
-        if request.command == _COMMAND_NR_CALL:
+        if request.command in {_COMMAND_NR_CALL, _COMMAND_LTE_CALL}:
             self.state.call_connected = True
             return _ok(request)
-        if request.command == _COMMAND_NR_HANDOVER:
+        if request.command in {_COMMAND_NR_HANDOVER, _COMMAND_LTE_HANDOVER}:
             return _ok(request)
         if request.command == _COMMAND_CHECK_CALL_STATUS:
             connected = (

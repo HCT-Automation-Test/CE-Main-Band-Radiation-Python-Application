@@ -37,6 +37,8 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_LTE_CALL = "LTE Call"
+_COMMAND_LTE_HANDOVER = "LTE Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
@@ -52,6 +54,14 @@ _COMMAND_TDF_ALL_OFF = "TDF All Off"
 _COMMAND_SET_TDF = "Set TDF"
 
 _HZ_PER_MHZ = 1_000_000.0
+_LTE_BANDWIDTH_WIRE_VALUES = {
+    1.4: "1.4",
+    3.0: "3",
+    5.0: "5",
+    10.0: "10",
+    15.0: "15",
+    20.0: "20",
+}
 
 _CONNECT_TARGETS = (
     _TARGET_FSV40,
@@ -89,6 +99,24 @@ def _normalize_modulation(modulation: Modulation | str) -> str:
     return value
 
 
+def _normalize_lte_bandwidth(bw: int | float) -> str:
+    """LTE bandwidth를 LabVIEW enum 변환용 문자열로 정규화한다."""
+    if isinstance(bw, bool) or not isinstance(bw, int | float):
+        raise ValueError(f"Invalid LTE bandwidth: {bw!r}")
+
+    normalized = float(bw)
+    if not math.isfinite(normalized):
+        raise ValueError(f"Invalid LTE bandwidth: {bw!r}")
+
+    try:
+        return _LTE_BANDWIDTH_WIRE_VALUES[normalized]
+    except KeyError as exc:
+        supported = ", ".join(_LTE_BANDWIDTH_WIRE_VALUES.values())
+        raise ValueError(
+            f"Unsupported LTE bandwidth: {bw!r}. Supported bandwidths: {supported}"
+        ) from exc
+
+
 def _build_mt8000_params(
     *,
     band: int,
@@ -121,6 +149,8 @@ def _build_handover_params(
     rb_size: int,
     rb_offset: int,
     channel: int,
+    max_retry_count: int,
+    waiting_time: int,
 ) -> dict[str, Any]:
     return {
         "Mid Channel": int(mid_channel),
@@ -130,6 +160,44 @@ def _build_handover_params(
         "RB Size": int(rb_size),
         "RB Offset": int(rb_offset),
         "Modulation": _normalize_modulation(modulation),
+        "Max Retry Count": int(max_retry_count),
+        "Waiting Time": int(waiting_time),
+    }
+
+
+def _build_lte_call_params(
+    *,
+    bw: int | float,
+    ul_channel: int,
+    rb_offset: int,
+    max_retry_count: int,
+    waiting_time: int,
+) -> dict[str, Any]:
+    return {
+        "BandWidth": _normalize_lte_bandwidth(bw),
+        "UL Channel": int(ul_channel),
+        "RB Offset": int(rb_offset),
+        "Max Retry Count": int(max_retry_count),
+        "Waiting Time": int(waiting_time),
+    }
+
+
+def _build_lte_handover_params(
+    *,
+    bw: int | float,
+    mid_channel: int,
+    ul_channel: int,
+    rb_offset: int,
+    max_retry_count: int,
+    waiting_time: int,
+) -> dict[str, Any]:
+    return {
+        "BandWidth": _normalize_lte_bandwidth(bw),
+        "Mid Channel": int(mid_channel),
+        "UL Channel": int(ul_channel),
+        "RB Offset": int(rb_offset),
+        "Max Retry Count": int(max_retry_count),
+        "Waiting Time": int(waiting_time),
     }
 
 
@@ -226,6 +294,31 @@ def setup_mt8000(
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_CALL)
 
 
+def setup_lte_mt8000(
+    client: Any,
+    *,
+    bw: int | float,
+    ul_channel: int,
+    rb_offset: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
+) -> bool:
+    """현재 Recall 설정을 사용해 MT8000A LTE Call을 시작한다."""
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_LTE_CALL,
+        _build_lte_call_params(
+            bw=bw,
+            ul_channel=ul_channel,
+            rb_offset=rb_offset,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
+    )
+    return _action_ok(response, _TARGET_MT8000A, _COMMAND_LTE_CALL)
+
+
 def call_handover(
     client: Any,
     *,
@@ -236,8 +329,10 @@ def call_handover(
     rb_size: int,
     rb_offset: int,
     channel: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
 ) -> bool:
-    """Call Handover 수행."""
+    """NR Call Handover를 수행한다."""
     response = _send_request(
         client,
         _TARGET_MT8000A,
@@ -250,9 +345,38 @@ def call_handover(
             rb_size=rb_size,
             rb_offset=rb_offset,
             channel=channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_HANDOVER)
+
+
+def lte_call_handover(
+    client: Any,
+    *,
+    bw: int | float,
+    mid_channel: int,
+    ul_channel: int,
+    rb_offset: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
+) -> bool:
+    """같은 LTE Recall 내에서 다음 Test Case 설정으로 Handover한다."""
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_LTE_HANDOVER,
+        _build_lte_handover_params(
+            bw=bw,
+            mid_channel=mid_channel,
+            ul_channel=ul_channel,
+            rb_offset=rb_offset,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
+    )
+    return _action_ok(response, _TARGET_MT8000A, _COMMAND_LTE_HANDOVER)
 
 
 def set_reference_co3000(client: Any) -> bool:

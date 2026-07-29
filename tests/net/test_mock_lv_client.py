@@ -213,6 +213,107 @@ def test_mock_lv_client_manual_commands(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_client_lte_call_handover_and_status_aliases(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line(
+            "setup-lte-mt8000 bw=1.4 ul_channel=18000 rb_offset=0"
+        )
+        assert console.execute_line("check-call")
+        assert console.execute_line(
+            "lte-handover bw=10.0 mid_channel=18300 ul_channel=18500 "
+            "rb_offset=99 max_retry_count=7 waiting_time=11"
+        )
+        assert console.execute_line("check-call-status")
+
+        assert [
+            (request.target, request.command, request.params)
+            for request in server.received_requests
+        ] == [
+            (
+                "MT8000A",
+                "LTE Call",
+                {
+                    "BandWidth": "1.4",
+                    "UL Channel": 18000,
+                    "RB Offset": 0,
+                    "Max Retry Count": 3,
+                    "Waiting Time": 5,
+                },
+            ),
+            ("MT8000A", "Check Call Status", {}),
+            (
+                "MT8000A",
+                "LTE Handover",
+                {
+                    "BandWidth": "10",
+                    "Mid Channel": 18300,
+                    "UL Channel": 18500,
+                    "RB Offset": 99,
+                    "Max Retry Count": 7,
+                    "Waiting Time": 11,
+                },
+            ),
+            ("MT8000A", "Check Call Status", {}),
+        ]
+
+        text = output.getvalue()
+        assert "REQUEST  MT8000A / LTE Call" in text
+        assert "REQUEST  MT8000A / LTE Handover" in text
+        assert text.count("REQUEST  MT8000A / Check Call Status") == 2
+        assert text.count("RETURN   true") == 4
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_client_nr_handover_passes_retry_and_waiting_time(
+    qtbot,
+    tmp_path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line(
+            "handover mid_channel=636666 band=78 bw=100 modulation=QPSK "
+            "rb_size=135 rb_offset=67 channel=640000 "
+            "max_retry_count=9 waiting_time=12"
+        )
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "MT8000A",
+            "NR Handover",
+            {
+                "Mid Channel": 636666,
+                "Band": 78,
+                "BandWidth": 100,
+                "Center Channel": 640000,
+                "RB Size": 135,
+                "RB Offset": 67,
+                "Modulation": "QPSK",
+                "Max Retry Count": 9,
+                "Waiting Time": 12,
+            },
+        )
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
@@ -252,3 +353,8 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "tdf-all-off" in text
     assert "set-tdf file=NR_Radiated.tdf" in text
     assert "measure-inband limit=-30" in text
+    assert "setup-lte-mt8000 bw=20 ul_channel=18100 rb_offset=0" in text
+    assert "lte-handover bw=20 mid_channel=18300" in text
+    assert "handover mid_channel=636666" in text
+    assert "[max_retry_count=3] [waiting_time=5]" in text
+    assert "check-call-status (alias: check-call)" in text

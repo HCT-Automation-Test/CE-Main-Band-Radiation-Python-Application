@@ -574,6 +574,90 @@ def test_mock_lv_server_restart_resets_set_stop_flag(qtbot, tmp_path) -> None:
         server.stop()
 
 
+@pytest.mark.parametrize(
+    (
+        "bw",
+        "call_ul_channel",
+        "mid_channel",
+        "handover_ul_channel",
+        "handover_rb_offset",
+    ),
+    [
+        (20, 18100, 18300, 18500, 99),
+        (10, 36250, 36275, 36300, 49),
+    ],
+    ids=["fdd-b1", "tdd-b34"],
+)
+def test_mock_lv_server_lte_call_and_handover_flow(
+    qtbot,
+    tmp_path,
+    bw,
+    call_ul_channel,
+    mid_channel,
+    handover_ul_channel,
+    handover_rb_offset,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.setup_lte_mt8000(
+            client,
+            bw=bw,
+            ul_channel=call_ul_channel,
+            rb_offset=0,
+        )
+        assert commands.check_call_status(client) is True
+        assert commands.lte_call_handover(
+            client,
+            bw=bw,
+            mid_channel=mid_channel,
+            ul_channel=handover_ul_channel,
+            rb_offset=handover_rb_offset,
+        )
+        assert commands.check_call_status(client) is True
+
+        lte_requests = [
+            request
+            for request in server.received_requests
+            if request.command in {"LTE Call", "LTE Handover"}
+        ]
+        assert [
+            (request.target, request.command, request.params)
+            for request in lte_requests
+        ] == [
+            (
+                "MT8000A",
+                "LTE Call",
+                {
+                    "BandWidth": str(bw),
+                    "UL Channel": call_ul_channel,
+                    "RB Offset": 0,
+                    "Max Retry Count": 3,
+                    "Waiting Time": 5,
+                },
+            ),
+            (
+                "MT8000A",
+                "LTE Handover",
+                {
+                    "BandWidth": str(bw),
+                    "Mid Channel": mid_channel,
+                    "UL Channel": handover_ul_channel,
+                    "RB Offset": handover_rb_offset,
+                    "Max Retry Count": 3,
+                    "Waiting Time": 5,
+                },
+            ),
+        ]
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_call_disconnected_scenario(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path, scenario="call-disconnected")
     server.start()
