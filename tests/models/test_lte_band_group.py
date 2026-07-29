@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.models.enums import DuplexMode, LTEBand, TestType as MeasurementTestType
+from app.models.enums import LTEBand, TestType as MeasurementTestType
 from app.models.lte_band_group import (
     LTE_BAND_GROUPS,
     find_lte_band_group,
@@ -23,7 +23,6 @@ def test_lte_band_groups_cover_all_supported_bands_once() -> None:
 @pytest.mark.parametrize(
     (
         "band",
-        "duplex",
         "ranges",
         "factor_keyword",
         "recall",
@@ -33,28 +32,25 @@ def test_lte_band_groups_cover_all_supported_bands_once() -> None:
     [
         (
             LTEBand.B5,
-            DuplexMode.FDD,
             (RangeId.RANGE_1, RangeId.RANGE_3),
             "1G HPF",
-            "LTE_FDD.PRM",
+            "LTE_FDD",
             15,
             5,
         ),
         (
             LTEBand.B1,
-            DuplexMode.FDD,
             (RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
             "3G HPF",
-            "LTE_FDD.PRM",
+            "LTE_FDD",
             15,
             5,
         ),
         (
             LTEBand.B34,
-            DuplexMode.TDD,
             (RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
             "3G HPF",
-            "LTE_TDD.PRM",
+            "LTE_TDD",
             15,
             3,
         ),
@@ -62,7 +58,6 @@ def test_lte_band_groups_cover_all_supported_bands_once() -> None:
 )
 def test_find_lte_band_group_returns_final_profile(
     band: LTEBand,
-    duplex: DuplexMode,
     ranges: tuple[RangeId, ...],
     factor_keyword: str,
     recall: str,
@@ -71,7 +66,6 @@ def test_find_lte_band_group_returns_final_profile(
 ) -> None:
     profile = find_lte_band_group(band)
 
-    assert profile.duplex is duplex
     assert profile.test_ranges == ranges
     assert profile.factor_keyword == factor_keyword
     assert profile.mt8000_recall == recall
@@ -106,4 +100,4 @@ def test_lte_non_lb_range_mapping(band: LTEBand) -> None:
 
 
 def test_lte_band_group_lookup_accepts_case_insensitive_label() -> None:
-    assert find_lte_band_group("b41").duplex is DuplexMode.TDD
+    assert find_lte_band_group("b41") is find_lte_band_group(LTEBand.B41)

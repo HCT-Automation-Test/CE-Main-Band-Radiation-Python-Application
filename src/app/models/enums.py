@@ -48,13 +48,6 @@ class Generation(str, Enum):
     LTE = "LTE"
 
 
-class DuplexMode(str, Enum):
-    """통신 방식의 Duplex 구분."""
-
-    FDD = "FDD"
-    TDD = "TDD"
-
-
 class TestType(Enum):
     """시험 종류."""
 

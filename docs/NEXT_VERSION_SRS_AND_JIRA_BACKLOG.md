@@ -33,7 +33,7 @@
 |---|---|
 | Generation | `NR_SA`, `NR_NSA`, `LTE` Test Case 구분값 |
 | Factor | FSV40에 적용하는 TDF 파일. Band Group의 `1G HPF`, `3G HPF` 등이 검색 키워드가 됨 |
-| Parameter Recall | MT8000A에 적용하는 `.PRM` 설정 파일 |
+| Parameter Recall | Band Group이 제공하며 MT8000A 명령에 확장자 없이 전달하는 Recall 식별자 |
 | Test Range | 기존 NR에서 사용하는 Spectrum Analyzer 및 Switch Box Range 설정 |
 | ARFCH | NR/LTE 공용 UI와 CSV에서 유지하는 채널 필드명 |
 | EAFRCH | LTE 전용 Parameter Table에 표시하는 채널 열 이름 |
@@ -61,21 +61,22 @@
 
 ### 3.4 MT8000A Parameter Recall 자동 적용
 
-#### Recall 파일 매핑
+#### Recall 식별자 매핑
 
-| Generation | FDD | TDD |
+| Generation | Band Group | Recall 식별자 |
 |---|---|---|
-| LTE | `LTE_FDD.PRM` | `LTE_TDD.PRM` |
-| NR_SA | `5GNR_SA_FDD.PRM` | `5GNR_SA_TDD.PRM` |
-| NR_NSA | `5GNR_NSA_FDD.PRM` | `5GNR_NSA_TDD.PRM` |
+| LTE | `lb`, `mhb_fdd` | `LTE_FDD` |
+| LTE | `mhb_tdd` | `LTE_TDD` |
+| NR_SA | 각 NR Band Group | 해당 Group의 `mt8000_recall` |
+| NR_NSA | 각 NR Band Group | 해당 Group의 `mt8000_recall` |
 
 #### 기능 요구사항
 
 | ID | 요구사항 | 인수 기준 |
 |---|---|---|
-| SRS-RCL-001 | 현재 Test Case의 Generation과 FDD/TDD 구분으로 Recall 파일을 결정한다. | 여섯 개 파일 중 현재 Test Case에 맞는 파일을 선택한다. |
+| SRS-RCL-001 | 현재 Test Case의 Band Group에서 Recall 식별자를 조회한다. Group key와 식별자 문자열은 해석하지 않는다. | Band Group profile의 `mt8000_recall` 값을 그대로 사용한다. |
 | SRS-RCL-002 | 첫 Test Case에서 목표 Recall을 자동 적용한다. | 시험 시작 전 사용자의 MT8000A 수동 Recall 조작이 필요하지 않다. |
-| SRS-RCL-003 | 다음 Test Case의 Recall 파일이 달라질 때만 Recall을 변경한다. | 같은 Recall이 이어지면 Recall을 다시 수행하지 않는다. |
+| SRS-RCL-003 | 다음 Test Case의 Recall 식별자가 달라질 때만 Recall을 변경한다. | 같은 Recall 식별자가 이어지면 Recall을 다시 수행하지 않는다. |
 | SRS-RCL-004 | 활성 Call 상태에서 Recall이 변경되면 Call Stop → Parameter Recall → Call Start 순서로 제어한다. | 진행 중 Recall 변경에서 Call Stop 후 Recall하고 Call을 다시 시작한다. |
 | SRS-RCL-005 | Call Start 후 연결을 확인한 다음 Factor 적용과 측정으로 진행한다. | Call 연결 확인 전 Factor 또는 측정 단계로 넘어가지 않는다. |
 | SRS-RCL-006 | MT8000A 제어는 LabVIEW TCP/JSON API를 통해 수행한다. | Python에서 MT8000A VISA/SCPI 제어를 추가하지 않는다. |
@@ -145,7 +146,7 @@
 
 1. NR/LTE 혼합 Queue 여부를 확인한다.
 2. 선택 Excel의 Sheet명으로 Queue와 양식의 NR/LTE 대응을 확인한다.
-3. Test Case의 Generation과 Band Group으로 Recall 파일과 Factor 키워드를 결정한다.
+3. Test Case의 Band Group에서 Recall 식별자와 Factor 키워드를 조회한다.
 4. Parameter Recall을 수행한다.
 5. 현재 Test Case 설정으로 Call Start를 수행한다.
 6. Call 연결을 확인한다.
@@ -155,7 +156,7 @@
 #### Recall이 변경되는 다음 Test Case
 
 1. Call Stop을 수행한다.
-2. 다음 Test Case의 Recall 파일을 적용한다.
+2. 다음 Test Case의 Recall 식별자를 확장자 없이 전달해 적용한다.
 3. 다음 Test Case 설정으로 Call Start를 수행한다.
 4. Call 연결을 확인한다.
 5. Factor가 변경되는 경우 Set TDF를 수행한다.
@@ -174,13 +175,13 @@
 
 ### 4.1 Band 설정
 
-| LTE Band | Duplex | Test Range | Factor 키워드 | Recall | SCS | Turntable speed |
-|---|---|---|---|---|---:|---:|
-| 5, 8, 20, 28 | FDD | 1, 3 | `1G HPF` | `LTE_FDD.PRM` | 15 kHz | 5 |
-| 1, 3, 7 | FDD | 1, 2, 4 | `3G HPF` | `LTE_FDD.PRM` | 15 kHz | 5 |
-| 34, 38, 40, 41 | TDD | 1, 2, 4 | `3G HPF` | `LTE_TDD.PRM` | 15 kHz | 3 |
+| LTE Band | Test Range | Factor 키워드 | Recall 식별자 | SCS | Turntable speed |
+|---|---|---|---|---:|---:|
+| 5, 8, 20, 28 | 1, 3 | `1G HPF` | `LTE_FDD` | 15 kHz | 5 |
+| 1, 3, 7 | 1, 2, 4 | `3G HPF` | `LTE_FDD` | 15 kHz | 5 |
+| 34, 38, 40, 41 | 1, 2, 4 | `3G HPF` | `LTE_TDD` | 15 kHz | 3 |
 
-각 Test Range의 장비 설정은 기존 NR의 같은 Range 설정을 사용한다. B34에서 BRF Filter를 사용할 때는 Switch Box port 18을 사용한다.
+Recall 열은 확장자 없이 외부 명령에 전달하는 불투명 식별자이며, 프로그램은 Group key나 식별자의 FDD/TDD 문자열을 해석하지 않는다. 각 Test Range의 장비 설정은 기존 NR의 같은 Range 설정을 사용한다. B34에서 BRF Filter를 사용할 때는 Switch Box port 18을 사용한다.
 
 ### 4.2 지원 Bandwidth
 
@@ -296,7 +297,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 
 - Band Group 키워드로 TDF 파일을 자동 선택한다.
 - 첫 Test Case와 변경 Test Case에서 필요한 경우에만 Factor를 적용한다.
-- 여섯 개 Recall 파일을 Generation과 FDD/TDD에 따라 선택한다.
+- 현재 Test Case의 Band Group에서 Recall 식별자를 조회하고 이전 식별자와 다른 경우에만 변경한다.
 - 활성 Call 상태에서 Recall이 바뀌면 Call Stop → Recall → Call Start 흐름으로 동작한다.
 - Call 연결 확인 후 Factor와 측정으로 진행한다.
 - 기존 NR 시험 동작이 유지된다.
@@ -331,18 +332,18 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 **시험 범위**
 
 - Call Stop 명령
-- 여섯 개 `.PRM` 파일 Recall 명령
+- 여섯 개 확장자 없는 Recall 식별자의 Recall 명령
 - Call Start 명령
 - Call 연결 확인 명령
 
-**Recall 파일**
+**Recall 식별자**
 
-- `LTE_FDD.PRM`
-- `LTE_TDD.PRM`
-- `5GNR_SA_FDD.PRM`
-- `5GNR_SA_TDD.PRM`
-- `5GNR_NSA_FDD.PRM`
-- `5GNR_NSA_TDD.PRM`
+- `LTE_FDD`
+- `LTE_TDD`
+- `5GNR_SA_FDD`
+- `5GNR_SA_TDD`
+- `5GNR_NSA_FDD`
+- `5GNR_NSA_TDD`
 
 **산출물**
 
@@ -353,7 +354,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 
 **Acceptance Criteria**
 
-- [ ] 여섯 개 Recall 파일명이 모두 시험 입력에 포함된다.
+- [ ] 여섯 개 Recall 식별자가 확장자 없이 시험 입력에 포함된다.
 - [ ] Stop → Recall → Start → 연결 확인 순서가 장비에서 검증된다.
 - [ ] 구현 가능한 요청/응답 규격이 문서화된다.
 
@@ -372,7 +373,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 **Acceptance Criteria**
 
 - [ ] 네 동작이 A-02의 계약과 동일하게 구현된다.
-- [ ] 지정된 `.PRM` 파일이 장비에 적용된다.
+- [ ] 지정된 Recall 식별자가 확장자 없이 장비 명령에 전달된다.
 - [ ] 기존 NR Call API 동작이 유지된다.
 
 **의존성:** A-02

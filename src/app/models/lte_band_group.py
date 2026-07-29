@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.models.enums import DuplexMode, LTEBand, TestType
+from app.models.enums import LTEBand, TestType
 from app.models.test_range import RangeId
 
 
@@ -13,7 +13,6 @@ class LTEBandGroupProfile:
 
     key: str
     bands: tuple[LTEBand, ...]
-    duplex: DuplexMode
     test_ranges: tuple[RangeId, ...]
     factor_keyword: str
     mt8000_recall: str
@@ -25,30 +24,27 @@ LTE_BAND_GROUPS: tuple[LTEBandGroupProfile, ...] = (
     LTEBandGroupProfile(
         key="lb",
         bands=(LTEBand.B5, LTEBand.B8, LTEBand.B20, LTEBand.B28),
-        duplex=DuplexMode.FDD,
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_3),
         factor_keyword="1G HPF",
-        mt8000_recall="LTE_FDD.PRM",
+        mt8000_recall="LTE_FDD",
         scs_khz=15,
         turntable_speed=5,
     ),
     LTEBandGroupProfile(
         key="mhb_fdd",
         bands=(LTEBand.B1, LTEBand.B3, LTEBand.B7),
-        duplex=DuplexMode.FDD,
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         factor_keyword="3G HPF",
-        mt8000_recall="LTE_FDD.PRM",
+        mt8000_recall="LTE_FDD",
         scs_khz=15,
         turntable_speed=5,
     ),
     LTEBandGroupProfile(
         key="mhb_tdd",
         bands=(LTEBand.B34, LTEBand.B38, LTEBand.B40, LTEBand.B41),
-        duplex=DuplexMode.TDD,
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         factor_keyword="3G HPF",
-        mt8000_recall="LTE_TDD.PRM",
+        mt8000_recall="LTE_TDD",
         scs_khz=15,
         turntable_speed=3,
     ),

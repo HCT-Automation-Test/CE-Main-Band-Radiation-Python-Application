@@ -90,12 +90,12 @@ def test_lte_test_case_exposes_band_and_channel_derived_values() -> None:
     )
 
     assert tdd_case.factor_keyword == "3G HPF"
-    assert tdd_case.mt8000_recall == "LTE_TDD.PRM"
+    assert tdd_case.mt8000_recall == "LTE_TDD"
     assert tdd_case.turntable_speed == 3
     assert tdd_case.channel_number == 36275
     assert tdd_case.frequency_mhz == 2017.5
     assert lb_case.factor_keyword == "1G HPF"
-    assert lb_case.mt8000_recall == "LTE_FDD.PRM"
+    assert lb_case.mt8000_recall == "LTE_FDD"
     assert lb_case.turntable_speed == 5
 
 
