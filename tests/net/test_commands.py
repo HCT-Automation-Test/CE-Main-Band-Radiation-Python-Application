@@ -250,6 +250,104 @@ def test_setup_mt8000_normalizes_pi_over_2_bpsk_modulation() -> None:
     assert client.calls[0][2]["Modulation"] == "PI/2 BPSK"
 
 
+@pytest.mark.parametrize(
+    ("bw", "expected_wire_value"),
+    [
+        (1.4, "1.4"),
+        (3, "3"),
+        (5.0, "5"),
+        (10, "10"),
+        (15.0, "15"),
+        (20, "20"),
+    ],
+)
+def test_setup_lte_mt8000_sends_canonical_bandwidth_string(
+    bw: int | float,
+    expected_wire_value: str,
+) -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_lte_mt8000(
+        client,
+        bw=bw,
+        ul_channel=18300,
+        rb_offset=24,
+    ) is True
+    assert client.calls == [
+        (
+            "MT8000A",
+            "LTE Call",
+            {
+                "BandWidth": expected_wire_value,
+                "UL Channel": 18300,
+                "RB Offset": 24,
+                "Max Retry Count": 3,
+                "Waiting Time": 5,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "bw",
+    [1.3, 2, True, "10", float("nan"), float("inf"), float("-inf")],
+)
+def test_setup_lte_mt8000_rejects_invalid_bandwidth_before_send(bw: Any) -> None:
+    client = _Client()
+
+    with pytest.raises(ValueError, match="LTE bandwidth"):
+        commands.setup_lte_mt8000(
+            client,
+            bw=bw,
+            ul_channel=18300,
+            rb_offset=24,
+        )
+
+    assert client.calls == []
+
+
+def test_setup_lte_mt8000_raises_on_error_response() -> None:
+    client = _Client(
+        Response(id="response-id", status="error", error="call failed")
+    )
+
+    with pytest.raises(commands.CommandError, match="MT8000A / LTE Call failed"):
+        commands.setup_lte_mt8000(
+            client,
+            bw=10,
+            ul_channel=18300,
+            rb_offset=24,
+        )
+
+
+def test_lte_call_handover_sends_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.lte_call_handover(
+        client,
+        bw=10.0,
+        mid_channel=18300,
+        ul_channel=18550,
+        rb_offset=49,
+        max_retry_count=7,
+        waiting_time=11,
+    ) is True
+    assert client.calls == [
+        (
+            "MT8000A",
+            "LTE Handover",
+            {
+                "BandWidth": "10",
+                "Mid Channel": 18300,
+                "UL Channel": 18550,
+                "RB Offset": 49,
+                "Max Retry Count": 7,
+                "Waiting Time": 11,
+            },
+        )
+    ]
+
+
 def test_call_handover_sends_nr_handover_params() -> None:
     client = _Client(_default_ok())
 
@@ -275,6 +373,8 @@ def test_call_handover_sends_nr_handover_params() -> None:
                 "RB Size": 135,
                 "RB Offset": 67,
                 "Modulation": "256QAM",
+                "Max Retry Count": 3,
+                "Waiting Time": 5,
             },
         )
     ]
@@ -292,11 +392,13 @@ def test_call_handover_sends_separate_mid_and_center_channel() -> None:
         rb_size=135,
         rb_offset=67,
         channel=650000,
+        max_retry_count=7,
+        waiting_time=11,
     ) is True
     assert client.calls[0][2]["Mid Channel"] == 636666
     assert client.calls[0][2]["Center Channel"] == 650000
-    assert "Waiting Time" not in client.calls[0][2]
-    assert "Max Retry Count" not in client.calls[0][2]
+    assert client.calls[0][2]["Max Retry Count"] == 7
+    assert client.calls[0][2]["Waiting Time"] == 11
 
 
 def test_set_reference_co3000_sends_default_params() -> None:

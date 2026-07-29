@@ -58,13 +58,17 @@ facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equi
 | --- | --- | --- | --- |
 | `connect_equipment(client, config)` | 각 장비 / `Connect` | VISA 장비: `{"VISA Resource"}`, Switch Box: `{"ip address", "port"}` | 장비별 bool dict |
 
-### MT8000A (NR Callbox)
+### MT8000A (NR/LTE Callbox)
 
 | facade | command | Params 요점 |
 | --- | --- | --- |
 | `setup_mt8000` | `NR Call` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation(`pi/2 BPSK`→와이어 `PI/2 BPSK`), Max Retry Count(기본 3), Waiting Time(기본 5) |
-| `call_handover` | `NR Handover` | Mid Channel(이전 TC MID) + NR Call과 동일 |
-| `check_call_status` | `Check Call Status` | → Result `{ok, connected}` |
+| `call_handover` | `NR Handover` | Mid Channel(이전 TC MID) + NR Call과 동일, Max Retry Count(기본 3), Waiting Time(기본 5) |
+| `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
+| `lte_call_handover` | `LTE Handover` | LTE Call Params + Mid Channel(이전 TC MID) |
+| `check_call_status` | `Check Call Status` | NR/LTE 공용 → Result `{ok, connected}` |
+
+LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`, `"3"`, `"5"`, `"10"`, `"15"`, `"20"` 중 하나로 전송한다.
 
 ### FSV40 (Spectrum Analyzer)
 

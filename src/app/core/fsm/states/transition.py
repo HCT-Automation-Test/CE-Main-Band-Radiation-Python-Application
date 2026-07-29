@@ -127,6 +127,10 @@ class HandoverState(State):
             _emit_error(ctx, "NR Handover 실패: previous test case is not set")
             return StateResult.FAIL
 
+        waiting_time = 5
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
+
         try:
             band = parse_band_number(test_case.band.value)
             bw = int(test_case.bandwidth)
@@ -149,6 +153,7 @@ class HandoverState(State):
                 rb_size=test_case.rb_size,
                 rb_offset=test_case.rb_offset,
                 channel=channel,
+                waiting_time=waiting_time,
             )
         except Exception as exc:
             _emit_error(ctx, f"NR Handover 실패: {exc}")
