@@ -49,6 +49,11 @@ def test_test_case_instantiation() -> None:
     assert case.bandwidth == 100.0
     assert case.generation is Generation.NR_SA
     assert case.scs_khz == 30
+    assert case.factor_keyword == "6G HPF"
+    assert case.mt8000_recall == "SA_TDD"
+    assert case.turntable_speed == 3
+    assert case.channel_number == 636666
+    assert case.frequency_mhz == 3549.99
     assert case.test_type is MeasurementTestType.HARMONIC
     assert case.modulation is Modulation.QPSK
     assert case.rb_allocation is RBAllocation.INNER_FULL
@@ -293,7 +298,7 @@ def test_test_case_from_csv_row_rejects_unknown_generation() -> None:
     with pytest.raises(ValueError, match="Invalid generation"):
         TestCase.from_csv_row(
             {
-                "generation": "LTE",
+                "generation": "UNKNOWN",
                 "band": "n78",
                 "bandwidth": "100",
                 "test_type": "harmonic",

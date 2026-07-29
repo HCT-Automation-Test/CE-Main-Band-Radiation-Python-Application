@@ -24,11 +24,35 @@ class NRBand(str, Enum):
     N79 = "n79"
 
 
+class LTEBand(str, Enum):
+    """지원하는 LTE band."""
+
+    B1 = "B1"
+    B3 = "B3"
+    B5 = "B5"
+    B7 = "B7"
+    B8 = "B8"
+    B20 = "B20"
+    B28 = "B28"
+    B34 = "B34"
+    B38 = "B38"
+    B40 = "B40"
+    B41 = "B41"
+
+
 class Generation(str, Enum):
     """Test Case generation / call mode."""
 
     NR_SA = "NR_SA"
     NR_NSA = "NR_NSA"
+    LTE = "LTE"
+
+
+class DuplexMode(str, Enum):
+    """통신 방식의 Duplex 구분."""
+
+    FDD = "FDD"
+    TDD = "TDD"
 
 
 class TestType(Enum):
@@ -74,6 +98,14 @@ class RBAllocation(Enum):
     INNER_FULL = "Inner_Full"
     INNER_1RB_LEFT = "Inner_1RB_Left"
     INNER_1RB_RIGHT = "Inner_1RB_Right"
+
+
+class LTERBAllocation(Enum):
+    """LTE RB allocation 위치."""
+
+    LOW = "low"
+    MID = "mid"
+    HIGH = "high"
 
 
 class TestChannel(Enum):
