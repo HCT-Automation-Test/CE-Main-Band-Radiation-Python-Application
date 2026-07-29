@@ -35,9 +35,11 @@
 | Factor | FSV40에 적용하는 TDF 파일. Band Group의 `1G HPF`, `3G HPF` 등이 검색 키워드가 됨 |
 | Parameter Recall | Band Group이 제공하며 MT8000A 명령에 확장자 없이 전달하는 Recall 식별자 |
 | Test Range | 기존 NR에서 사용하는 Spectrum Analyzer 및 Switch Box Range 설정 |
-| ARFCH | NR/LTE 공용 UI와 CSV에서 유지하는 채널 필드명 |
+| ARFCH | NR/LTE 공용 UI에서 유지하는 채널 필드명 |
 | EAFRCH | LTE 전용 Parameter Table에 표시하는 채널 열 이름 |
 | SA PNG | Spectrum Analyzer 측정 화면 이미지 |
+
+CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않는다. 채널 번호와 Frequency는 Band, Bandwidth, Test Channel로부터 파생한다.
 
 ### 3.2 Generation과 Queue
 
@@ -89,7 +91,7 @@
 | SRS-LTE-DAT-001 | 지원 LTE Band는 1, 3, 5, 7, 8, 20, 28, 34, 38, 40, 41이다. | 지정된 11개 Band만 LTE Test Case로 생성된다. |
 | SRS-LTE-DAT-002 | LTE SCS는 15 kHz로 고정한다. | LTE Test Case에 다른 SCS를 사용하지 않는다. |
 | SRS-LTE-DAT-003 | LTE Modulation은 QPSK로 고정한다. | LTE Test Case에 다른 Modulation을 사용하지 않는다. |
-| SRS-LTE-DAT-004 | Band별 Range, Factor, Recall, Turntable speed는 4.1을 따른다. | 각 Band가 표의 설정으로 해석된다. |
+| SRS-LTE-DAT-004 | Band별 TestType/Range, Factor, Recall, Turntable speed는 4.1을 따른다. LB Group(Band 5, 8, 20, 28)은 In-band=Range 1, Harmonic=Range 3이며 Bilog를 지원하지 않는다. 그 외 Band는 Bilog=Range 1, In-band=Range 2, Harmonic=Range 4를 사용한다. | 각 Band가 표의 설정으로 해석되고 LB Group에서 Bilog Test Case가 생성되지 않는다. |
 | SRS-LTE-DAT-005 | Range 장비 설정은 기존 NR의 같은 Range 설정을 재사용한다. | LTE 전용 Range 설정값을 새로 만들지 않는다. |
 | SRS-LTE-DAT-006 | B34에서 BRF Filter 사용 시 Switch Box port 18을 사용한다. | B34 BRF 경로가 port 18로 설정된다. |
 | SRS-LTE-DAT-007 | 지원 Bandwidth와 EAFRCH/Frequency는 4.2와 4.4를 따른다. | 46개 Band/Bandwidth 조합이 표와 일치한다. |
@@ -102,7 +104,7 @@
 |---|---|---|
 | SRS-LTE-CALL-001 | LTE와 NR은 동일한 MT8000A를 사용한다. | LTE 시험에 별도 Callbox를 요구하지 않는다. |
 | SRS-LTE-CALL-002 | LTE는 장비 시험으로 검증된 LTE FDD/TDD Call 파라미터와 API를 사용한다. | LTE 대표 Test Case가 검증된 LTE 계약으로 Call된다. |
-| SRS-LTE-CALL-003 | LTE Harmonic, In-band, Bilog는 기존 NR과 같은 공통 측정 FSM과 로직을 사용한다. | LTE 전용 측정 로직을 별도로 복제하지 않는다. |
+| SRS-LTE-CALL-003 | LTE는 Band Group이 지원하는 TestType에 한해 기존 NR과 같은 공통 측정 FSM과 로직을 사용한다. LB Group은 In-band와 Harmonic만 지원하고 Bilog를 지원하지 않는다. | LTE 전용 측정 로직을 별도로 복제하지 않으며 LB Group이 Bilog FSM으로 진입하지 않는다. |
 | SRS-LTE-CALL-004 | 같은 Recall 내 다음 LTE Test Case 전환은 Handover를 사용한다. | 전환이 LTE Handover API로 수행된다. |
 | SRS-LTE-CALL-005 | LTE Call/Handover 설정은 현재 Test Case에 종속된다. | 다음 Test Case 설정으로 Handover한다. |
 | SRS-LTE-CALL-006 | Recall이 바뀌는 전환은 SRS-RCL-004의 흐름을 사용한다. | Handover만으로 Recall 변경을 대체하지 않는다. |
@@ -116,7 +118,7 @@
 | SRS-LTE-UI-002 | LTE 신규 화면에서 Select와 Parameter Table을 하나의 화면으로 통합한다. | 선택, 파라미터 확인, Test Case 추가를 한 화면에서 수행한다. |
 | SRS-LTE-UI-003 | 기존 NR Select/Table 화면은 변경하지 않는다. | LTE UI 개발로 NR 화면 구조가 바뀌지 않는다. |
 | SRS-LTE-UI-004 | LTE 화면은 4장의 Band, BW, Channel/Frequency, RB, SCS, QPSK 값을 사용한다. | 지원되지 않는 LTE 조합을 생성하지 않는다. |
-| SRS-LTE-UI-005 | LTE 전용 Table은 `EAFRCH`, NR/LTE 공용 UI와 CSV는 `ARFCH`를 사용한다. | 각 화면과 CSV에 지정된 표기가 표시된다. |
+| SRS-LTE-UI-005 | LTE 전용 Table은 `EAFRCH`, NR/LTE 공용 UI는 `ARFCH`를 사용한다. CSV에는 ARFCH/EAFRCH 채널 번호 열을 두지 않는다. | 각 화면에 지정된 표기가 표시되고 CSV는 Band, Bandwidth, Test Channel로 채널 번호와 Frequency를 파생한다. |
 
 상세 위젯 배치와 스타일은 위 기능 범위를 유지하면서 UI Issue 진행 중 협의한다.
 
@@ -173,6 +175,8 @@
 
 ## 4. LTE 기준 데이터
 
+이 절의 정규화된 Bandwidth, Channel/Frequency, RB Allocation 표를 LTE 구현·검증의 최종 기준으로 사용한다.
+
 ### 4.1 Band 설정
 
 | LTE Band | Test Range | Factor 키워드 | Recall 식별자 | SCS | Turntable speed |
@@ -181,7 +185,7 @@
 | 1, 3, 7 | 1, 2, 4 | `3G HPF` | `LTE_FDD` | 15 kHz | 5 |
 | 34, 38, 40, 41 | 1, 2, 4 | `3G HPF` | `LTE_TDD` | 15 kHz | 3 |
 
-Recall 열은 확장자 없이 외부 명령에 전달하는 불투명 식별자이며, 프로그램은 Group key나 식별자의 FDD/TDD 문자열을 해석하지 않는다. 각 Test Range의 장비 설정은 기존 NR의 같은 Range 설정을 사용한다. B34에서 BRF Filter를 사용할 때는 Switch Box port 18을 사용한다.
+Recall 열은 확장자 없이 외부 명령에 전달하는 불투명 식별자이며, 프로그램은 Group key나 식별자의 FDD/TDD 문자열을 해석하지 않는다. 각 Test Range의 장비 설정은 기존 NR의 같은 Range 설정을 사용한다. TestType/Range 매핑도 기존 NR과 동일하다. LB Group(Band 5, 8, 20, 28)은 In-band=Range 1, Harmonic=Range 3이며 Bilog를 지원하지 않는다. Band 1, 3, 7과 Band 34, 38, 40, 41은 Bilog=Range 1, In-band=Range 2, Harmonic=Range 4를 사용한다. B34에서 BRF Filter를 사용할 때는 Switch Box port 18을 사용한다.
 
 ### 4.2 지원 Bandwidth
 
@@ -441,6 +445,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 
 - LTE Generation과 Band 모델
 - Band 설정, Range, B34 port 18
+- LB Group(Band 5, 8, 20, 28)의 In-band=Range 1, Harmonic=Range 3 및 Bilog 미지원
 - 46개 EAFRCH/Frequency/Bandwidth 조합
 - 18개 RB Allocation 값
 - SCS 15 kHz, QPSK, RB Size 1
@@ -452,7 +457,9 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - [ ] 4장의 모든 LTE 값이 모델 lookup 결과와 일치한다.
 - [ ] 지원하지 않는 Band/BW 조합을 LTE Test Case로 만들지 않는다.
 - [ ] B34 BRF 경로가 port 18을 사용한다.
+- [ ] LB Group에서 In-band=Range 1, Harmonic=Range 3으로 매핑되고 Bilog Test Case가 생성되지 않는다.
 - [ ] LTE CSV가 canonical 값으로 round-trip된다.
+- [ ] LTE CSV에는 ARFCH/EAFRCH 채널 번호 열이 없고 Band, Bandwidth, Test Channel로부터 채널 번호와 Frequency를 파생한다.
 - [ ] NR/LTE 혼합 Queue가 시험 실행 대상으로 승인되지 않는다.
 - [ ] 기존 NR 모델 결과가 유지된다.
 
@@ -530,14 +537,15 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - LTE Generation의 LTE Call 경로 선택
 - 같은 Recall 전환의 Handover
 - Recall 변경 시 Epic A 자동화 흐름 사용
-- 필요한 Factor 적용 후 Harmonic, In-band, Bilog 진입
+- 필요한 Factor 적용 후 Band Group이 지원하는 TestType으로 진입
 
 **Acceptance Criteria**
 
 - [ ] LTE FDD/TDD가 LTE Call 경로로 진입한다.
 - [ ] 같은 Recall의 다음 LTE Test Case는 LTE Handover API로 전환한다.
 - [ ] Recall 변경 시 A-05 흐름을 사용한다.
-- [ ] 세 TestType이 기존 공통 측정 FSM을 사용한다.
+- [ ] Band Group이 지원하는 TestType이 기존 공통 측정 FSM을 사용한다.
+- [ ] LB Group은 In-band와 Harmonic만 사용하며 Bilog FSM으로 진입하지 않는다.
 - [ ] 기존 NR FSM 라우팅이 유지된다.
 
 **의존성:** A-05, B-01, B-03, B-04
@@ -551,7 +559,8 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - Test Manager LTE 진입점 연결
 - LTE Select와 Parameter Table 단일 화면
 - 4장 데이터와 고정값 적용
-- LTE Table `EAFRCH`, 공용 UI/CSV `ARFCH` 표기
+- LTE Table `EAFRCH`, NR/LTE 공용 UI `ARFCH` 표기
+- CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않고 Band, Bandwidth, Test Channel로 채널 번호와 Frequency 파생
 - 기존 NR 화면 유지
 
 **Acceptance Criteria**
@@ -599,7 +608,8 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - Epic A 자동화 흐름
 - LTE FDD/TDD 대표 Band
 - LTE B34 BRF port 18
-- Harmonic, In-band, Bilog
+- Band Group별 지원 TestType과 Range 매핑
+- LB Group의 Bilog 선택·실행 차단
 - NR/LTE 혼합 Queue 차단
 - LTE RawData와 SA PNG
 - 기존 NR Call, 측정, 결과 저장
