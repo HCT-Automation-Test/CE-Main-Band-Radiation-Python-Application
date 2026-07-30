@@ -35,11 +35,10 @@
 | Factor | FSV40에 적용하는 TDF 파일. Band Group의 `1G HPF`, `3G HPF` 등이 검색 키워드가 됨 |
 | Parameter Recall | Band Group이 제공하며 MT8000A 명령에 확장자 없이 전달하는 Recall 식별자 |
 | Test Range | 기존 NR에서 사용하는 Spectrum Analyzer 및 Switch Box Range 설정 |
-| ARFCH | NR/LTE 공용 UI에서 유지하는 채널 필드명 |
-| EAFRCH | LTE 전용 Parameter Table에 표시하는 채널 열 이름 |
+| ARFCN | LTE 전용 Table과 NR/LTE 공용 UI에서 공통으로 사용하는 채널 필드명 |
 | SA PNG | Spectrum Analyzer 측정 화면 이미지 |
 
-CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않는다. 채널 번호와 Frequency는 Band, Bandwidth, Test Channel로부터 파생한다.
+CSV에는 ARFCN 채널 번호 열을 추가하지 않는다. 채널 번호와 Frequency는 Band, Bandwidth, Test Channel로부터 파생한다.
 
 ### 3.2 Generation과 Queue
 
@@ -94,7 +93,7 @@ CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않는다. 채널 번�
 | SRS-LTE-DAT-004 | Band별 TestType/Range, Factor, Recall, Turntable speed는 4.1을 따른다. LB Group(Band 5, 8, 20, 28)은 In-band=Range 1, Harmonic=Range 3이며 Bilog를 지원하지 않는다. 그 외 Band는 Bilog=Range 1, In-band=Range 2, Harmonic=Range 4를 사용한다. | 각 Band가 표의 설정으로 해석되고 LB Group에서 Bilog Test Case가 생성되지 않는다. |
 | SRS-LTE-DAT-005 | Range 장비 설정은 기존 NR의 같은 Range 설정을 재사용한다. | LTE 전용 Range 설정값을 새로 만들지 않는다. |
 | SRS-LTE-DAT-006 | B34에서 BRF Filter 사용 시 Switch Box port 18을 사용한다. | B34 BRF 경로가 port 18로 설정된다. |
-| SRS-LTE-DAT-007 | 지원 Bandwidth와 EAFRCH/Frequency는 4.2와 4.4를 따른다. | 46개 Band/Bandwidth 조합이 표와 일치한다. |
+| SRS-LTE-DAT-007 | 지원 Bandwidth와 ARFCN/Frequency는 4.2와 4.4를 따른다. | 46개 Band/Bandwidth 조합이 표와 일치한다. |
 | SRS-LTE-DAT-008 | RB Allocation은 4.3을 따른다. | 6개 Bandwidth의 low/mid/high 18개 값이 표와 일치한다. |
 | SRS-LTE-DAT-009 | Test Channel low/mid/high와 RB Allocation low/mid/high는 별도 Test Case 파라미터다. | Channel 위치값과 RB 위치값을 독립적으로 저장한다. |
 
@@ -118,9 +117,18 @@ CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않는다. 채널 번�
 | SRS-LTE-UI-002 | LTE 신규 화면에서 Select와 Parameter Table을 하나의 화면으로 통합한다. | 선택, 파라미터 확인, Test Case 추가를 한 화면에서 수행한다. |
 | SRS-LTE-UI-003 | 기존 NR Select/Table 화면은 변경하지 않는다. | LTE UI 개발로 NR 화면 구조가 바뀌지 않는다. |
 | SRS-LTE-UI-004 | LTE 화면은 4장의 Band, BW, Channel/Frequency, RB, SCS, QPSK 값을 사용한다. | 지원되지 않는 LTE 조합을 생성하지 않는다. |
-| SRS-LTE-UI-005 | LTE 전용 Table은 `EAFRCH`, NR/LTE 공용 UI는 `ARFCH`를 사용한다. CSV에는 ARFCH/EAFRCH 채널 번호 열을 두지 않는다. | 각 화면에 지정된 표기가 표시되고 CSV는 Band, Bandwidth, Test Channel로 채널 번호와 Frequency를 파생한다. |
+| SRS-LTE-UI-005 | LTE 전용 Table과 NR/LTE 공용 UI는 모두 `ARFCN`을 사용한다. CSV에는 ARFCN 채널 번호 열을 두지 않는다. | 각 화면에 지정된 표기가 표시되고 CSV는 Band, Bandwidth, Test Channel로 채널 번호와 Frequency를 파생한다. |
 
-상세 위젯 배치와 스타일은 위 기능 범위를 유지하면서 UI Issue 진행 중 협의한다.
+#### LTE 통합 화면 상세 계약
+
+- 기존 NR과 동일한 선택 의미와 Test Case 조합 방식을 사용하되 Select와 Parameter Table을 하나의 화면으로 통합한다.
+- Table 열 순서는 Band 선택, LTE Band, BW, RB Allocation, Channel, EUT ANT, ARFCN, Frequency, RB Size, RB Offset, Test 대역, Position이다.
+- LTE Band 헤더 체크박스는 전체 11개 Band를, LB/MHB_FDD/MHB_TDD 그룹 체크박스는 해당 그룹의 Band를 모두 선택하거나 해제한다. 개별 Band 체크박스도 제공한다.
+- LB Test 대역은 30M-1G(In-band), 1-12.75G(Harmonic)이며 Bilog를 제공하지 않는다.
+- MHB_FDD와 MHB_TDD Test 대역은 30M-1G(Bilog), 1-3G(In-band), 3-12.75G(Harmonic)이다.
+- Position은 기존 NR과 동일한 Axis X/Y/Z/X->Y->Z/Z->Y->X 및 Pol H/V/H->V/V->H를 제공한다.
+- ARFCN, Frequency, RB Size, RB Offset은 읽기 전용 파생값이다. SCS 15 kHz와 QPSK는 같은 화면에서 읽기 전용 고정값으로 확인할 수 있어야 한다.
+- 화면 크기와 열 폭은 기존 NR 및 제공된 LTE Table 참고 화면과 크게 다르지 않게 구성하며 엄격한 픽셀 일치는 요구하지 않는다.
 
 ### 3.8 LTE Result Write와 SA PNG
 
@@ -216,11 +224,11 @@ Recall 열은 확장자 없이 외부 명령에 전달하는 불투명 식별자
 | 15 | 0 | 36 | 74 |
 | 20 | 0 | 49 | 99 |
 
-### 4.4 LTE EAFRCH/Frequency
+### 4.4 LTE ARFCN/Frequency
 
-EAFRCH와 Frequency의 값 순서는 `low / mid / high`이며 Frequency 단위는 MHz다.
+ARFCN과 Frequency의 값 순서는 `low / mid / high`이며 Frequency 단위는 MHz다.
 
-| Band | BW (MHz) | EAFRCH low / mid / high | Frequency low / mid / high (MHz) |
+| Band | BW (MHz) | ARFCN low / mid / high | Frequency low / mid / high (MHz) |
 |---:|---:|---|---|
 | 1 | 5 | 18025 / 18300 / 18575 | 1922.5 / 1950 / 1977.5 |
 | 1 | 10 | 18050 / 18300 / 18550 | 1925 / 1950 / 1975 |
@@ -279,7 +287,7 @@ EAFRCH와 Frequency의 값 순서는 `low / mid / high`이며 Frequency 단위�
 | SAT-004 | 같은 Factor가 이어지는 Test Case | Set TDF를 중복 호출하지 않는다. |
 | SAT-005 | 다음 Test Case에서 Recall 변경 | Call Stop → 새 Recall → Call Start → 연결 확인 → 필요한 Factor → 측정 순서로 진행한다. |
 | SAT-006 | 같은 Recall 내 다음 LTE Test Case | 다음 Test Case 설정으로 Handover한다. |
-| SAT-007 | 지원 LTE Test Case 생성 | Band, BW, EAFRCH, Frequency, RB, SCS, QPSK가 4장과 일치한다. |
+| SAT-007 | 지원 LTE Test Case 생성 | Band, BW, ARFCN, Frequency, RB, SCS, QPSK가 4장과 일치한다. |
 | SAT-008 | LTE B34에서 BRF Filter 사용 | Switch Box port 18을 사용한다. |
 | SAT-009 | NR과 LTE가 섞인 Queue 실행 시도 | 혼합 Queue로 시험을 실행하지 않는다. |
 | SAT-010 | LTE Test Case 화면 사용 | Select와 Parameter Table이 한 화면에 있으며 기존 NR 화면은 유지된다. |
@@ -446,7 +454,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - LTE Generation과 Band 모델
 - Band 설정, Range, B34 port 18
 - LB Group(Band 5, 8, 20, 28)의 In-band=Range 1, Harmonic=Range 3 및 Bilog 미지원
-- 46개 EAFRCH/Frequency/Bandwidth 조합
+- 46개 ARFCN/Frequency/Bandwidth 조합
 - 18개 RB Allocation 값
 - SCS 15 kHz, QPSK, RB Size 1
 - `LTE`, `B1`, `low/mid/high` canonical 값
@@ -459,7 +467,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - [ ] B34 BRF 경로가 port 18을 사용한다.
 - [ ] LB Group에서 In-band=Range 1, Harmonic=Range 3으로 매핑되고 Bilog Test Case가 생성되지 않는다.
 - [ ] LTE CSV가 canonical 값으로 round-trip된다.
-- [ ] LTE CSV에는 ARFCH/EAFRCH 채널 번호 열이 없고 Band, Bandwidth, Test Channel로부터 채널 번호와 Frequency를 파생한다.
+- [ ] LTE CSV에는 ARFCN 채널 번호 열이 없고 Band, Bandwidth, Test Channel로부터 채널 번호와 Frequency를 파생한다.
 - [ ] NR/LTE 혼합 Queue가 시험 실행 대상으로 승인되지 않는다.
 - [ ] 기존 NR 모델 결과가 유지된다.
 
@@ -557,18 +565,27 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 **구현 범위**
 
 - Test Manager LTE 진입점 연결
-- LTE Select와 Parameter Table 단일 화면
-- 4장 데이터와 고정값 적용
-- LTE Table `EAFRCH`, NR/LTE 공용 UI `ARFCH` 표기
-- CSV에는 ARFCH/EAFRCH 채널 번호 열을 추가하지 않고 Band, Bandwidth, Test Channel로 채널 번호와 Frequency 파생
+- 기존 NR과 동일한 선택·조합 UX를 사용하는 LTE Select/Parameter Table 단일 화면
+- LB, MHB_FDD, MHB_TDD 및 전체·그룹·개별 Band 체크박스
+- BW, RB Allocation, Channel, EUT ANT 선택과 ARFCN/Frequency/RB Size/RB Offset 파생 표시
+- 그룹별 Test 대역과 기존 NR 동일 Axis/Pol Position 선택
+- SCS 15 kHz와 QPSK 고정값 표시
+- CSV에는 ARFCN 채널 번호 열을 추가하지 않고 Band, Bandwidth, Test Channel로 채널 번호와 Frequency 파생
+- 직전 Band별 파라미터와 그룹별 설정 복원
 - 기존 NR 화면 유지
 
 **Acceptance Criteria**
 
 - [ ] LTE 버튼으로 신규 LTE 화면을 연다.
 - [ ] 한 화면에서 LTE Test Case를 선택, 확인, 추가할 수 있다.
-- [ ] 화면 값이 4장의 지원 데이터와 일치한다.
-- [ ] SCS 15 kHz와 QPSK 외 값을 생성하지 않는다.
+- [ ] LTE Band 헤더 체크박스로 전체 11개 Band가 선택·해제된다.
+- [ ] 각 Band Group 체크박스로 해당 그룹 Band가 선택·해제된다.
+- [ ] 개별 Band 체크박스와 전체·그룹 체크박스 상태가 일관된다.
+- [ ] Table 열 순서와 ARFCN 표기가 확정 계약과 일치한다.
+- [ ] LB에는 Bilog가 없고 MHB_FDD/MHB_TDD에는 Bilog, In-band, Harmonic이 제공된다.
+- [ ] Position과 Test Case 조합 순서가 기존 NR과 동일하다.
+- [ ] 화면 값이 지원 데이터와 일치하고 SCS 15 kHz와 QPSK 외 값을 생성하지 않는다.
+- [ ] 화면 크기와 열 폭이 기존 NR 및 참고 화면과 크게 다르지 않다.
 - [ ] 기존 NR Select/Table 화면이 변경되지 않는다.
 
 **의존성:** B-01

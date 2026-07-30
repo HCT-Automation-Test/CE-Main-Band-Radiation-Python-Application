@@ -17,7 +17,7 @@ from app.models.enums import (
     TestType as MeasurementTestType,
 )
 from app.models.lte_channel_lookup import (
-    resolve_eafrch,
+    resolve_arfcn,
     resolve_lte_frequency_mhz,
 )
 from app.models.test_case import CSV_FIELDNAMES, TestCase
@@ -49,8 +49,7 @@ def test_lte_csv_round_trips_canonical_values_without_channel_number(
 
     header = path.read_text(encoding="utf-8").splitlines()[0].split(",")
     assert header == list(CSV_FIELDNAMES)
-    assert "ARFCH" not in header
-    assert "EAFRCH" not in header
+    assert "ARFCN" not in header
     assert loaded[0].to_csv_row() == original.to_csv_row()
     assert loaded[0].to_csv_row()["generation"] == "LTE"
     assert loaded[0].to_csv_row()["band"] == "B3"
@@ -58,13 +57,13 @@ def test_lte_csv_round_trips_canonical_values_without_channel_number(
     assert loaded[0].to_csv_row()["rb_allocation"] == "high"
 
 
-def test_lte_csv_recomputes_eafrch_and_frequency_after_load(tmp_path: Path) -> None:
+def test_lte_csv_recomputes_arfcn_and_frequency_after_load(tmp_path: Path) -> None:
     path = tmp_path / "lte.csv"
     save_csv(path, [_make_lte_case()])
 
     case = load_csv(path)[0]
 
-    assert resolve_eafrch(case.band, case.bandwidth, case.test_channel) == 19207
+    assert resolve_arfcn(case.band, case.bandwidth, case.test_channel) == 19207
     assert (
         resolve_lte_frequency_mhz(case.band, case.bandwidth, case.test_channel)
         == 1710.7
