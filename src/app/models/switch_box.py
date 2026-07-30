@@ -41,6 +41,8 @@ _BRF_FILTER_PATH_BY_BAND = {
     band: FilterPath[f"PORT_{index}"]
     for index, band in enumerate((1, 3, 5, 7, 8, 20, 26, 28, 38, 40, 41, 71, 77, 78, 79), start=1)
 }
+# LTE B34는 현장 확정 기준에 따라 전용 BRF port 18을 사용한다.
+_BRF_FILTER_PATH_BY_BAND[34] = FilterPath.PORT_18
 
 
 def parse_input_path(label: str) -> InputPath:
@@ -92,7 +94,7 @@ def parse_band_number(band: str) -> int:
         raise ValueError(f"Band must be a string, got {type(band).__name__}")
 
     normalized = band.strip()
-    if normalized.lower().startswith("n"):
+    if normalized.lower().startswith(("n", "b")):
         normalized = normalized[1:]
 
     try:

@@ -12,12 +12,19 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
     TestChannel,
     TestType,
 )
+from app.models.lte_band_group import find_lte_band_group, resolve_lte_range_id
+from app.models.lte_channel_lookup import resolve_eafrch, resolve_lte_frequency_mhz
+from app.models.lte_rb_parameters import resolve_lte_rb_parameters
+from app.models.lte_supported_bandwidths import validate_lte_supported_bandwidth
+from app.models.nr_channel_lookup import resolve_call_channel, resolve_target_frequency_mhz
 from app.models.rb_parameters import resolve_rb_parameters
 from app.models.supported_bandwidths import validate_supported_bandwidth
 from app.models.test_range import RangeId, TestRange, get_test_range
@@ -98,11 +105,11 @@ class TestCase:
 
     __test__ = False
 
-    band: NRBand
+    band: NRBand | LTEBand
     bandwidth: float
     test_type: TestType
     modulation: Modulation
-    rb_allocation: RBAllocation
+    rb_allocation: RBAllocation | LTERBAllocation
     test_channel: TestChannel
     antenna_pol: AntennaPol
     dut_axis: DUTAxis
@@ -111,8 +118,27 @@ class TestCase:
 
     def __post_init__(self) -> None:
         self.generation = _coerce_enum_value(self.generation, "generation", Generation)
-        self.band = _coerce_enum_value(self.band, "band", NRBand)
+        if self.generation is Generation.LTE:
+            self.band = _coerce_enum_value(self.band, "band", LTEBand)
+            self.rb_allocation = _coerce_enum_value(
+                self.rb_allocation,
+                "rb_allocation",
+                LTERBAllocation,
+            )
+        else:
+            self.band = _coerce_enum_value(self.band, "band", NRBand)
+            self.rb_allocation = _coerce_enum_value(
+                self.rb_allocation,
+                "rb_allocation",
+                RBAllocation,
+            )
         self.bandwidth = _coerce_bandwidth_value(self.bandwidth)
+        self.test_type = _coerce_enum_value(self.test_type, "test_type", TestType)
+        self.modulation = _coerce_enum_value(
+            self.modulation,
+            "modulation",
+            Modulation,
+        )
         self.dut_ant_position = _coerce_enum_value(
             self.dut_ant_position,
             "dut_ant_position",
@@ -123,8 +149,16 @@ class TestCase:
             "test_channel",
             TestChannel,
         )
-        resolve_range_id(self.band, self.test_type)
-        validate_supported_bandwidth(self.band, self.bandwidth)
+        if self.generation is Generation.LTE:
+            if self.modulation is not Modulation.QPSK:
+                raise ValueError("LTE modulation must be QPSK")
+            resolve_lte_range_id(self.band, self.test_type)
+            validate_lte_supported_bandwidth(self.band, self.bandwidth)
+            resolve_eafrch(self.band, self.bandwidth, self.test_channel)
+            resolve_lte_rb_parameters(self.bandwidth, self.rb_allocation)
+        else:
+            resolve_range_id(self.band, self.test_type)
+            validate_supported_bandwidth(self.band, self.bandwidth)
 
     @property
     def rb_size(self) -> int:
@@ -136,6 +170,11 @@ class TestCase:
 
     @property
     def rb_parameters(self) -> tuple[int, int]:
+        if self.generation is Generation.LTE:
+            return resolve_lte_rb_parameters(
+                bandwidth=self.bandwidth,
+                rb_allocation=self.rb_allocation,
+            )
         return resolve_rb_parameters(
             band=self.band,
             bandwidth=self.bandwidth,
@@ -144,10 +183,52 @@ class TestCase:
 
     @property
     def scs_khz(self) -> int:
+        if self.generation is Generation.LTE:
+            return find_lte_band_group(self.band).scs_khz
         return find_band_group(self.band).scs_khz
 
     @property
+    def factor_keyword(self) -> str:
+        if self.generation is Generation.LTE:
+            return find_lte_band_group(self.band).factor_keyword
+        return find_band_group(self.band).sa_recall
+
+    @property
+    def mt8000_recall(self) -> str:
+        if self.generation is Generation.LTE:
+            return find_lte_band_group(self.band).mt8000_recall
+        return find_band_group(self.band).mt8000_recall
+
+    @property
+    def turntable_speed(self) -> int:
+        if self.generation is Generation.LTE:
+            return find_lte_band_group(self.band).turntable_speed
+        return find_band_group(self.band).turntable_speed
+
+    @property
+    def channel_number(self) -> int:
+        if self.generation is Generation.LTE:
+            return resolve_eafrch(self.band, self.bandwidth, self.test_channel)
+        return resolve_call_channel(self.band, self.bandwidth, self.test_channel)
+
+    @property
+    def frequency_mhz(self) -> float:
+        if self.generation is Generation.LTE:
+            return resolve_lte_frequency_mhz(
+                self.band,
+                self.bandwidth,
+                self.test_channel,
+            )
+        return resolve_target_frequency_mhz(
+            self.band,
+            self.bandwidth,
+            self.test_channel,
+        )
+
+    @property
     def test_range(self) -> RangeId:
+        if self.generation is Generation.LTE:
+            return resolve_lte_range_id(self.band, self.test_type)
         return resolve_range_id(self.band, self.test_type)
 
     @property
@@ -163,11 +244,21 @@ class TestCase:
         """검증한 CSV dict 한 행으로부터 TestCase를 생성한다."""
 
         generation = _parse_enum_value(row, "generation", Generation)
-        band = _parse_enum_value(row, "band", NRBand)
+        band: NRBand | LTEBand
+        rb_allocation: RBAllocation | LTERBAllocation
+        if generation is Generation.LTE:
+            band = _parse_enum_value(row, "band", LTEBand)
+            rb_allocation = _parse_enum_value(
+                row,
+                "rb_allocation",
+                LTERBAllocation,
+            )
+        else:
+            band = _parse_enum_value(row, "band", NRBand)
+            rb_allocation = _parse_enum_value(row, "rb_allocation", RBAllocation)
         bandwidth = _parse_bandwidth_value(_get_required_csv_value(row, "bandwidth"))
         test_type = _parse_enum_value(row, "test_type", TestType)
         modulation = _parse_enum_value(row, "modulation", Modulation)
-        rb_allocation = _parse_enum_value(row, "rb_allocation", RBAllocation)
         test_channel = _parse_enum_value(row, "test_channel", TestChannel)
         antenna_pol = _parse_enum_value(row, "antenna_pol", AntennaPol)
         dut_axis = _parse_enum_value(row, "dut_axis", DUTAxis)

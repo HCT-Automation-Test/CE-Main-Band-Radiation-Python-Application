@@ -19,6 +19,7 @@ from app.core.instrument_connection import (
     normalize_equipment_state,
     should_preserve_equipment_state_on_connection_error,
 )
+from app.core.tc_validator import validate_queue
 from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
 from app.net import commands as default_commands
@@ -309,6 +310,10 @@ class Runner(QObject):
             return
         if not cases:
             self._emit_error("시험 시작 실패: TestCase queue is empty")
+            return
+        queue_errors = validate_queue(cases)
+        if queue_errors:
+            self._emit_error(f"시험 시작 실패: {queue_errors[0]}")
             return
         if start_index is None or start_index < 0 or start_index >= len(cases):
             start_index = 0

@@ -22,6 +22,9 @@ from app.core.instrument_connection import (
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -143,6 +146,21 @@ def _make_case(*, antenna_pol: AntennaPol = AntennaPol.H) -> TestCase:
         rb_allocation=RBAllocation.INNER_FULL,
         test_channel=TestChannel.MID,
         antenna_pol=antenna_pol,
+        dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
+    )
+
+
+def _make_lte_case() -> TestCase:
+    return TestCase(
+        generation=Generation.LTE,
+        band=LTEBand.B1,
+        bandwidth=5.0,
+        test_type=TestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=LTERBAllocation.MID,
+        test_channel=TestChannel.MID,
+        antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
     )
@@ -437,6 +455,53 @@ def test_start_populates_context_and_sets_start_request(
     assert runner.is_measurement_active
 
     runner.events.session_finished.emit()
+    assert not runner.is_measurement_active
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_start_rejects_mixed_nr_lte_queue_before_report_setup(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    report_writers: list[_ReportWriter] = []
+    messages: list[str] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    def report_writer_factory(*args: Any) -> _ReportWriter:
+        writer = _ReportWriter()
+        report_writers.append(writer)
+        return writer
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.error.connect(messages.append)
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    runner.start(
+        [_make_case(), _make_lte_case()],
+        settings=_make_settings(tmp_path),
+    )
+
+    ctx = runner.context
+    assert ctx is not None
+    assert messages == ["시험 시작 실패: NR/LTE 혼합 Queue는 실행할 수 없습니다"]
+    assert report_writers == []
+    assert ctx.queue == []
+    assert not ctx.test_start_requested.is_set()
     assert not runner.is_measurement_active
 
     runner.stop()

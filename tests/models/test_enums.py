@@ -30,6 +30,10 @@ def test_filter_mode_resolves_brf_band_to_port() -> None:
     assert resolve_filter_path(FilterMode.BRF, "79") is FilterPath.PORT_15
 
 
+def test_filter_mode_resolves_lte_b34_to_port_18() -> None:
+    assert resolve_filter_path(FilterMode.BRF, "B34") is FilterPath.PORT_18
+
+
 def test_filter_mode_resolves_direct_hpf_paths() -> None:
     assert resolve_filter_path(FilterMode.HPF_1G, "n78") is FilterPath.HPF_1G
     assert resolve_filter_path(FilterMode.HPF_3G, "n78") is FilterPath.HPF_3G
