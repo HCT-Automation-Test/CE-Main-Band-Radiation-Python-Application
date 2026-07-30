@@ -1,4 +1,4 @@
-"""LTE EAFRCH 및 주파수 lookup."""
+"""LTE ARFCN 및 주파수 lookup."""
 from __future__ import annotations
 
 import math
@@ -9,9 +9,9 @@ from app.models.enums import LTEBand, TestChannel
 
 @dataclass(frozen=True)
 class LTEChannelProfile:
-    """LTE Band/BW/채널 위치의 EAFRCH와 주파수."""
+    """LTE Band/BW/채널 위치의 ARFCN과 주파수."""
 
-    eafrch: int
+    arfcn: int
     frequency_mhz: float
 
 
@@ -76,7 +76,7 @@ _CHANNEL_ORDER = (TestChannel.LOW, TestChannel.MID, TestChannel.HIGH)
 
 _CHANNEL_LOOKUP: dict[tuple[LTEBand, float, TestChannel], LTEChannelProfile] = {
     (band, bandwidth, channel): LTEChannelProfile(
-        eafrch=values[index][0],
+        arfcn=values[index][0],
         frequency_mhz=values[index][1],
     )
     for (band, bandwidth), values in _CHANNEL_VALUES_BY_BANDWIDTH.items()
@@ -124,14 +124,14 @@ def _get_profile(
         ) from exc
 
 
-def resolve_eafrch(
+def resolve_arfcn(
     band: LTEBand | str,
     bandwidth: float,
     test_channel: TestChannel,
 ) -> int:
-    """LTE Call에 사용하는 EAFRCH를 반환한다."""
+    """LTE Call에 사용하는 ARFCN을 반환한다."""
 
-    return _get_profile(band, bandwidth, test_channel).eafrch
+    return _get_profile(band, bandwidth, test_channel).arfcn
 
 
 def resolve_lte_frequency_mhz(

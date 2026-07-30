@@ -21,7 +21,7 @@ from app.models.enums import (
     TestType,
 )
 from app.models.lte_band_group import find_lte_band_group, resolve_lte_range_id
-from app.models.lte_channel_lookup import resolve_eafrch, resolve_lte_frequency_mhz
+from app.models.lte_channel_lookup import resolve_arfcn, resolve_lte_frequency_mhz
 from app.models.lte_rb_parameters import resolve_lte_rb_parameters
 from app.models.lte_supported_bandwidths import validate_lte_supported_bandwidth
 from app.models.nr_channel_lookup import resolve_call_channel, resolve_target_frequency_mhz
@@ -154,7 +154,7 @@ class TestCase:
                 raise ValueError("LTE modulation must be QPSK")
             resolve_lte_range_id(self.band, self.test_type)
             validate_lte_supported_bandwidth(self.band, self.bandwidth)
-            resolve_eafrch(self.band, self.bandwidth, self.test_channel)
+            resolve_arfcn(self.band, self.bandwidth, self.test_channel)
             resolve_lte_rb_parameters(self.bandwidth, self.rb_allocation)
         else:
             resolve_range_id(self.band, self.test_type)
@@ -208,7 +208,7 @@ class TestCase:
     @property
     def channel_number(self) -> int:
         if self.generation is Generation.LTE:
-            return resolve_eafrch(self.band, self.bandwidth, self.test_channel)
+            return resolve_arfcn(self.band, self.bandwidth, self.test_channel)
         return resolve_call_channel(self.band, self.bandwidth, self.test_channel)
 
     @property

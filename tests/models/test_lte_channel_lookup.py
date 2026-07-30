@@ -4,7 +4,7 @@ import pytest
 
 from app.models.enums import LTEBand, TestChannel as ChannelEnum
 from app.models.lte_channel_lookup import (
-    resolve_eafrch,
+    resolve_arfcn,
     resolve_lte_frequency_mhz,
 )
 
@@ -62,11 +62,11 @@ def test_lte_channel_table_matches_all_138_final_rows() -> None:
     assert len(EXPECTED_CHANNEL_ROWS) == 46
     checked_rows = 0
 
-    for band, bandwidth, eafrch_values, frequency_values in EXPECTED_CHANNEL_ROWS:
+    for band, bandwidth, arfcn_values, frequency_values in EXPECTED_CHANNEL_ROWS:
         for index, test_channel in enumerate(ChannelEnum):
             assert (
-                resolve_eafrch(band, bandwidth, test_channel)
-                == eafrch_values[index]
+                resolve_arfcn(band, bandwidth, test_channel)
+                == arfcn_values[index]
             )
             assert (
                 resolve_lte_frequency_mhz(band, bandwidth, test_channel)
@@ -82,4 +82,4 @@ def test_lte_channel_lookup_rejects_missing_combination() -> None:
         ValueError,
         match=r"band='B34'.*bandwidth='20'.*test_channel='mid'",
     ):
-        resolve_eafrch(LTEBand.B34, 20.0, ChannelEnum.MID)
+        resolve_arfcn(LTEBand.B34, 20.0, ChannelEnum.MID)
