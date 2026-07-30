@@ -116,7 +116,7 @@ CSV에는 ARFCN 채널 번호 열을 추가하지 않는다. 채널 번호와 Fr
 | SRS-LTE-UI-001 | Test Manager의 LTE 진입점에서 LTE Test Case 생성 화면을 연다. | LTE 버튼에서 실제 생성 화면으로 진입한다. |
 | SRS-LTE-UI-002 | LTE 신규 화면에서 Select와 Parameter Table을 하나의 화면으로 통합한다. | 선택, 파라미터 확인, Test Case 추가를 한 화면에서 수행한다. |
 | SRS-LTE-UI-003 | 기존 NR Select/Table 화면은 변경하지 않는다. | LTE UI 개발로 NR 화면 구조가 바뀌지 않는다. |
-| SRS-LTE-UI-004 | LTE 화면은 4장의 Band, BW, Channel/Frequency, RB, SCS, QPSK 값을 사용한다. | 지원되지 않는 LTE 조합을 생성하지 않는다. |
+| SRS-LTE-UI-004 | LTE 생성 로직은 4장의 Band, BW, Channel/Frequency, RB, SCS, QPSK 값을 사용한다. SCS와 QPSK는 생성 화면에 표시하지 않는다. | 지원되지 않는 LTE 조합을 생성하지 않고 생성된 Test Case에 SCS 15 kHz와 QPSK를 고정 적용한다. |
 | SRS-LTE-UI-005 | LTE 전용 Table과 NR/LTE 공용 UI는 모두 `ARFCN`을 사용한다. CSV에는 ARFCN 채널 번호 열을 두지 않는다. | 각 화면에 지정된 표기가 표시되고 CSV는 Band, Bandwidth, Test Channel로 채널 번호와 Frequency를 파생한다. |
 
 #### LTE 통합 화면 상세 계약
@@ -127,7 +127,7 @@ CSV에는 ARFCN 채널 번호 열을 추가하지 않는다. 채널 번호와 Fr
 - LB Test 대역은 30M-1G(In-band), 1-12.75G(Harmonic)이며 Bilog를 제공하지 않는다.
 - MHB_FDD와 MHB_TDD Test 대역은 30M-1G(Bilog), 1-3G(In-band), 3-12.75G(Harmonic)이다.
 - Position은 기존 NR과 동일한 Axis X/Y/Z/X->Y->Z/Z->Y->X 및 Pol H/V/H->V/V->H를 제공한다.
-- ARFCN, Frequency, RB Size, RB Offset은 읽기 전용 파생값이다. SCS 15 kHz와 QPSK는 같은 화면에서 읽기 전용 고정값으로 확인할 수 있어야 한다.
+- ARFCN, Frequency, RB Size, RB Offset은 읽기 전용 파생값이다. SCS와 Modulation은 생성 화면에 표시하지 않으며 생성되는 LTE Test Case에 SCS 15 kHz와 QPSK를 고정 적용한다.
 - 화면 크기와 열 폭은 기존 NR 및 제공된 LTE Table 참고 화면과 크게 다르지 않게 구성하며 엄격한 픽셀 일치는 요구하지 않는다.
 
 ### 3.8 LTE Result Write와 SA PNG
@@ -569,7 +569,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - LB, MHB_FDD, MHB_TDD 및 전체·그룹·개별 Band 체크박스
 - BW, RB Allocation, Channel, EUT ANT 선택과 ARFCN/Frequency/RB Size/RB Offset 파생 표시
 - 그룹별 Test 대역과 기존 NR 동일 Axis/Pol Position 선택
-- SCS 15 kHz와 QPSK 고정값 표시
+- 생성 화면에는 SCS와 Modulation을 표시하지 않고 LTE Test Case에 SCS 15 kHz와 QPSK 고정 적용
 - CSV에는 ARFCN 채널 번호 열을 추가하지 않고 Band, Bandwidth, Test Channel로 채널 번호와 Frequency 파생
 - 직전 Band별 파라미터와 그룹별 설정 복원
 - 기존 NR 화면 유지
@@ -584,7 +584,7 @@ Jira에는 Epic 2개와 하위 Issue 13개를 생성한다. 아래 Issue Type은
 - [ ] Table 열 순서와 ARFCN 표기가 확정 계약과 일치한다.
 - [ ] LB에는 Bilog가 없고 MHB_FDD/MHB_TDD에는 Bilog, In-band, Harmonic이 제공된다.
 - [ ] Position과 Test Case 조합 순서가 기존 NR과 동일하다.
-- [ ] 화면 값이 지원 데이터와 일치하고 SCS 15 kHz와 QPSK 외 값을 생성하지 않는다.
+- [ ] 화면 값이 지원 데이터와 일치하고 생성 화면에는 SCS와 Modulation이 없으며 생성 Test Case에는 SCS 15 kHz와 QPSK만 적용된다.
 - [ ] 화면 크기와 열 폭이 기존 NR 및 참고 화면과 크게 다르지 않다.
 - [ ] 기존 NR Select/Table 화면이 변경되지 않는다.
 
