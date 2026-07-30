@@ -14,6 +14,8 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -61,12 +63,61 @@ def _make_case(
     )
 
 
+def _make_lte_case(
+    *,
+    band: LTEBand = LTEBand.B1,
+    bandwidth: float = 20.0,
+    test_type: MeasurementTestType = MeasurementTestType.HARMONIC,
+    antenna_pol: AntennaPol = AntennaPol.V,
+    dut_axis: DUTAxis = DUTAxis.X,
+    dut_ant_position: DUTAntPosition = DUTAntPosition.UPPER,
+    test_channel: ChannelEnum = ChannelEnum.MID,
+    rb_allocation: LTERBAllocation = LTERBAllocation.MID,
+) -> TestCase:
+    return TestCase(
+        band=band,
+        bandwidth=bandwidth,
+        test_type=test_type,
+        modulation=Modulation.QPSK,
+        rb_allocation=rb_allocation,
+        test_channel=test_channel,
+        antenna_pol=antenna_pol,
+        dut_axis=dut_axis,
+        dut_ant_position=dut_ant_position,
+        generation=Generation.LTE,
+    )
+
+
+_LTE_LB_BANDS = frozenset({LTEBand.B5, LTEBand.B8, LTEBand.B20, LTEBand.B28})
+
+
 def _make_workbook(path: Path, *bands: NRBand) -> Path:
     workbook = Workbook()
     default = workbook.active
     workbook.remove(default)
     for band in bands:
         workbook.create_sheet(f"Sub6 {band.value}")
+    workbook.save(path)
+    return path
+
+
+def _make_lte_workbook(
+    path: Path,
+    *bands: LTEBand,
+    extra_sheets: tuple[str, ...] = (),
+) -> Path:
+    workbook = Workbook()
+    default = workbook.active
+    workbook.remove(default)
+    for band in bands:
+        worksheet = workbook.create_sheet(f"LTE_BAND {band.value.removeprefix('B')}")
+        worksheet["A7"] = band.value
+        worksheet["G7"] = 15
+        harmonic_rows = (19, 21, 23, 25) if band in _LTE_LB_BANDS else (24, 26, 28, 30)
+        for order, row in zip((2, 3, 4, 5), harmonic_rows, strict=True):
+            worksheet[f"A{row}"] = f"=I7*{order}"
+    for sheet_name in extra_sheets:
+        workbook.create_sheet(sheet_name)
     workbook.save(path)
     return path
 
@@ -912,3 +963,180 @@ def test_find_open_workbook_returns_none_when_rot_and_active_excel_do_not_match(
     )
 
     assert found is None
+
+
+def test_write_lte_mhb_results_preserves_template_values_and_formulas(
+    tmp_path: Path,
+) -> None:
+    path = _make_lte_workbook(tmp_path / "lte.xlsx", LTEBand.B1)
+    writer = ExcelReportWriter(path)
+    inband_case = _make_lte_case(
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+
+    writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=None))
+
+    worksheet = load_workbook(path)["LTE_BAND 1"]
+    assert worksheet["A7"].value == "B1"
+    assert worksheet["B7"].value == 18300
+    assert worksheet["C7"].value == 20
+    assert worksheet["D7"].value == 1
+    assert worksheet["E7"].value == 49
+    assert worksheet["F7"].value == "QPSK"
+    assert worksheet["G7"].value == 15
+    assert worksheet["H7"].value == "Lower"
+    assert worksheet["I7"].value is None
+    assert worksheet["D20"].value == "-"
+
+    harmonic_case = _make_lte_case(
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+    writer.write_fundamental(
+        harmonic_case,
+        FundamentalResult(fundamental_frequency_mhz=1950.125),
+    )
+    writer.write_harmonic(
+        harmonic_case,
+        HarmonicResult(
+            harmonic_2nd_peak_level_dbm=-41.0,
+            harmonic_3rd_peak_level_dbm=-40.0,
+            harmonic_4th_peak_level_dbm=-39.0,
+            harmonic_5th_peak_level_dbm=-38.0,
+        ),
+    )
+
+    worksheet = load_workbook(path, data_only=False)["LTE_BAND 1"]
+    assert worksheet["I7"].value == 1950.125
+    assert [worksheet[cell].value for cell in ("A24", "A26", "A28", "A30")] == [
+        "=I7*2",
+        "=I7*3",
+        "=I7*4",
+        "=I7*5",
+    ]
+    assert [worksheet[cell].value for cell in ("D25", "D27", "D29", "D31")] == [
+        -41.0,
+        -40.0,
+        -39.0,
+        -38.0,
+    ]
+    assert writer.read_fundamental_frequency(harmonic_case) == 1950.125
+
+
+def test_write_lte_b34_uses_mhb_sheet_and_bilog_cells(tmp_path: Path) -> None:
+    path = _make_lte_workbook(tmp_path / "lte_b34.xlsx", LTEBand.B34)
+    writer = ExcelReportWriter(path)
+    case = _make_lte_case(
+        band=LTEBand.B34,
+        bandwidth=10.0,
+        test_type=MeasurementTestType.BILOG,
+        rb_allocation=LTERBAllocation.LOW,
+    )
+
+    writer.write_bilog(case, BilogResult(bilog_peak_level_dbm=-38.25))
+
+    worksheet = load_workbook(path)["LTE_BAND 34"]
+    assert worksheet["B7"].value == 36275
+    assert worksheet["C7"].value == 10
+    assert worksheet["B14"].value == -38.25
+    assert worksheet["A24"].value == "=I7*2"
+    assert worksheet["I7"].value is None
+
+
+def test_write_lte_lb_uses_shifted_rows_and_preserves_formulas(tmp_path: Path) -> None:
+    path = _make_lte_workbook(tmp_path / "lte_b5.xlsx", LTEBand.B5)
+    writer = ExcelReportWriter(path)
+    inband_case = _make_lte_case(
+        band=LTEBand.B5,
+        bandwidth=10.0,
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.Z,
+        dut_ant_position=DUTAntPosition.LOWER,
+        rb_allocation=LTERBAllocation.HIGH,
+    )
+    harmonic_case = replace(inband_case, test_type=MeasurementTestType.HARMONIC)
+
+    writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=-47.0))
+    writer.write_fundamental(
+        harmonic_case,
+        FundamentalResult(fundamental_frequency_mhz=836.625),
+    )
+    writer.write_harmonic(
+        harmonic_case,
+        HarmonicResult(
+            harmonic_2nd_peak_level_dbm=-42.0,
+            harmonic_3rd_peak_level_dbm=None,
+            harmonic_4th_peak_level_dbm=-40.0,
+            harmonic_5th_peak_level_dbm=-39.0,
+        ),
+    )
+
+    worksheet = load_workbook(path, data_only=False)["LTE_BAND 5"]
+    assert worksheet["B7"].value == 20525
+    assert worksheet["E7"].value == 49
+    assert worksheet["D15"].value == -47.0
+    assert worksheet["I7"].value == 836.625
+    assert [worksheet[cell].value for cell in ("A19", "A21", "A23", "A25")] == [
+        "=I7*2",
+        "=I7*3",
+        "=I7*4",
+        "=I7*5",
+    ]
+    assert [worksheet[cell].value for cell in ("D20", "D22", "D24", "D26")] == [
+        -42.0,
+        "-",
+        -40.0,
+        -39.0,
+    ]
+
+
+def test_prepare_live_monitoring_accepts_lte_sheet_with_extra_wcdma_sheet(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_lte_workbook(
+        tmp_path / "lte.xlsx",
+        LTEBand.B1,
+        extra_sheets=("WCDMA_BAND 1",),
+    )
+    writer = ExcelReportWriter(path)
+    _install_fake_com_modules(monkeypatch)
+    excel = _FakeExcel([])
+    monkeypatch.setattr(excel_writer, "_get_excel_application", lambda *_: excel)
+
+    writer.prepare_live_monitoring(_make_lte_case())
+
+    opened_workbook = excel.Workbooks[-1]
+    assert opened_workbook.Worksheets("LTE_BAND 1").activated
+    assert writer._live_monitoring_enabled
+
+
+def test_prepare_live_monitoring_rejects_nr_workbook_for_lte_case(
+    tmp_path: Path,
+) -> None:
+    path = _make_workbook(tmp_path / "nr.xlsx", NRBand.N1)
+    writer = ExcelReportWriter(path)
+
+    with pytest.raises(ValueError, match="Workbook has no sheet"):
+        writer.prepare_live_monitoring(_make_lte_case())
+
+
+def test_prepare_live_monitoring_rejects_lte_workbook_for_nr_case(
+    tmp_path: Path,
+) -> None:
+    path = _make_lte_workbook(tmp_path / "lte.xlsx", LTEBand.B1)
+    writer = ExcelReportWriter(path)
+
+    with pytest.raises(ValueError, match="Workbook has no sheet"):
+        writer.prepare_live_monitoring(
+            _make_case(
+                band=NRBand.N1,
+                bandwidth=20.0,
+                test_type=MeasurementTestType.INBAND,
+            )
+        )

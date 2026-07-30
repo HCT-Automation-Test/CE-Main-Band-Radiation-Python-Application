@@ -5,10 +5,12 @@ from dataclasses import dataclass, replace
 
 from openpyxl.utils.cell import coordinate_to_tuple, get_column_letter
 
-from app.models.enums import AntennaPol, DUTAxis, Generation, NRBand
+from app.models.enums import AntennaPol, DUTAxis, Generation, LTEBand, NRBand
 
 DEFAULT_LAYOUT_KEY = "default"
 LB_LAYOUT_KEY = "lb"
+LTE_DEFAULT_LAYOUT_KEY = "lte_default"
+LTE_LB_LAYOUT_KEY = "lte_lb"
 NSA_LB_ROW_OFFSET = -37
 NSA_DEFAULT_ROW_OFFSET = -42
 ALLOWED_BAND_GROUP_KEYS: frozenset[str] = frozenset(
@@ -33,8 +35,9 @@ HARMONIC_ROW_OFFSETS: dict[int, int] = {
     5: 6,
 }
 
-SHEET_BY_BAND: dict[NRBand, str] = {
-    band: f"Sub6 {band.value}" for band in NRBand
+SHEET_BY_BAND: dict[NRBand | LTEBand, str] = {
+    **{band: f"Sub6 {band.value}" for band in NRBand},
+    **{band: f"LTE_BAND {band.value.removeprefix('B')}" for band in LTEBand},
 }
 
 
@@ -93,10 +96,40 @@ LAYOUTS: dict[str, ReportLayout] = {
         inband_base_row=51,
         bilog_base_row=None,
     ),
+    LTE_DEFAULT_LAYOUT_KEY: ReportLayout(
+        key=LTE_DEFAULT_LAYOUT_KEY,
+        band_info_cells=BandInfoCells(
+            channel="B7",
+            bandwidth="C7",
+            rb_size="D7",
+            rb_offset="E7",
+            modulation="F7",
+            dut_ant_position="H7",
+        ),
+        fundamental_frequency_cell="I7",
+        harmonic_base_row=24,
+        inband_base_row=19,
+        bilog_base_row=14,
+    ),
+    LTE_LB_LAYOUT_KEY: ReportLayout(
+        key=LTE_LB_LAYOUT_KEY,
+        band_info_cells=BandInfoCells(
+            channel="B7",
+            bandwidth="C7",
+            rb_size="D7",
+            rb_offset="E7",
+            modulation="F7",
+            dut_ant_position="H7",
+        ),
+        fundamental_frequency_cell="I7",
+        harmonic_base_row=19,
+        inband_base_row=14,
+        bilog_base_row=None,
+    ),
 }
 
 
-def sheet_name_for_band(band: NRBand) -> str:
+def sheet_name_for_band(band: NRBand | LTEBand) -> str:
     """Band에 대응하는 Excel 시트명을 반환한다."""
 
     try:
@@ -127,6 +160,12 @@ def layout_for_group_key_and_generation(
 
     if group_key not in ALLOWED_BAND_GROUP_KEYS:
         raise ValueError(f"Unknown band group key: {group_key!r}")
+    if generation is Generation.LTE:
+        layout_key = (
+            LTE_LB_LAYOUT_KEY if group_key == LB_LAYOUT_KEY else LTE_DEFAULT_LAYOUT_KEY
+        )
+        return LAYOUTS[layout_key]
+
     layout_key = layout_key_for_group(group_key)
     try:
         layout = LAYOUTS[layout_key]

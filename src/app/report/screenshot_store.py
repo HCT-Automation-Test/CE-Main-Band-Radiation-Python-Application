@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from app.models.enums import Generation
-from app.models.nr_channel_lookup import resolve_target_frequency_mhz
 from app.models.test_case import TestCase
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 _TRAFFIC_DIR = "Traffic"
 _RAT_DIR = "5G"
+_LTE_RAT_DIR = "4G"
 _SA_DIR = "SA"
 _NSA_DIR = "NSA"
 _FUNDAMENTAL_SUFFIX = "Fundamental Frequency"
@@ -53,6 +53,50 @@ def _generation_dir(test_case: TestCase) -> str:
     return _SA_DIR
 
 
+def _band_dir_name(test_case: TestCase) -> str:
+    if test_case.generation is Generation.LTE:
+        return test_case.band.value.lower()
+    return test_case.band.value
+
+
+def _filename_prefix(model: str, test_case: TestCase) -> str:
+    band = _band_dir_name(test_case)
+    dut_ant_position = test_case.dut_ant_position.name
+    if test_case.generation is Generation.LTE:
+        return f"{model}_{_TRAFFIC_DIR}_{_LTE_RAT_DIR}_{band}_{dut_ant_position}"
+    generation_dir = _generation_dir(test_case)
+    return (
+        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_{dut_ant_position}"
+    )
+
+
+def _screenshot_directory(
+    root_dir: Path,
+    model: str,
+    test_case: TestCase,
+) -> Path:
+    band = _band_dir_name(test_case)
+    if test_case.generation is Generation.LTE:
+        return (
+            Path(root_dir)
+            / model
+            / _TRAFFIC_DIR
+            / _LTE_RAT_DIR
+            / band
+            / test_case.dut_ant_position.value
+        )
+    generation_dir = _generation_dir(test_case)
+    return (
+        Path(root_dir)
+        / model
+        / _TRAFFIC_DIR
+        / _RAT_DIR
+        / band
+        / test_case.dut_ant_position.name
+        / generation_dir
+    )
+
+
 def _available_numbered_path(path: Path) -> Path:
     if not path.exists():
         return path
@@ -75,33 +119,17 @@ def build_sa_screenshot_path(
 
     model = _sanitize_path_part(model_name, field_name="model_name")
     test_range = test_case.range_definition
-    target_frequency_mhz = resolve_target_frequency_mhz(
-        test_case.band,
-        test_case.bandwidth,
-        test_case.test_channel,
-    )
-    band = test_case.band.value
-    dut_ant_position = test_case.dut_ant_position.name
+    target_frequency_mhz = test_case.frequency_mhz
     axis_pol = f"{test_case.dut_axis.value}{test_case.antenna_pol.value}"
-    generation_dir = _generation_dir(test_case)
+    filename_prefix = _filename_prefix(model, test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
-        f"{dut_ant_position}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{filename_prefix}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_format_range_frequency(test_range.start_freq)}_"
         f"{_format_range_frequency(test_range.stop_freq)}_{axis_pol}.png"
     )
 
-    return (
-        Path(root_dir)
-        / model
-        / _TRAFFIC_DIR
-        / _RAT_DIR
-        / band
-        / dut_ant_position
-        / generation_dir
-        / filename
-    )
+    return _screenshot_directory(root_dir, model, test_case) / filename
 
 
 def build_harmonic_precision_screenshot_path(
@@ -115,27 +143,15 @@ def build_harmonic_precision_screenshot_path(
     """Harmonic 정밀측정 스크린샷 최종 저장 경로를 만든다."""
 
     model = _sanitize_path_part(model_name, field_name="model_name")
-    band = test_case.band.value
-    dut_ant_position = test_case.dut_ant_position.name
     axis_pol = f"{test_case.dut_axis.value}{test_case.antenna_pol.value}"
-    generation_dir = _generation_dir(test_case)
+    filename_prefix = _filename_prefix(model, test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
-        f"{dut_ant_position}_{_format_precision_frequency(peak_frequency_mhz)}_"
+        f"{filename_prefix}_{_format_precision_frequency(peak_frequency_mhz)}_"
         f"{axis_pol}_{int(sweep_time_ms)}ms.png"
     )
 
-    return (
-        Path(root_dir)
-        / model
-        / _TRAFFIC_DIR
-        / _RAT_DIR
-        / band
-        / dut_ant_position
-        / generation_dir
-        / filename
-    )
+    return _screenshot_directory(root_dir, model, test_case) / filename
 
 
 def build_fundamental_screenshot_path(
@@ -147,31 +163,15 @@ def build_fundamental_screenshot_path(
     """Fundamental SA 스크린샷의 최종 저장 경로를 만든다."""
 
     model = _sanitize_path_part(model_name, field_name="model_name")
-    target_frequency_mhz = resolve_target_frequency_mhz(
-        test_case.band,
-        test_case.bandwidth,
-        test_case.test_channel,
-    )
-    band = test_case.band.value
-    dut_ant_position = test_case.dut_ant_position.name
-    generation_dir = _generation_dir(test_case)
+    target_frequency_mhz = test_case.frequency_mhz
+    filename_prefix = _filename_prefix(model, test_case)
 
     filename = (
-        f"{model}_{_TRAFFIC_DIR}_{_RAT_DIR}_{generation_dir}_{band}_"
-        f"{dut_ant_position}_{_format_target_frequency(target_frequency_mhz)}_"
+        f"{filename_prefix}_{_format_target_frequency(target_frequency_mhz)}_"
         f"{_FUNDAMENTAL_SUFFIX}.png"
     )
 
-    return (
-        Path(root_dir)
-        / model
-        / _TRAFFIC_DIR
-        / _RAT_DIR
-        / band
-        / dut_ant_position
-        / generation_dir
-        / filename
-    )
+    return _screenshot_directory(root_dir, model, test_case) / filename
 
 
 def finalize_sa_screenshot(

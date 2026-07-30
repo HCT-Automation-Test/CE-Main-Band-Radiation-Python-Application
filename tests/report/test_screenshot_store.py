@@ -9,6 +9,8 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -59,6 +61,31 @@ def _make_case(
         dut_axis=DUTAxis.X,
         dut_ant_position=dut_ant_position,
         generation=generation,
+    )
+
+
+def _make_lte_case(
+    *,
+    test_type: TestType = TestType.INBAND,
+    band: LTEBand = LTEBand.B1,
+    bandwidth: float = 20.0,
+    test_channel: TestChannel = TestChannel.MID,
+    dut_ant_position: DUTAntPosition = DUTAntPosition.LOWER,
+    antenna_pol: AntennaPol = AntennaPol.H,
+    dut_axis: DUTAxis = DUTAxis.X,
+    rb_allocation: LTERBAllocation = LTERBAllocation.MID,
+) -> TestCase:
+    return TestCase(
+        band=band,
+        bandwidth=bandwidth,
+        test_type=test_type,
+        modulation=Modulation.QPSK,
+        rb_allocation=rb_allocation,
+        test_channel=test_channel,
+        antenna_pol=antenna_pol,
+        dut_axis=dut_axis,
+        dut_ant_position=dut_ant_position,
+        generation=Generation.LTE,
     )
 
 
@@ -197,6 +224,7 @@ def test_build_nsa_screenshot_path_uses_nsa_dir_and_filename(tmp_path: Path) -> 
         / "SM-000_Traffic_5G_NSA_n78_UPPER_3549.990MHz_1GHz_6GHz_XH.png"
     )
 
+
 def test_finalize_sa_screenshot_copies_file_and_emits_event(tmp_path: Path) -> None:
     case = _make_case(
         band=NRBand.N5,
@@ -284,6 +312,7 @@ def test_build_nsa_harmonic_precision_screenshot_path_uses_nsa_dir_and_filename(
         / "NSA"
         / "SM-000_Traffic_5G_NSA_n79_UPPER_14088.350MHz_XH_100ms.png"
     )
+
 
 def test_finalize_harmonic_precision_screenshot_copies_file_and_emits_event(
     tmp_path: Path,
@@ -376,6 +405,7 @@ def test_build_nsa_fundamental_screenshot_path_uses_nsa_dir_and_filename(
         / "SM-000_Traffic_5G_NSA_n78_UPPER_3549.990MHz_Fundamental Frequency.png"
     )
 
+
 def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
     tmp_path: Path,
 ) -> None:
@@ -402,7 +432,6 @@ def test_finalize_fundamental_screenshot_copies_file_and_emits_event(
     assert destination.read_bytes() == b"png"
     assert source.read_bytes() == b"png"
     assert events.screenshot_saved.messages == [str(destination)]
-
 
 
 def test_finalize_sa_screenshot_preserves_existing_file_and_saves_numbered_copy(
@@ -631,3 +660,103 @@ def test_build_fundamental_screenshot_path_rejects_empty_model_name(
             model_name=" ",
             test_case=case,
         )
+
+
+def test_build_lte_sa_screenshot_path_matches_required_example(
+    tmp_path: Path,
+) -> None:
+    case = _make_lte_case()
+
+    path = build_sa_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "4G"
+        / "b1"
+        / "Lower"
+        / "SM-000_Traffic_4G_b1_LOWER_1950.000MHz_1GHz_3GHz_XH.png"
+    )
+
+
+def test_build_lte_fundamental_screenshot_path_uses_target_frequency(
+    tmp_path: Path,
+) -> None:
+    case = _make_lte_case(test_type=TestType.HARMONIC)
+
+    path = build_fundamental_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "4G"
+        / "b1"
+        / "Lower"
+        / "SM-000_Traffic_4G_b1_LOWER_1950.000MHz_Fundamental Frequency.png"
+    )
+
+
+def test_build_lte_precision_screenshot_path_uses_measured_peak(
+    tmp_path: Path,
+) -> None:
+    case = _make_lte_case(test_type=TestType.HARMONIC)
+
+    path = build_harmonic_precision_screenshot_path(
+        root_dir=tmp_path,
+        model_name="SM-000",
+        test_case=case,
+        peak_frequency_mhz=3900.125,
+        sweep_time_ms=100,
+    )
+
+    assert path == (
+        tmp_path
+        / "SM-000"
+        / "Traffic"
+        / "4G"
+        / "b1"
+        / "Lower"
+        / "SM-000_Traffic_4G_b1_LOWER_3900.125MHz_XH_100ms.png"
+    )
+
+
+def test_finalize_lte_screenshot_preserves_duplicate_and_emits_event(
+    tmp_path: Path,
+) -> None:
+    case = _make_lte_case()
+    root_dir = tmp_path / "out"
+    source = tmp_path / "temp" / "inband.png"
+    source.parent.mkdir()
+    source.write_bytes(b"new-lte")
+    original = build_sa_screenshot_path(
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+    )
+    original.parent.mkdir(parents=True)
+    original.write_bytes(b"existing-lte")
+    events = _Events()
+
+    destination = finalize_sa_screenshot(
+        source_path=source,
+        root_dir=root_dir,
+        model_name="SM-000",
+        test_case=case,
+        events=events,
+    )
+
+    assert original.read_bytes() == b"existing-lte"
+    assert destination == original.with_name(f"{original.stem}(1){original.suffix}")
+    assert destination.read_bytes() == b"new-lte"
+    assert source.read_bytes() == b"new-lte"
+    assert events.screenshot_saved.messages == [str(destination)]
