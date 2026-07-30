@@ -347,14 +347,17 @@ class LTESelectDialog(QDialog):
         layout.addWidget(self._table)
 
         button_layout = QHBoxLayout()
-        button_layout.addStretch(1)
         cancel_button = QPushButton("Cancel", self)
         cancel_button.setObjectName("lteCancelButton")
+        cancel_button.setAutoDefault(False)
         cancel_button.clicked.connect(self.reject)
         add_button = QPushButton("Add", self)
         add_button.setObjectName("lteAddButton")
+        add_button.setDefault(True)
+        add_button.setAutoDefault(True)
         add_button.clicked.connect(self.on_add_clicked)
         button_layout.addWidget(cancel_button)
+        button_layout.addStretch(1)
         button_layout.addWidget(add_button)
         layout.addLayout(button_layout)
         self.resize(self.sizeHint())
@@ -902,11 +905,28 @@ class LTESelectDialog(QDialog):
                 font-weight: 600;
             }
 
-            QPushButton {
+            QPushButton#lteCancelButton,
+            QPushButton#lteAddButton {
+                min-width: 88px;
+                min-height: 30px;
+                padding: 5px 16px;
+            }
+
+            QPushButton#lteCancelButton {
+                background: #fbfbfb;
+                color: #4b5563;
+                border: 1px solid #9ca3af;
+            }
+
+            QPushButton#lteCancelButton:hover {
+                background: #f3f4f6;
+            }
+
+            QPushButton#lteAddButton {
                 background: #fbfbfb;
                 color: #111111;
                 border: 1px solid #2f5aa8;
-                padding: 5px 12px;
+                font-weight: 600;
             }
             """
         )

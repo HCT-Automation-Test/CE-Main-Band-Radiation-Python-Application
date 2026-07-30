@@ -148,6 +148,25 @@ def test_lte_select_master_checkbox_toggles_all_bands(qtbot) -> None:
     assert master.checkState() is Qt.CheckState.Unchecked
 
 
+def test_lte_select_separates_cancel_from_primary_add_action(qtbot) -> None:
+    """취소와 추가 버튼을 분리하고 Add를 기본 액션으로 표시한다."""
+
+    dialog = LTESelectDialog()
+    qtbot.addWidget(dialog)
+    cancel_button = dialog.findChild(QPushButton, "lteCancelButton")
+    add_button = dialog.findChild(QPushButton, "lteAddButton")
+    action_layout = dialog.layout().itemAt(1).layout()
+
+    assert cancel_button is not None
+    assert add_button is not None
+    assert action_layout is not None
+    assert action_layout.indexOf(cancel_button) == 0
+    assert action_layout.indexOf(add_button) == 2
+    assert not cancel_button.autoDefault()
+    assert add_button.autoDefault()
+    assert add_button.isDefault()
+
+
 def test_lte_select_group_and_individual_checks_stay_consistent(qtbot) -> None:
     """개별 선택을 상위에 반영하고 부분 선택 그룹 클릭 시 전체 선택한다."""
 
