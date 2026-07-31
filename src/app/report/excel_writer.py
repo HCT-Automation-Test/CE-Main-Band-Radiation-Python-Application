@@ -8,6 +8,8 @@ from openpyxl import load_workbook
 from openpyxl.worksheet.worksheet import Worksheet
 
 from app.models.band_group import find_band_group
+from app.models.enums import Generation
+from app.models.lte_band_group import find_lte_band_group
 from app.models.measurement_result import (
     BilogResult,
     FundamentalResult,
@@ -15,7 +17,6 @@ from app.models.measurement_result import (
     InbandResult,
     MeasurementResult,
 )
-from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.test_case import TestCase
 from app.report.template_map import (
     ReportLayout,
@@ -89,6 +90,9 @@ class ExcelReportWriter:
 
         frequency_cell = validate_single_cell(layout.fundamental_frequency_cell)
         self._set_cell(worksheet, frequency_cell, frequency_mhz)
+        if test_case.generation is Generation.LTE:
+            self._save()
+            return True
         for order in (2, 3, 4, 5):
             self._set_cell(
                 worksheet,
@@ -206,7 +210,10 @@ class ExcelReportWriter:
         return self.workbook[sheet_name]
 
     def _layout_for_case(self, test_case: TestCase) -> ReportLayout:
-        group = find_band_group(test_case.band)
+        if test_case.generation is Generation.LTE:
+            group = find_lte_band_group(test_case.band)
+        else:
+            group = find_band_group(test_case.band)
         return layout_for_group_key_and_generation(group.key, test_case.generation)
 
     def _write_band_info_once(
@@ -224,11 +231,7 @@ class ExcelReportWriter:
         self._set_cell(
             worksheet,
             validate_single_cell(cells.channel),
-            resolve_call_channel(
-                test_case.band,
-                test_case.bandwidth,
-                test_case.test_channel,
-            ),
+            test_case.channel_number,
         )
         self._set_cell(
             worksheet,
