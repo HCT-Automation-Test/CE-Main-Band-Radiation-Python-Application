@@ -190,6 +190,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         SessionInitState,
         TestEndState,
     )
+    from app.core.fsm.states.tdf import ApplyTdfState
     from app.core.fsm.states.transition import (
         AntPolChangeState,
         DUTAxisChangeState,
@@ -228,6 +229,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(RecallChangeState())
     engine.register(DUTAxisChangeState())
     engine.register(TestTypeChangeState())
+    engine.register(ApplyTdfState())
 
     # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)
     engine.register(InitialTurntableZeroState())

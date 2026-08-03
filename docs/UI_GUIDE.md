@@ -69,7 +69,9 @@
 - **Operation bar**: EUT Name, Excel 템플릿 찾기, 시작 Index 입력(1-based),
   단일시작/시작/정지/삭제/초기화/불러오기(CSV)/저장(CSV) 버튼.
 - **FSV Factor List (TDF)**: List Update(`get_tdf_list`)/Select(`set_tdf`)/All Off.
-  **시작 전 TDF 파일이 반드시 활성화되어 있어야 한다** — 아니면 시작이 거부된다.
+  시험 외 수동 설정을 위한 편의 기능이며, Test Start의 입력이나 자동 적용의 중복
+  판단에는 사용하지 않는다. 시험 시작 후에는 각 TC의 Band Group Factor에 맞춰
+  `Get TDF List` → `Set TDF`를 자동 수행하며, 자동 경로에서는 All Off를 호출하지 않는다.
 - **Custom Option**: 체크 시 Saturation Time/Connection Waiting Time/Atten Level/
   Turn Table Speed(1~10)/Next Peak Search Level(0~80] 오버라이드 + Marker 체크박스
   (수동 마커 모드). 미체크 시 기본값 5/5/0/6/None.

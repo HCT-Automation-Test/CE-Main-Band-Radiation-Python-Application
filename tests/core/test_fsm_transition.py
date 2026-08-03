@@ -149,9 +149,9 @@ def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
-        (NRTestType.INBAND, "SetSwitchBox"),
-        (NRTestType.BILOG, "SetSwitchBox"),
+        (NRTestType.HARMONIC, "ApplyTdf"),
+        (NRTestType.INBAND, "ApplyTdf"),
+        (NRTestType.BILOG, "ApplyTdf"),
     ],
 )
 def test_ant_pol_change_uses_test_type_measurement_route(
@@ -203,7 +203,7 @@ def test_test_type_change_continues_to_measurement_after_pending_transitions() -
     ctx, _, _, _ = _make_ctx(_make_case(test_type=NRTestType.INBAND))
     ctx.pending_transition_states = []
 
-    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
+    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "ApplyTdf"
 
 
 def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
@@ -418,7 +418,7 @@ def test_handover_calls_command_with_current_case_params() -> None:
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "MeasureFundamental"
+    assert state.next_state(ctx, result) == "ApplyTdf"
     assert commands.handover_calls == [
         (
             client,
@@ -459,9 +459,9 @@ def test_handover_uses_connection_waiting_time_setting() -> None:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
-        (NRTestType.INBAND, "SetSwitchBox"),
-        (NRTestType.BILOG, "SetSwitchBox"),
+        (NRTestType.HARMONIC, "ApplyTdf"),
+        (NRTestType.INBAND, "ApplyTdf"),
+        (NRTestType.BILOG, "ApplyTdf"),
     ],
 )
 def test_handover_routes_to_test_type_measurement_start(
@@ -627,9 +627,9 @@ def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (NRTestType.HARMONIC, "MeasureFundamental"),
-        (NRTestType.INBAND, "SetSwitchBox"),
-        (NRTestType.BILOG, "SetSwitchBox"),
+        (NRTestType.HARMONIC, "ApplyTdf"),
+        (NRTestType.INBAND, "ApplyTdf"),
+        (NRTestType.BILOG, "ApplyTdf"),
     ],
 )
 def test_test_type_change_checks_call_status_and_routes_to_test_type_measurement(

@@ -7,9 +7,7 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.call_routing import nr_call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
-from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.fsm.transition_flow import next_transition_or
-from app.models.enums import TestType
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -105,12 +103,7 @@ class NRCallConnectState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            if ctx.current_case.test_type is TestType.HARMONIC:
-                return next_transition_or(ctx, "MeasureFundamental")
-            return next_transition_or(
-                ctx,
-                measurement_start_state_for(ctx.current_case.test_type),
-            )
+            return next_transition_or(ctx, "ApplyTdf")
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None

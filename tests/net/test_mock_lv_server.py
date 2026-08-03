@@ -892,6 +892,17 @@ def test_mock_lv_server_handles_tdf_commands(qtbot, tmp_path) -> None:
         server.stop()
 
 
+@pytest.mark.parametrize("factor_keyword", ["1G HPF", "3G HPF", "6G HPF"])
+def test_mock_tdf_list_has_one_file_for_each_factor(factor_keyword: str) -> None:
+    matches = [
+        file_name
+        for file_name in MOCK_TDF_FILE_LIST
+        if factor_keyword in file_name
+    ]
+
+    assert len(matches) == 1
+
+
 def test_mock_lv_server_rejects_unsupported_command(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
