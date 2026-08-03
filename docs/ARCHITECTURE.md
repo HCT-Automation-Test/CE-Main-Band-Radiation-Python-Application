@@ -20,7 +20,7 @@ Python 앱은 LabVIEW 프로그램과 **TCP 기반 자체 JSON 프로토콜**로
 
 | 장비 이름 (프로토콜 target) | 역할 | 연결 방식 |
 | --- | --- | --- |
-| `MT8000A` | NR Callbox — NR Call 연결/Handover | VISA 주소 (LV가 제어) |
+| `MT8000A` | NR/LTE Callbox — Call 연결/Handover | VISA 주소 (LV가 제어) |
 | `FSV40` | Spectrum Analyzer — Range 설정/측정/스크린샷 | VISA 주소 |
 | `CO3000` | Turntable — DUT 회전, Mast 편파(3m/Bilog) | VISA 주소 |
 | `Switch Box` | RF 입력/필터 경로 선택 | IP + Port (raw TCP) |
@@ -122,13 +122,14 @@ claude_test/
 │   │       ├── base.py          # State ABC, StateResult
 │   │       ├── context.py       # SessionContext (세션 전역 데이터)
 │   │       ├── engine.py        # FSMEngine + build_session_engine (전 상태 등록)
-│   │       ├── call_routing.py  # SA/NSA에 따른 Call/Handover 진입 상태 결정
+│   │       ├── call_routing.py  # Generation별 Call/Handover/복구 상태 결정
 │   │       ├── equipment.py     # 장비 연결 여부 판정 헬퍼
 │   │       ├── transition_flow.py # 복합 전환 체이닝(next_transition_or)
 │   │       └── states/
 │   │           ├── session.py   # SessionInit, Idle, CheckNextCase(전환 계획), TestEnd
 │   │           ├── nr_setup.py  # LTECallAnchor, NRCallConnect, NRCallDisconnected
-│   │           ├── transition.py # AntPol/Handover/Recall/DUTAxis/TestType Change
+│   │           ├── lte_setup.py # LTECallConnect, LTECallDisconnected
+│   │           ├── transition.py # AntPol/NR·LTE Handover/Recall/DUTAxis/TestType Change
 │   │           └── measurement/
 │   │               ├── common.py    # 공유 스텝(SwitchBox/SA/Turntable) + test_type 분기 허브
 │   │               ├── harmonic.py  # Fundamental/Harmonics/Precision 측정
@@ -193,10 +194,10 @@ claude_test/
 2. **장비 연결** — Instrument Check 패널에서 VISA 주소/Switch Box IP 입력 → Connect →
    (패키징 실행이면 `LvServerManager`가 LV Inst Manager.exe 자동 기동) → LV에 장비별 `Connect`
    명령 → 성공 시 `Runner.mark_equipment_ready()`가 FSM gate 해제 → FSM이 `Idle` 진입.
-3. **TC 준비** — Test Manager에서 NR 다이얼로그로 TestCase 생성(또는 CSV 불러오기),
+3. **TC 준비** — Test Manager에서 NR/LTE 다이얼로그로 TestCase 생성(또는 CSV 불러오기),
    EUT 이름/Excel 템플릿/TDF 활성화 설정.
 4. **시험 실행** — 시작 버튼 → `Runner.start()`가 가드 통과 후 `ReportWriter` 생성(Excel 라이브
-   모니터링 오픈) → FSM이 TC 큐를 순회: NR Call 연결 → SwitchBox/SA 설정 → 턴테이블 회전 →
+   모니터링 오픈) → FSM이 TC 큐를 순회: Generation별 Call 연결 → SwitchBox/SA 설정 → 턴테이블 회전 →
    측정 → Excel 기록 + 스크린샷 저장 → `CheckNextCase`가 TC 간 차이를 보고 전환 상태
    (Handover/AntPol/축/Recall/타입) 스케줄 → 반복.
 5. **종료** — 큐 소진 시 `TestEnd` → `session_finished` → FSM은 `Idle`로 복귀해 다음 Start 대기.

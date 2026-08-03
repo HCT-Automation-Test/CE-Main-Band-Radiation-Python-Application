@@ -20,6 +20,9 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -312,6 +315,21 @@ def _make_case(
     )
 
 
+def _make_lte_case(test_type: MeasurementTestType) -> TestCase:
+    return TestCase(
+        generation=Generation.LTE,
+        band=LTEBand.B1,
+        bandwidth=10.0,
+        test_type=test_type,
+        modulation=Modulation.QPSK,
+        rb_allocation=LTERBAllocation.MID,
+        test_channel=ChannelEnum.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.LOWER,
+    )
+
+
 def _make_ctx(
     test_type: MeasurementTestType,
     *,
@@ -394,6 +412,26 @@ def test_measure_fundamental_uses_target_frequency_and_temp_dir(
             "vbw": 1.0,
             "sweep_point": 10001,
         }
+    ]
+
+
+def test_measure_fundamental_uses_lte_target_frequency(tmp_path: Path) -> None:
+    screenshot_path = tmp_path / "fundamental.png"
+    commands = _Commands(fundamental_screenshot_path=screenshot_path)
+    ctx = _make_ctx(
+        MeasurementTestType.HARMONIC,
+        case=_make_lte_case(MeasurementTestType.HARMONIC),
+        commands=commands,
+        report_writer=_ReportWriter(),
+        events=_Events(),
+        temp_dir=tmp_path,
+    )
+
+    result = MeasureFundamentalState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.measure_fundamental_calls == [
+        (None, {"target_freq": 1950.0})
     ]
 
 

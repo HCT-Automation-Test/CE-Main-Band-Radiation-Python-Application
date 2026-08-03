@@ -69,30 +69,37 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 | `CheckNextCase` | `tc_finished` emit → 큐 끝/stop_index면 종료 플래그 → 아니면 index 증가, prev/current diff로 **전환 계획** 수립 | 아래 §4 참조 |
 | `TestEnd` | `session_finished` emit, 큐/인덱스/TDF 적용 기록 리셋 | OK→`Idle` (FSM 상주) |
 
-### NR 연결 — [states/nr_setup.py](../src/app/core/fsm/states/nr_setup.py)
+### NR/LTE 연결 — [states/nr_setup.py](../src/app/core/fsm/states/nr_setup.py), [states/lte_setup.py](../src/app/core/fsm/states/lte_setup.py)
 
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `LTECallAnchorBefore*` | (NSA 전용) "LTE Anchor Call 연결 후 확인" 사용자 확인 대기 | 주입된 다음 상태 |
 | `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`nr_call_entry_state_for(ctx)` (SA=NRCallConnect, NSA=LTE Anchor부터) |
+| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (SA=NRCallConnect, NSA=LTE Anchor부터) |
+| `LTECallConnect` | 현재 TC의 BW/ARFCN/RB Offset으로 `commands.setup_lte_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
+| `LTECallDisconnected` | NR과 같은 "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`LTECallConnect` |
 
-SA/NSA 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다 —
-NSA(`Generation.NR_NSA`)면 Call/Handover 앞에 LTE Anchor 수동 확인 상태를 삽입한다.
+Generation 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다.
+LTE는 LTE Call/Handover 상태로 진입하고, NR NSA는 Call/Handover 앞에 LTE Anchor 수동
+확인 상태를 삽입하며, NR SA는 기존 NR 상태로 바로 진입한다.
 
 ### 시험 간 전환 — [states/transition.py](../src/app/core/fsm/states/transition.py)
 
 | 상태 | 트리거 (prev vs current diff) | 동작 | next |
 | --- | --- | --- | --- |
-| `RecallChange` | band 그룹의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`nr_call_entry_state_for` (풀 재연결) |
+| `RecallChange` | Band가 다르고 TC의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `Handover` | band 다름 + recall 같음 | Call 유지한 채 `commands.call_handover(이전 TC의 MID 채널, 새 band 파라미터)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`nr_call_entry_state_for` (풀 재연결) |
+| `LTEHandover` | LTE Band 다름 + recall 같음 | 이전 TC Band/BW의 MID ARFCN과 현재 TC 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
+| `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
-| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
 
 주의: `AntPolChange`는 필요 장비(CO3000/3D Controller) 미연결 시 FAIL이 아니라
-**에러 로그 후 OK(스킵)** 로 계속 진행한다. 반면 NRCallConnect/Handover/TestTypeChange는
-MT8000A 미연결 시 FAIL이다.
+**에러 로그 후 OK(스킵)** 로 계속 진행한다. 반면 NR/LTE CallConnect, Handover,
+TestTypeChange는 MT8000A 미연결 시 FAIL이다.
+
+Recall 변경은 임시 정책에 따라 자동 Call Stop/Recall을 호출하지 않고 기존 수동 확인을
+유지한다. 시험원이 Recall 변경을 완료하면 현재 TC의 Generation에 맞는 Call을 새로 시작한다.
 
 ### Factor 적용 — [states/tdf.py](../src/app/core/fsm/states/tdf.py)
 
@@ -111,7 +118,7 @@ Harmonic/InBand/Bilog가 공유한다.
 | 상태 | 동작 |
 | --- | --- |
 | `InitialTurntableZero` | 시험 시작 전 현재 각도 조회 후 0° 또는 360°(가까운 쪽)로 speed 6 정렬 → `AntPolChange` |
-| `SetupSpectrumAnalyzerStartupLevel` | `setup_sa_startup_levels(atten, next_peak_search_level)` 1회 → HARMONIC은 `PrepareFundamentalSwitchBoxBeforeCall`, 그 외는 NR Call 진입 |
+| `SetupSpectrumAnalyzerStartupLevel` | `setup_sa_startup_levels(atten, next_peak_search_level)` 1회 → HARMONIC은 `PrepareFundamentalSwitchBoxBeforeCall`, 그 외는 Generation별 Call 진입 |
 | `PrepareFundamentalSwitchBox(BeforeCall)` | Fundamental 측정 전 안전 경로(INPUT2/THRU) 보장 |
 | `SetSwitchBox` | TestRange의 input_path + `resolve_filter_path(filter_mode, band)`로 시험 경로 설정 |
 | `SetupSpectrumAnalyzer` | `setup_sa(TestRange)` (Start/Stop/RBW/VBW/SweepPoint/Limit) → saturation 대기 |
@@ -168,10 +175,10 @@ SessionInit ──OK──► Idle ──Start──► InitialTurntableZero ─
         SetupSpectrumAnalyzerStartupLevel
                      │ HARMONIC                        │ INBAND/BILOG
                      ▼                                 ▼
-   PrepareFundamentalSwitchBoxBeforeCall      (NR Call 진입: NSA는 LTECallAnchor 경유)
+   PrepareFundamentalSwitchBoxBeforeCall      (Generation별 Call 진입)
                      │                                 │
                      ▼                                 ▼
-              NRCallConnect ◄──────────── NRCallDisconnected (비행기모드 확인)
+        NRCallConnect / LTECallConnect ◄── Generation별 CallDisconnected
                      │ OK (pending 전환 우선 소비)          ▲ FAIL 시
                      ▼                                    │
                   ApplyTdf                                │
@@ -208,7 +215,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 `_transition_states_for(prev, cur)`로 전환 상태 이름 **리스트**를 만든다.
 리스트 순서 = 실행 순서:
 
-1. band 다름 → recall 다르면 `RecallChange`, 같으면 `Handover`(NSA는 LTE Anchor 경유)
+1. band 다름 → recall 다르면 `RecallChange`, 같으면 Generation별 `Handover`
 2. `dut_axis` 다름 → `DUTAxisChange`
 3. 편파 셋업 필요(편파 값 또는 input_path→mast 매핑 변화) → `AntPolChange`
 4. generation 다름 → TODO(spec), 현재 no-op
@@ -221,7 +228,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 진입 상태로 분기한다.
 
 **예외**: `RecallChange`/`DUTAxisChange`는 pending을 직접 소비하지 않고
-`nr_call_entry_state_for`(풀 재연결)로 간다 — 잔여 전환은 재연결된 `NRCallConnect`의
+`call_entry_state_for`(Generation별 풀 재연결)로 간다 — 잔여 전환은 재연결된 Call 상태의
 `next_state`가 이어서 소비하는 설계다.
 
 같은 Band 내 파라미터(BW/Mod/RB/Channel)만 바뀌면 전환 상태 없이 `ApplyTdf`로 직행한다.
@@ -253,7 +260,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
   Harmonic 정밀측정은 등록된 인스턴스를 재사용하지 않고 **새 인스턴스를 만들어
   enter/run/exit를 직접 호출**한다. 턴테이블 이벤트는 시그널과 버퍼 양쪽에서 도착할 수
   있어 객체 identity로 dedup한다.
-- `Handover`의 mid_channel은 **이전 TC** band/BW의 MID 채널이다(현재 TC 아님).
+- NR/LTE `Handover`의 mid_channel은 **이전 TC** band/BW의 MID 채널이다(현재 TC 아님).
 - `CheckNextCaseState`는 run 결과를 인스턴스 필드(`_previous_case`, `_advanced`)에 저장해
   `next_state`에서 쓴다(매 run마다 리셋됨).
 - TODO(spec) 지점: generation 변경 전환 정책, 편파 변경 후 확인 순서, 1m Mast 각도

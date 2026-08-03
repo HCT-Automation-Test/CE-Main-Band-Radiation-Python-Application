@@ -1,15 +1,18 @@
-"""시험 간 전환 상태: AntPolChange, Handover, RecallChange, DUTAxisChange, TestTypeChange."""
+"""시험 간 전환 상태: 편파, Handover, Recall, DUT Axis, TestType 변경."""
 from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.call_routing import nr_call_entry_state_for
+from app.core.fsm.call_routing import (
+    call_disconnected_state_for,
+    call_entry_state_for,
+)
 from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.transition_flow import next_transition_or
-from app.models.band_group import find_band_group
-from app.models.enums import AntennaPol, InputPath, TestChannel
+from app.models.enums import AntennaPol, Generation, InputPath, TestChannel
+from app.models.lte_channel_lookup import resolve_arfcn
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -171,11 +174,65 @@ class HandoverState(State):
         return None
 
 
+class LTEHandoverState(State):
+    """같은 LTE Recall 내에서 현재 Band 설정으로 Handover한다."""
+
+    name = "LTEHandover"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "LTE Handover 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.FAIL
+
+        test_case = ctx.current_case
+        prev_case = ctx.prev_case
+        if prev_case is None:
+            _emit_error(ctx, "LTE Handover 실패: previous test case is not set")
+            return StateResult.FAIL
+
+        waiting_time = 5
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
+
+        try:
+            mid_channel = resolve_arfcn(
+                prev_case.band,
+                prev_case.bandwidth,
+                TestChannel.MID,
+            )
+            handed_over = ctx.commands.lte_call_handover(
+                ctx.client,
+                bw=test_case.bandwidth,
+                mid_channel=mid_channel,
+                ul_channel=test_case.channel_number,
+                rb_offset=test_case.rb_offset,
+                waiting_time=waiting_time,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"LTE Handover 실패: {exc}")
+            return StateResult.FAIL
+
+        if handed_over:
+            return StateResult.OK
+
+        _emit_error(ctx, "LTE Handover 실패: lte_call_handover returned false")
+        return StateResult.FAIL
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is StateResult.OK:
+            return next_transition_or(ctx, "ApplyTdf")
+        if result is StateResult.FAIL:
+            return "LTECallDisconnected"
+        return None
+
+
 class RecallChangeState(State):
-    """NR 장비 Recall file 변경. 시험원의 수동 조작을 요청한다.
+    """MT8000A Recall file 변경을 시험원에게 수동으로 요청한다.
 
     Band 변경 과정에서 Recall file 교체가 필요한 경우 사용.
-    수동 조작 완료 후 NRCallConnect로 전이하여 풀 Setup + 재연결.
+    수동 조작 완료 후 현재 Generation의 Call 상태로 전이한다.
     """
 
     name = "RecallChange"
@@ -187,12 +244,8 @@ class RecallChangeState(State):
             _emit_error(ctx, "Recall 변경 실패: previous test case is not set")
             return StateResult.FAIL
 
-        try:
-            prev_recall = find_band_group(prev_case.band).mt8000_recall
-            current_recall = find_band_group(current_case.band).mt8000_recall
-        except ValueError as exc:
-            _emit_error(ctx, f"Recall 변경 실패: {exc}")
-            return StateResult.FAIL
+        prev_recall = prev_case.mt8000_recall
+        current_recall = current_case.mt8000_recall
 
         ctx.user_action_completed.clear()
         if ctx.events is not None:
@@ -214,13 +267,13 @@ class RecallChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return nr_call_entry_state_for(ctx)
+        return call_entry_state_for(ctx)
 
 
 class DUTAxisChangeState(State):
     """DUT Axis 변경. 시험원이 DUT의 Position을 전환 후 확인.
 
-    수동 조작 완료 후 NRCallConnect로 전이하여 풀 Setup + 재연결.
+    수동 조작 완료 후 현재 Generation의 Call 상태로 전이하여 재연결한다.
     """
 
     name = "DUTAxisChange"
@@ -251,35 +304,46 @@ class DUTAxisChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return nr_call_entry_state_for(ctx)
+        return call_entry_state_for(ctx)
 
 
 class TestTypeChangeState(State):
     """같은 Band/AntPol/DUT Axis에서 test_type만 변경된 경우.
 
-    장비 재설정 없이 NR Call 연결 상태만 확인한 뒤 TDF 적용을 거쳐
+    장비 재설정 없이 현재 Call 연결 상태만 확인한 뒤 TDF 적용을 거쳐
     test_type에 맞는 측정 시작 state로 진입한다.
     - Call 유지 시 → TDF 적용 state
-    - Call 끊김 시 → NRCallDisconnected
+    - Call 끊김 시 → Generation별 CallDisconnected
     """
 
     name = "TestTypeChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
+        generation_label = (
+            "LTE" if ctx.current_case.generation is Generation.LTE else "NR"
+        )
         if not is_equipment_connected(ctx, "MT8000A"):
-            _emit_error(ctx, "NR Call 상태 확인 스킵: MT8000A가 연결되어 있지 않습니다.")
+            _emit_error(
+                ctx,
+                f"{generation_label} Call 상태 확인 스킵: "
+                "MT8000A가 연결되어 있지 않습니다.",
+            )
             return StateResult.FAIL
 
         try:
             call_connected = ctx.commands.check_call_status(ctx.client)
         except Exception as exc:
-            _emit_error(ctx, f"NR Call 상태 확인 실패: {exc}")
+            _emit_error(ctx, f"{generation_label} Call 상태 확인 실패: {exc}")
             return StateResult.FAIL
 
         if call_connected:
             return StateResult.OK
 
-        _emit_error(ctx, "NR Call 끊김 감지: check_call_status returned disconnected")
+        _emit_error(
+            ctx,
+            f"{generation_label} Call 끊김 감지: "
+            "check_call_status returned disconnected",
+        )
         return StateResult.FAIL
 
     def next_state(
@@ -288,5 +352,5 @@ class TestTypeChangeState(State):
         if result is StateResult.OK:
             return next_transition_or(ctx, "ApplyTdf")
         if result is StateResult.FAIL:
-            return "NRCallDisconnected"
+            return call_disconnected_state_for(ctx)
         return None

@@ -16,9 +16,8 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.call_routing import nr_call_entry_state_for
+from app.core.fsm.call_routing import call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
-from app.models.band_group import find_band_group
 from app.models.enums import FilterPath, InputPath, TestType
 from app.models.switch_box import (
     display_filter_path,
@@ -194,7 +193,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             return None
         if ctx.current_case.test_type is TestType.HARMONIC:
             return "PrepareFundamentalSwitchBoxBeforeCall"
-        return nr_call_entry_state_for(ctx)
+        return call_entry_state_for(ctx)
 
 
 class SetSwitchBoxState(State):
@@ -330,12 +329,7 @@ class RotateTurntableState(State):
             _emit_error(ctx, "Turntable 회전 스킵: CO3000이 연결되어 있지 않습니다.")
             return StateResult.OK
 
-        try:
-            band_group = find_band_group(ctx.current_case.band.value)
-        except ValueError as exc:
-            _emit_error(ctx, f"BandGroup 조회 실패: {exc}")
-            return StateResult.FAIL
-        speed = band_group.turntable_speed
+        speed = ctx.current_case.turntable_speed
         if ctx.settings is not None and ctx.settings.custom_turntable_speed is not None:
             speed = ctx.settings.custom_turntable_speed
 
@@ -600,18 +594,17 @@ class _RestoreSafeSwitchBoxState(State):
 
 
 class PrepareFundamentalSwitchBoxBeforeCallState(_RestoreSafeSwitchBoxState):
-    """Fundamental 최초 측정 전 NR Call 연결에 앞서 안전 경로를 보장한다."""
+    """Fundamental 최초 측정 전 Call 연결에 앞서 안전 경로를 보장한다."""
 
     name = "PrepareFundamentalSwitchBoxBeforeCall"
     _action_label = "Fundamental 안전 경로 준비"
-    _next_state = "NRCallConnect"
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return nr_call_entry_state_for(ctx)
+        return call_entry_state_for(ctx)
 
 
 class PrepareFundamentalSwitchBoxState(_RestoreSafeSwitchBoxState):
@@ -674,7 +667,7 @@ def measurement_start_state_for(
 ) -> str:
     """test_type에 해당하는 측정 시작 state 이름을 반환한다.
 
-    - after_rotate=False (기본): NRCallConnect / TestTypeChange 등에서 측정 시퀀스로 진입할 때.
+    - after_rotate=False (기본): CallConnect / TestTypeChange 등에서 측정 시퀀스로 진입할 때.
       Harmonic은 MeasureFundamental부터 시작, InBand/Bilog는 공유 SetSwitchBox부터 시작.
     - after_rotate=True: RotateTurntable 이후 실제 측정 state로 분기할 때.
     """

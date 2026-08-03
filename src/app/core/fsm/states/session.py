@@ -10,7 +10,6 @@ from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
 )
-from app.models.band_group import find_band_group
 from app.models.enums import InputPath
 
 if TYPE_CHECKING:
@@ -68,8 +67,8 @@ def _transition_states_for(
     transition_states: list[str] = []
 
     if prev_case.band != current_case.band:
-        prev_recall = find_band_group(prev_case.band).mt8000_recall
-        current_recall = find_band_group(current_case.band).mt8000_recall
+        prev_recall = prev_case.mt8000_recall
+        current_recall = current_case.mt8000_recall
         if prev_recall != current_recall:
             transition_states.append("RecallChange")
         else:

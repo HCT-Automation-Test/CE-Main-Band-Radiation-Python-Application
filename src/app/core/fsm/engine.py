@@ -179,6 +179,10 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         MeasureInBandManualState,
         MeasureInBandState,
     )
+    from app.core.fsm.states.lte_setup import (
+        LTECallConnectState,
+        LTECallDisconnectedState,
+    )
     from app.core.fsm.states.nr_setup import (
         LTECallAnchorState,
         NRCallConnectState,
@@ -195,6 +199,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         AntPolChangeState,
         DUTAxisChangeState,
         HandoverState,
+        LTEHandoverState,
         RecallChangeState,
         TestTypeChangeState,
     )
@@ -222,10 +227,13 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     )
     engine.register(NRCallConnectState())
     engine.register(NRCallDisconnectedState())
+    engine.register(LTECallConnectState())
+    engine.register(LTECallDisconnectedState())
 
     # 시험 간 전환 상태
     engine.register(AntPolChangeState())
     engine.register(HandoverState())
+    engine.register(LTEHandoverState())
     engine.register(RecallChangeState())
     engine.register(DUTAxisChangeState())
     engine.register(TestTypeChangeState())
