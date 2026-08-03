@@ -24,7 +24,6 @@ from app.models.measurement_result import (
     HarmonicPrecisionCandidate,
     HarmonicResult,
 )
-from app.models.nr_channel_lookup import resolve_target_frequency_mhz
 from app.report.screenshot_store import finalize_harmonic_precision_screenshot
 
 if TYPE_CHECKING:
@@ -224,11 +223,7 @@ class MeasureFundamentalState(State):
                 return StateResult.OK
 
         try:
-            target_frequency_mhz = resolve_target_frequency_mhz(
-                test_case.band,
-                test_case.bandwidth,
-                test_case.test_channel,
-            )
+            target_frequency_mhz = test_case.frequency_mhz
         except Exception as exc:
             _emit_error(ctx, f"Fundamental 측정 준비 실패: {exc}")
             return StateResult.FAIL

@@ -16,7 +16,11 @@ from app.core.fsm.states.measurement.common import (
 )
 from app.models.enums import (
     AntennaPol,
+    DUTAntPosition,
     DUTAxis,
+    Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -142,6 +146,21 @@ def _make_case(band: NRBand, test_type: MeasurementTestType, bandwidth: float) -
         antenna_pol=AntennaPol.H,
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
+    )
+
+
+def _make_lte_case(band: LTEBand, bandwidth: float) -> TestCase:
+    return TestCase(
+        generation=Generation.LTE,
+        band=band,
+        bandwidth=bandwidth,
+        test_type=MeasurementTestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=LTERBAllocation.MID,
+        test_channel=ChannelEnum.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.LOWER,
     )
 
 
@@ -436,6 +455,26 @@ def test_rotate_zero_to_360_with_band_group_speed() -> None:
         {"current_angle": 360.0},
     ]
     assert state.next_state(ctx, result) == "MeasureHarmonics"
+
+
+def test_rotate_lte_uses_lte_band_group_speed() -> None:
+    commands = _Commands()
+    client = _FakeClient()
+    case = _make_lte_case(LTEBand.B34, bandwidth=10.0)
+    ctx, events = _make_ctx(case, commands=commands, client=client, current_angle=0.0)
+    state = RotateTurntableState()
+
+    thread = _emit_after(
+        client, 0.05, _FakeEvent(common_module._COMMAND_TURNTABLE_COMPLETE)
+    )
+    result = _drive_state(state, ctx)
+    thread.join(timeout=1.0)
+
+    assert result is StateResult.OK
+    assert commands.rotate_calls == [
+        (client, {"angle": 360.0, "turntable_speed": 3}),
+    ]
+    assert events.error.values == []
 
 
 def test_rotate_consumes_buffered_complete_event_from_command() -> None:

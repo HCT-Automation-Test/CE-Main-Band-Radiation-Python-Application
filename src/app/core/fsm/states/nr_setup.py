@@ -5,7 +5,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.call_routing import nr_call_entry_state_for
+from app.core.fsm.call_routing import call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.transition_flow import next_transition_or
 from app.models.nr_channel_lookup import resolve_call_channel
@@ -137,4 +137,4 @@ class NRCallDisconnectedState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return nr_call_entry_state_for(ctx)
+        return call_entry_state_for(ctx)
