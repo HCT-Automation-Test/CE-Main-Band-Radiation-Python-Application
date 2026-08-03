@@ -26,6 +26,7 @@ def test_bilog_measurement_chain(tmp_path: Path) -> None:
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",
         "NRCallConnect",
+        "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",
@@ -55,9 +56,10 @@ def test_bilog_test_type_change_from_inband(tmp_path: Path) -> None:
     _run_session(ctx)
 
     first_check_next_case = events.state_changed.values.index("CheckNextCase")
-    assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 6] == [
+    assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 7] == [
         "AntPolChange",
         "TestTypeChange",
+        "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",

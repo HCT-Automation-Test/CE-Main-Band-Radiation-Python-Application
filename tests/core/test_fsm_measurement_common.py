@@ -122,7 +122,6 @@ def _make_settings(
         connection_waiting_time_sec=5,
         atten_level_db=atten_level_db,
         next_peak_search_level_db=next_peak_search_level_db,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 

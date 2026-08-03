@@ -26,6 +26,7 @@ def test_inband_measurement_chain(tmp_path: Path) -> None:
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",
         "NRCallConnect",
+        "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",
@@ -50,8 +51,9 @@ def test_inband_test_type_change_from_harmonic(tmp_path: Path) -> None:
     _run_session(ctx)
 
     first_check_next_case = events.state_changed.values.index("CheckNextCase")
-    assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 5] == [
+    assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 6] == [
         "TestTypeChange",
+        "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
         "RotateTurntable",

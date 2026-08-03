@@ -119,6 +119,18 @@ class _Commands:
             return self.setup_mt8000_results.pop(0)
         return self.setup_mt8000_results[0]
 
+    def get_tdf_list(self, client: Any) -> list[str]:
+        self.calls.append(("get_tdf_list", {}))
+        return [
+            "main+1G HPF.tdf",
+            "main+3G HPF.tdf",
+            "main+6G HPF.tdf",
+        ]
+
+    def set_tdf(self, client: Any, *, tdf_file_name: str) -> bool:
+        self.calls.append(("set_tdf", {"tdf_file_name": tdf_file_name}))
+        return True
+
     def call_handover(self, client: Any, **params: Any) -> bool:
         self.calls.append(("call_handover", params))
         return True
@@ -288,7 +300,6 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
         connection_waiting_time_sec=1,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -389,6 +400,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
         "SetupSpectrumAnalyzerStartupLevel",
         "PrepareFundamentalSwitchBoxBeforeCall",
         "NRCallConnect",
+        "ApplyTdf",
         "MeasureFundamental",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
@@ -401,6 +413,10 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
     ]
     assert "measure_fundamental" in _call_names(commands)
     assert "measure_harmonics" in _call_names(commands)
+    call_names = _call_names(commands)
+    assert call_names.index("setup_mt8000") < call_names.index("get_tdf_list")
+    assert call_names.index("get_tdf_list") < call_names.index("set_tdf")
+    assert call_names.index("set_tdf") < call_names.index("measure_fundamental")
     fundamental_call_index = _call_names(commands).index("measure_fundamental")
     assert (
         "set_switch_box",

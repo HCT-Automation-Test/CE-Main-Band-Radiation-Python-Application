@@ -104,7 +104,6 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -237,6 +236,7 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
         template_path=settings.template_path,
         screenshot_root_dir=settings.screenshot_root_dir,
     )
+    ctx.last_applied_factor_keyword = "6G HPF"
     ctx.test_start_requested.set()
 
     result = IdleState().run(ctx)
@@ -244,6 +244,7 @@ def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> N
     assert result is StateResult.OK
     assert events.current_case_changed.values == [case]
     assert events.tc_started.values == [0]
+    assert ctx.last_applied_factor_keyword is None
     assert IdleState().next_state(ctx, result) == "InitialTurntableZero"
 
 
@@ -263,6 +264,7 @@ def test_idle_starts_from_context_start_index(tmp_path: Path) -> None:
         template_path=settings.template_path,
         screenshot_root_dir=settings.screenshot_root_dir,
         start_index=1,
+        last_applied_factor_keyword="6G HPF",
     )
     ctx.test_start_requested.set()
 
@@ -272,6 +274,7 @@ def test_idle_starts_from_context_start_index(tmp_path: Path) -> None:
     assert ctx.current_index == 1
     assert events.current_case_changed.values == [second_case]
     assert events.tc_started.values == [1]
+    assert ctx.last_applied_factor_keyword is None
 
 
 def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
@@ -528,6 +531,7 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
         events=events,  # type: ignore[arg-type]
         current_index=0,
         fundamental_frequency_mhz=3550.25,
+        last_applied_factor_keyword="6G HPF",
     )
     state = TestEndState()
 
@@ -537,4 +541,5 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
     assert events.session_finished.values == [None]
     assert ctx.queue == []
     assert ctx.fundamental_frequency_mhz is None
+    assert ctx.last_applied_factor_keyword is None
     assert state.next_state(ctx, result) == "Idle"

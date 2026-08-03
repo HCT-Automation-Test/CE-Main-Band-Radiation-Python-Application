@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.call_routing import nr_call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
-from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.fsm.transition_flow import next_transition_or
 from app.models.band_group import find_band_group
 from app.models.enums import AntennaPol, InputPath, TestChannel
@@ -56,8 +55,8 @@ def _emit_polarization_info(
 class AntPolChangeState(State):
     """안테나 편파(Ant Pol) 변경 설정을 수행한다.
 
-    설정 성공 시 현재 TC의 측정 시작 state로 전이하고, 설정 실패/예외는
-    에러를 발생시킨 뒤 FSM을 종료한다.
+    설정 성공 시 남은 전환과 TDF 적용을 거쳐 측정으로 진입하고,
+    설정 실패/예외는 에러를 발생시킨 뒤 FSM을 종료한다.
     """
 
     name = "AntPolChange"
@@ -101,16 +100,13 @@ class AntPolChangeState(State):
             return None
         if ctx.prev_case is None or ctx.current_index == ctx.start_index:
             return "SetupSpectrumAnalyzerStartupLevel"
-        return next_transition_or(
-            ctx,
-            measurement_start_state_for(ctx.current_case.test_type),
-        )
+        return next_transition_or(ctx, "ApplyTdf")
 
 
 class HandoverState(State):
     """NR Band 간 Handover. Call을 유지한 채 Band를 전환한다.
 
-    Handover 성공 시 → 시험 타입별 측정 시작 state로 전이
+    Handover 성공 시 → 남은 전환 및 TDF 적용으로 전이
     Handover 실패(Call 끊김) 시 → NRCallDisconnected로 전이
     """
 
@@ -169,10 +165,7 @@ class HandoverState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return next_transition_or(
-                ctx,
-                measurement_start_state_for(ctx.current_case.test_type),
-            )
+            return next_transition_or(ctx, "ApplyTdf")
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None
@@ -264,9 +257,9 @@ class DUTAxisChangeState(State):
 class TestTypeChangeState(State):
     """같은 Band/AntPol/DUT Axis에서 test_type만 변경된 경우.
 
-    장비 재설정 없이 NR Call 연결 상태만 확인하고, test_type에 맞는
-    측정 시작 state로 진입한다.
-    - Call 유지 시 → 해당 test_type 측정 시작 state
+    장비 재설정 없이 NR Call 연결 상태만 확인한 뒤 TDF 적용을 거쳐
+    test_type에 맞는 측정 시작 state로 진입한다.
+    - Call 유지 시 → TDF 적용 state
     - Call 끊김 시 → NRCallDisconnected
     """
 
@@ -293,10 +286,7 @@ class TestTypeChangeState(State):
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is StateResult.OK:
-            return next_transition_or(
-                ctx,
-                measurement_start_state_for(ctx.current_case.test_type),
-            )
+            return next_transition_or(ctx, "ApplyTdf")
         if result is StateResult.FAIL:
             return "NRCallDisconnected"
         return None

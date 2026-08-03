@@ -126,12 +126,18 @@ Test Manager의 시작 시점 사용자 입력을 담는 frozen dataclass. 생�
 
 | 필드 | 검증 |
 | --- | --- |
-| `eut_name`, `active_tdf_file_name` | 공백 제거 후 비어 있으면 오류 (TDF 미활성 시 시작 불가) |
+| `eut_name` | 공백 제거 후 비어 있으면 오류 |
 | `template_path` | **실존 파일이어야 함** (생성 시 파일시스템 접근 — 테스트에서도 실파일 필요) |
 | `saturation_time_sec` ≥ 0, `connection_waiting_time_sec` > 0 (int) | |
 | `atten_level_db` ≥ 0, `next_peak_search_level_db` ∈ (0, 80] | |
 | `custom_turntable_speed` | None 또는 1~10 (설정 시 BandGroup 속도보다 우선) |
 | `manual_marker_enabled` | bool — 수동 마커 모드 스위치 |
+
+활성 TDF 파일명은 `TestRunSettings` 입력이 아니다. Test Start마다 FSM의 적용 기록을
+초기화하고, 현재 `TestCase.factor_keyword`가 대소문자까지 동일하게 포함된 TDF 파일을
+목록에서 찾는다. 정확히 한 파일일 때만 자동 적용하며, 없거나 둘 이상이면 시험을
+중단한다. 같은 세션에서 직전 적용에 성공한 Factor가 연속되면 목록 조회와 적용을
+생략한다.
 
 `default_screenshot_root_dir()`: 패키징 실행이면 exe 폴더/screenshots, 개발 환경이면
 `~/Desktop/screenshots`.

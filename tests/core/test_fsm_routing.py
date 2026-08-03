@@ -75,9 +75,9 @@ def _make_ctx(
 @pytest.mark.parametrize(
     ("test_type", "expected"),
     [
-        (TestType.HARMONIC, "MeasureFundamental"),
-        (TestType.INBAND, "SetSwitchBox"),
-        (TestType.BILOG, "SetSwitchBox"),
+        (TestType.HARMONIC, "ApplyTdf"),
+        (TestType.INBAND, "ApplyTdf"),
+        (TestType.BILOG, "ApplyTdf"),
     ],
 )
 def test_nr_call_connect_branches_on_test_type(
@@ -255,6 +255,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "LTECallAnchorBeforeHandover",
         "NRCallConnect",
         "NRCallDisconnected",
+        "ApplyTdf",
         "AntPolChange",
         "Handover",
         "RecallChange",

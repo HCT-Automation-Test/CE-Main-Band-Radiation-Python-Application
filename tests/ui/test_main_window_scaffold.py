@@ -1526,7 +1526,7 @@ def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) ->
         window._rf_switch_box_service._running = False
 
 
-def test_main_window_blocks_start_without_active_tdf(
+def test_main_window_allows_start_without_active_tdf(
     qtbot,
     monkeypatch,
     tmp_path,
@@ -1550,8 +1550,8 @@ def test_main_window_blocks_start_without_active_tdf(
 
     window.on_start_requested()
 
-    assert starts == []
-    assert warnings == ["활성화된 TDF 파일이 없습니다."]
+    assert starts == [True]
+    assert warnings == []
 
 
 def test_main_window_start_preserves_completed_progress(
@@ -2741,7 +2741,6 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, monkeypatch, tmp_pat
     panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("60.5")
     panel.findChild(QLineEdit, "customTurnTableSpeedEdit").setText("8")
     panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(True)
-    panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     settings = panel.build_test_run_settings()
 
@@ -2755,7 +2754,7 @@ def test_test_manager_panel_builds_test_run_settings(qtbot, monkeypatch, tmp_pat
     assert settings.next_peak_search_level_db == 60.5
     assert settings.custom_turntable_speed == 8
     assert settings.manual_marker_enabled is False
-    assert settings.active_tdf_file_name == "NR_Radiated.tdf"
+    assert not hasattr(settings, "active_tdf_file_name")
 
 
 def test_test_manager_panel_builds_default_settings_when_custom_option_unchecked(
@@ -2781,7 +2780,6 @@ def test_test_manager_panel_builds_default_settings_when_custom_option_unchecked
     panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").setText("60.5")
     panel.findChild(QLineEdit, "customTurnTableSpeedEdit").setText("8")
     panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(False)
-    panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     settings = panel.build_test_run_settings()
 
@@ -2821,7 +2819,6 @@ def test_test_manager_panel_enables_manual_marker_when_custom_marker_checked(
     panel.findChild(QLineEdit, "excelTemplatePathEdit").setText(str(template_path))
     panel.findChild(QCheckBox, "customOptionCheckBox").setChecked(True)
     panel.findChild(QCheckBox, "markerCheckBox").setChecked(True)
-    panel.set_active_tdf_file_name("NR_Radiated.tdf")
 
     settings = panel.build_test_run_settings()
 

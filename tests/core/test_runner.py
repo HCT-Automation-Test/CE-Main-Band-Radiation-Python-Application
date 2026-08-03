@@ -133,7 +133,6 @@ def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettin
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
 
 
@@ -443,7 +442,6 @@ def test_start_populates_context_and_sets_start_request(
     assert ctx is not None
     assert ctx.queue == [case]
     assert ctx.settings == settings
-    assert ctx.settings.active_tdf_file_name == "NR_Radiated.tdf"
     assert ctx.model_name == "SM-000"
     assert ctx.template_path == tmp_path / "template.xlsx"
     assert ctx.screenshot_root_dir == tmp_path / "screenshots"
@@ -903,7 +901,6 @@ def test_equipment_disconnected_clears_runner_equipment_state(
         ("custom_turntable_speed", -1),
         ("custom_turntable_speed", 1.5),
         ("custom_turntable_speed", 11),
-        ("active_tdf_file_name", " "),
     ],
 )
 def test_test_run_settings_rejects_invalid_values(
@@ -923,7 +920,6 @@ def test_test_run_settings_rejects_invalid_values(
         "connection_waiting_time_sec": 5,
         "atten_level_db": 0,
         "next_peak_search_level_db": 6,
-        "active_tdf_file_name": "NR_Radiated.tdf",
     }
     kwargs[field] = value
 
@@ -968,7 +964,6 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
     custom_settings = TestRunSettings(
         eut_name="SM-000",
@@ -978,7 +973,6 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
         custom_turntable_speed="8",
     )
 
@@ -996,7 +990,6 @@ def test_test_run_settings_rejects_missing_template_path(tmp_path: Path) -> None
             connection_waiting_time_sec=5,
             atten_level_db=0,
             next_peak_search_level_db=6,
-            active_tdf_file_name="NR_Radiated.tdf",
         )
 
 
@@ -1013,7 +1006,6 @@ def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -
         connection_waiting_time_sec=5,
         atten_level_db=0,
         next_peak_search_level_db=6,
-        active_tdf_file_name="NR_Radiated.tdf",
     )
 
     assert settings.screenshot_root_dir == screenshot_root_dir
@@ -1034,7 +1026,6 @@ def test_test_run_settings_rejects_screenshot_path_that_is_file(tmp_path: Path) 
             connection_waiting_time_sec=5,
             atten_level_db=0,
             next_peak_search_level_db=6,
-            active_tdf_file_name="NR_Radiated.tdf",
         )
 
 

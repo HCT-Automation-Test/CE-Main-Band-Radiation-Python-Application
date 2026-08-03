@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
 from app.core.fsm.call_routing import handover_entry_state_for_case
-from app.core.fsm.states.measurement.common import measurement_start_state_for
 from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
@@ -157,6 +156,7 @@ class IdleState(State):
 
         ctx.current_index = ctx.start_index
         ctx.fundamental_frequency_mhz = None
+        ctx.last_applied_factor_keyword = None
         ctx.pending_transition_states.clear()
         ctx.stopped = False
         ctx.current_case_stop_requested = False
@@ -213,13 +213,13 @@ class CheckNextCaseState(State):
         prev_case = self._previous_case
         current_case = ctx.current_case
         if prev_case is None:
-            return measurement_start_state_for(current_case.test_type)
+            return "ApplyTdf"
 
         transition_states = _transition_states_for(prev_case, current_case)
         if transition_states:
             ctx.pending_transition_states = transition_states[1:]
             return transition_states[0]
-        return measurement_start_state_for(current_case.test_type)
+        return "ApplyTdf"
 
 
 class TestEndState(State):
@@ -234,6 +234,7 @@ class TestEndState(State):
         ctx.current_index = 0
         ctx.stop_index = None
         ctx.fundamental_frequency_mhz = None
+        ctx.last_applied_factor_keyword = None
         ctx.pending_transition_states.clear()
         return StateResult.OK
 

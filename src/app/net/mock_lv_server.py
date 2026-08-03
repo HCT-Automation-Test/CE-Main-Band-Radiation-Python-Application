@@ -77,6 +77,9 @@ _COMMAND_SELF_ALIGNMENT_COMPLETE = "self_alignment_complete"
 _COMMAND_EQUIPMENT_ERROR = "equipment_error"
 _TURNTABLE_STEP_DEGREE = 30.0
 MOCK_TDF_FILE_LIST: tuple[str, ...] = (
+    "2025_MAIN_LB Filter+1G HPF(30M-1G).tdf",
+    "2025_MAIN_Bilog Filter+3G HPF(30M-13G).tdf",
+    "2025_MAIN_UHB Filter+6G HPF(30M-26G).tdf",
     "NR_Radiated.tdf",
     "CE_Harmonic.tdf",
     "NR_Inband.tdf",

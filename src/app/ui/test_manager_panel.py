@@ -721,7 +721,6 @@ class TestManagerPanel(QWidget):
                 connection_waiting_time_sec=connection_waiting_time_sec,
                 atten_level_db=atten_level_db,
                 next_peak_search_level_db=next_peak_search_level_db,
-                active_tdf_file_name=self._required_active_tdf_file_name(),
                 custom_turntable_speed=custom_turntable_speed,
                 manual_marker_enabled=manual_marker_enabled,
             )
@@ -1676,12 +1675,6 @@ class TestManagerPanel(QWidget):
         if not value.is_file():
             raise ValueError(f"{label} 파일이 존재하지 않습니다.")
         return value
-
-    def _required_active_tdf_file_name(self) -> str:
-        file_name = self.active_tdf_file_name
-        if not file_name:
-            raise ValueError("활성화된 TDF 파일이 없습니다.")
-        return file_name
 
     def _float_field(self, object_name: str, label: str) -> float:
         text = self._field_text(object_name)
