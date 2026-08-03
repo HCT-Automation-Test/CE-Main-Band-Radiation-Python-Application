@@ -2170,6 +2170,24 @@ def test_main_window_updates_tdf_list_from_service_signal(qtbot) -> None:
     ]
 
 
+def test_main_window_marks_tdf_active_from_automatic_apply_signal(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+    window._test_manager_panel.set_active_tdf_file_name("a.tdf")
+
+    tdf_list = window.findChild(QListWidget, "tdfListWidget")
+    assert tdf_list is not None
+    tdf_list.setCurrentRow(0)
+
+    window._runner.events.active_tdf_file_changed.emit("b.tdf")
+
+    assert window._test_manager_panel.active_tdf_file_name == "b.tdf"
+    assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
+    assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
+    assert [item.text() for item in tdf_list.selectedItems()] == ["a.tdf"]
+
+
 def test_main_window_set_tdf_request_passes_selected_file(
     qtbot,
     monkeypatch,

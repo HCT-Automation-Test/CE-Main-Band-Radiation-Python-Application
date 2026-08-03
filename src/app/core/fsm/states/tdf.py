@@ -47,6 +47,17 @@ def _emit_error(ctx: "SessionContext", message: str) -> None:
         ctx.events.error.emit(message)
 
 
+def _emit_active_tdf_file_changed(
+    ctx: "SessionContext",
+    tdf_file_name: str,
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "active_tdf_file_changed", None)
+    if signal is not None:
+        signal.emit(tdf_file_name)
+
+
 class ApplyTdfState(State):
     """현재 Test Case의 Factor에 맞는 TDF를 측정 전에 적용한다."""
 
@@ -87,6 +98,7 @@ class ApplyTdfState(State):
             return StateResult.FAIL
 
         ctx.last_applied_factor_keyword = factor_keyword
+        _emit_active_tdf_file_changed(ctx, tdf_file_name)
         logger.info(
             "TDF 자동 적용 완료: Factor=%s, file=%s",
             factor_keyword,

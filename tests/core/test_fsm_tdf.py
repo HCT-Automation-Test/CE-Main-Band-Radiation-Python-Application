@@ -30,6 +30,7 @@ class _SignalRecorder:
 class _Events:
     def __init__(self) -> None:
         self.error = _SignalRecorder()
+        self.active_tdf_file_changed = _SignalRecorder()
 
 
 class _Commands:
@@ -133,13 +134,14 @@ def test_apply_tdf_uses_current_case_factor_and_routes_to_measurement() -> None:
     ]
     assert ctx.last_applied_factor_keyword == "6G HPF"
     assert events.error.values == []
+    assert events.active_tdf_file_changed.values == [file_name]
 
 
 def test_apply_tdf_skips_same_successful_factor() -> None:
     file_name = "main+6G HPF.tdf"
     commands = _Commands([file_name])
     cases = [_make_case(NRBand.N77), _make_case(NRBand.N78)]
-    ctx, _, _ = _make_ctx(cases, commands)
+    ctx, events, _ = _make_ctx(cases, commands)
     state = ApplyTdfState()
 
     assert state.run(ctx) is StateResult.OK
@@ -147,6 +149,7 @@ def test_apply_tdf_skips_same_successful_factor() -> None:
     assert state.run(ctx) is StateResult.OK
 
     assert [call[0] for call in commands.calls] == ["get_tdf_list", "set_tdf"]
+    assert events.active_tdf_file_changed.values == [file_name]
 
 
 def test_apply_tdf_reapplies_changed_and_previous_factor() -> None:
@@ -156,7 +159,7 @@ def test_apply_tdf_reapplies_changed_and_previous_factor() -> None:
         _make_case(NRBand.N1, bandwidth=20.0),
         _make_case(NRBand.N77),
     ]
-    ctx, _, _ = _make_ctx(cases, commands)
+    ctx, events, _ = _make_ctx(cases, commands)
     state = ApplyTdfState()
 
     for index in range(len(cases)):
@@ -166,6 +169,11 @@ def test_apply_tdf_reapplies_changed_and_previous_factor() -> None:
     assert [
         call[2] for call in commands.calls if call[0] == "set_tdf"
     ] == ["main+6G HPF.tdf", "main+3G HPF.tdf", "main+6G HPF.tdf"]
+    assert events.active_tdf_file_changed.values == [
+        "main+6G HPF.tdf",
+        "main+3G HPF.tdf",
+        "main+6G HPF.tdf",
+    ]
 
 
 def test_apply_tdf_fails_without_unique_match() -> None:
@@ -180,6 +188,7 @@ def test_apply_tdf_fails_without_unique_match() -> None:
     assert [call[0] for call in commands.calls] == ["get_tdf_list"]
     assert ctx.last_applied_factor_keyword is None
     assert "2개입니다" in events.error.values[0]
+    assert events.active_tdf_file_changed.values == []
 
 
 def test_apply_tdf_fails_without_match_and_does_not_set() -> None:
@@ -194,6 +203,7 @@ def test_apply_tdf_fails_without_match_and_does_not_set() -> None:
     assert [call[0] for call in commands.calls] == ["get_tdf_list"]
     assert ctx.last_applied_factor_keyword is None
     assert "일치하는 TDF 파일이 없습니다" in events.error.values[0]
+    assert events.active_tdf_file_changed.values == []
 
 
 def test_apply_tdf_fails_when_list_request_raises() -> None:
@@ -207,6 +217,7 @@ def test_apply_tdf_fails_when_list_request_raises() -> None:
     assert state.next_state(ctx, result) is None
     assert ctx.last_applied_factor_keyword is None
     assert events.error.values == ["TDF 자동 적용 실패: timeout"]
+    assert events.active_tdf_file_changed.values == []
 
 
 def test_apply_tdf_fails_when_set_returns_false() -> None:
@@ -221,6 +232,7 @@ def test_apply_tdf_fails_when_set_returns_false() -> None:
     assert [call[0] for call in commands.calls] == ["get_tdf_list", "set_tdf"]
     assert ctx.last_applied_factor_keyword is None
     assert "set_tdf returned false" in events.error.values[0]
+    assert events.active_tdf_file_changed.values == []
 
 
 def test_apply_tdf_skips_disconnected_fsv40_without_recording_success() -> None:
@@ -237,3 +249,4 @@ def test_apply_tdf_skips_disconnected_fsv40_without_recording_success() -> None:
     assert commands.calls == []
     assert ctx.last_applied_factor_keyword is None
     assert events.error.values == []
+    assert events.active_tdf_file_changed.values == []

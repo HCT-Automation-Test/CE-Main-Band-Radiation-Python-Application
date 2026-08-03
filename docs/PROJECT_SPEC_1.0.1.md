@@ -445,6 +445,7 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 - `current_case_stop_requested`
 - `current_angle`
 - `fundamental_frequency_mhz`
+- `last_applied_factor_keyword`
 - `temp_dir`
 - `settings`
 - `model_name`
@@ -456,6 +457,10 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 - `test_start_requested`
 - `user_action_completed`
 - `pending_transition_states`
+
+`last_applied_factor_keyword`는 마지막 Set TDF 성공 Factor를 보관한다. `Idle`에서 Test Start를
+수락할 때와 `TestEnd`에서 초기화하고, 같은 Factor가 연속되면 TDF 목록 조회와 적용을 생략한다.
+새 파일 적용에 성공하면 `RunnerEvents.active_tdf_file_changed`로 실제 파일명을 UI에 전달한다.
 
 ### 12.3 등록되는 State 그룹
 
@@ -482,6 +487,7 @@ NR 연결:
 - `RecallChange`
 - `DUTAxisChange`
 - `TestTypeChange`
+- `ApplyTdf`
 
 공통 측정:
 
@@ -522,6 +528,7 @@ SessionInit
   -> AntPolChange
   -> SetupSpectrumAnalyzerStartupLevel
   -> NRCallConnect
+  -> ApplyTdf
   -> measurement states
   -> ResetSwitchBox
   -> CheckNextCase
@@ -534,6 +541,7 @@ Harmonic 측정 진입 흐름:
 SetupSpectrumAnalyzerStartupLevel
   -> PrepareFundamentalSwitchBoxBeforeCall
   -> NRCallConnect
+  -> ApplyTdf
   -> MeasureFundamental
   -> PrepareFundamentalSwitchBox
   -> SetSwitchBox
@@ -550,6 +558,7 @@ In-band/Bilog 측정 흐름:
 ```text
 SetupSpectrumAnalyzerStartupLevel
   -> NRCallConnect
+  -> ApplyTdf
   -> SetSwitchBox
   -> SetupSpectrumAnalyzer
   -> RotateTurntable

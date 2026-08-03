@@ -10,6 +10,7 @@ class RunnerEvents(QObject):
     tc_started = Signal(int)                # index
     tc_finished = Signal(int)               # index
     current_case_changed = Signal(object)   # TestCase
+    active_tdf_file_changed = Signal(str)   # TDF 파일명
     spectrum_analyzer_info_changed = Signal(object)  # dict
     switch_box_info_changed = Signal(object)  # dict
     turntable_info_changed = Signal(object)  # dict

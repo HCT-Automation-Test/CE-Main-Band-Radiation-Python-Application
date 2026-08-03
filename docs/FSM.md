@@ -35,6 +35,7 @@ class State(ABC):
 | 리포트 | `report_writer`, `temp_dir`, `template_path`, `screenshot_root_dir`, `model_name` | temp_dir는 LV가 스크린샷 PNG를 떨어뜨리는 위치 |
 | 제어 플래그 | `paused`, `stopped`, `current_case_stop_requested` | UI 스레드가 쓰고 FSM이 폴링 |
 | 측정 진행 | `current_angle`, `fundamental_frequency_mhz`, `harmonic_precision_candidates`, `settings` | 각도는 세션 전체에서 이어짐(0↔360 토글) |
+| TDF 적용 | `last_applied_factor_keyword` | 마지막 적용 성공 Factor. Test Start/TestEnd에서 초기화하며 연속 중복 적용을 생략하는 데 사용 |
 | 장비 상태 | `equipment_state` | 장비명→bool. [equipment.py](../src/app/core/fsm/equipment.py) `is_equipment_connected()`로 조회 |
 | 동기화 게이트 | `equipment_connect_requested`, `test_start_requested`, `user_action_completed` (threading.Event) | UI가 set, FSM이 0.1초 폴링 대기 |
 | 복합 전환 | `pending_transition_states` | CheckNextCase가 채우고 각 전환 상태가 FIFO 소비 |
@@ -64,16 +65,16 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `SessionInit` | `equipment_connect_requested` 대기 → client/equipment_state/`is_selected_equipment_ready` 검증 (실패 시 RETRY로 재대기) | OK→`Idle` |
-| `Idle` | `test_start_requested` 대기 → 사전조건 검사(queue/report_writer/temp_dir/settings/model_name/template_path/screenshot_root_dir, 누락 시 RETRY) → 인덱스 초기화, `tc_started` emit | OK→`InitialTurntableZero` |
+| `Idle` | `test_start_requested` 대기 → 사전조건 검사(queue/report_writer/temp_dir/settings/model_name/template_path/screenshot_root_dir, 누락 시 RETRY) → 인덱스와 TDF 적용 기록 초기화, `tc_started` emit | OK→`InitialTurntableZero` |
 | `CheckNextCase` | `tc_finished` emit → 큐 끝/stop_index면 종료 플래그 → 아니면 index 증가, prev/current diff로 **전환 계획** 수립 | 아래 §4 참조 |
-| `TestEnd` | `session_finished` emit, 큐/인덱스 리셋 | OK→`Idle` (FSM 상주) |
+| `TestEnd` | `session_finished` emit, 큐/인덱스/TDF 적용 기록 리셋 | OK→`Idle` (FSM 상주) |
 
 ### NR 연결 — [states/nr_setup.py](../src/app/core/fsm/states/nr_setup.py)
 
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `LTECallAnchorBefore*` | (NSA 전용) "LTE Anchor Call 연결 후 확인" 사용자 확인 대기 | 주입된 다음 상태 |
-| `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(측정 진입 상태)` / FAIL→`NRCallDisconnected` |
+| `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`nr_call_entry_state_for(ctx)` (SA=NRCallConnect, NSA=LTE Anchor부터) |
 
 SA/NSA 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다 —
@@ -84,14 +85,23 @@ NSA(`Generation.NR_NSA`)면 Call/Handover 앞에 LTE Anchor 수동 확인 상태
 | 상태 | 트리거 (prev vs current diff) | 동작 | next |
 | --- | --- | --- | --- |
 | `RecallChange` | band 그룹의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`nr_call_entry_state_for` (풀 재연결) |
-| `Handover` | band 다름 + recall 같음 | Call 유지한 채 `commands.call_handover(이전 TC의 MID 채널, 새 band 파라미터)` | OK→`next_transition_or(측정)` / FAIL→`NRCallDisconnected` |
+| `Handover` | band 다름 + recall 같음 | Call 유지한 채 `commands.call_handover(이전 TC의 MID 채널, 새 band 파라미터)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`nr_call_entry_state_for` (풀 재연결) |
-| `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(측정)` |
-| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(측정)` / FAIL→`NRCallDisconnected` |
+| `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
+| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 
 주의: `AntPolChange`는 필요 장비(CO3000/3D Controller) 미연결 시 FAIL이 아니라
 **에러 로그 후 OK(스킵)** 로 계속 진행한다. 반면 NRCallConnect/Handover/TestTypeChange는
 MT8000A 미연결 시 FAIL이다.
+
+### Factor 적용 — [states/tdf.py](../src/app/core/fsm/states/tdf.py)
+
+| 상태 | 역할 | next |
+| --- | --- | --- |
+| `ApplyTdf` | 현재 TC의 `factor_keyword`가 직전 적용 성공 Factor와 같으면 생략. 다르면 `get_tdf_list`에서 대소문자를 구분해 키워드를 포함하는 파일을 찾고, 단일 매칭 파일만 `set_tdf`로 적용한다. 성공 시 적용 기록을 갱신하고 `active_tdf_file_changed`를 emit한다. | OK→`measurement_start_state_for(test_type)` / FAIL→종료 |
+
+매칭 파일이 없거나 둘 이상인 경우와 `set_tdf=False`/예외는 FAIL이다. 임시 장비 정책에 따라
+FSV40 미연결 상태에서는 명령과 성공 기록 없이 OK로 스킵한다.
 
 ### 측정 공유 스텝 — [states/measurement/common.py](../src/app/core/fsm/states/measurement/common.py)
 
@@ -162,6 +172,9 @@ SessionInit ──OK──► Idle ──Start──► InitialTurntableZero ─
                      ▼                                 ▼
               NRCallConnect ◄──────────── NRCallDisconnected (비행기모드 확인)
                      │ OK (pending 전환 우선 소비)          ▲ FAIL 시
+                     ▼                                    │
+                  ApplyTdf                                │
+                     │                                    │
        ┌─────────────┴────────────┐                       │
        ▼ HARMONIC                 ▼ INBAND/BILOG           │
  MeasureFundamental          SetSwitchBox                  │
@@ -185,7 +198,7 @@ SessionInit ──OK──► Idle ──Start──► InitialTurntableZero ─
         (diff 기반 전환: RecallChange | Handover | DUTAxisChange | AntPolChange | TestTypeChange)
                                │ 전환 모두 소비 후
                                ▼
-                        측정 진입 상태로 복귀 (전환 불필요 시 직행)
+                  ApplyTdf ──► 측정 진입 상태 (전환 불필요 시 ApplyTdf 직행)
 ```
 
 ## 4. 복합 전환 계획과 체이닝
@@ -203,19 +216,20 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 첫 항목으로 전이하고 나머지는 `ctx.pending_transition_states`에 저장한다. 이후 각 전환
 상태의 `next_state`가 [transition_flow.py](../src/app/core/fsm/transition_flow.py)의
 `next_transition_or(ctx, fallback)`으로 큐를 하나씩 소비해 체이닝하고, 소진되면 fallback인
-측정 진입 상태로 간다.
+`ApplyTdf`로 간다. TDF 적용이 성공하거나 임시 장비 정책으로 스킵된 뒤 시험 타입별 측정
+진입 상태로 분기한다.
 
 **예외**: `RecallChange`/`DUTAxisChange`는 pending을 직접 소비하지 않고
 `nr_call_entry_state_for`(풀 재연결)로 간다 — 잔여 전환은 재연결된 `NRCallConnect`의
 `next_state`가 이어서 소비하는 설계다.
 
-같은 Band 내 파라미터(BW/Mod/RB/Channel)만 바뀌면 전환 상태 없이 측정 진입 상태로 직행한다.
+같은 Band 내 파라미터(BW/Mod/RB/Channel)만 바뀌면 전환 상태 없이 `ApplyTdf`로 직행한다.
 
 ## 5. UI ↔ FSM 상호작용
 
 | 방향 | 수단 | 사례 |
 | --- | --- | --- |
-| FSM → UI | `RunnerEvents` 시그널 ([events.py](../src/app/core/events.py)) | `state_changed`(모든 전이), `tc_started/finished`, `progress`, `user_action_required`, `manual_marker_edit_required`, `*_info_changed`(SA/SwitchBox/턴테이블/편파), `screenshot_saved`, `session_finished` |
+| FSM → UI | `RunnerEvents` 시그널 ([events.py](../src/app/core/events.py)) | `state_changed`(모든 전이), `tc_started/finished`, `progress`, `active_tdf_file_changed`, `user_action_required`, `manual_marker_edit_required`, `*_info_changed`(SA/SwitchBox/턴테이블/편파), `screenshot_saved`, `session_finished` |
 | UI → FSM | `threading.Event` set | 장비 준비(`equipment_connect_requested`), 시험 시작(`test_start_requested`), 수동 확인(`user_action_completed`) |
 | UI → FSM | bool 플래그 | 정지(`stopped`), 현재 TC만 중단(`current_case_stop_requested`) |
 
