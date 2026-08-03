@@ -98,10 +98,11 @@ MT8000A 미연결 시 FAIL이다.
 
 | 상태 | 역할 | next |
 | --- | --- | --- |
-| `ApplyTdf` | 현재 TC의 `factor_keyword`가 직전 적용 성공 Factor와 같으면 생략. 다르면 `get_tdf_list`에서 대소문자를 구분해 키워드를 포함하는 파일을 찾고, 단일 매칭 파일만 `set_tdf`로 적용한다. 성공 시 적용 기록을 갱신하고 `active_tdf_file_changed`를 emit한다. | OK→`measurement_start_state_for(test_type)` / FAIL→종료 |
+| `ApplyTdf` | 현재 TC의 `factor_keyword`가 직전 적용 성공 Factor와 같으면 생략. 다르면 `get_tdf_list` 결과 전체를 `tdf_file_list_changed`로 emit하고, 대소문자를 구분해 키워드를 포함하는 단일 매칭 파일만 `set_tdf`로 적용한다. 성공 시 적용 기록을 갱신하고 `active_tdf_file_changed`를 emit한다. | OK→`measurement_start_state_for(test_type)` / FAIL→종료 |
 
 매칭 파일이 없거나 둘 이상인 경우와 `set_tdf=False`/예외는 FAIL이다. 임시 장비 정책에 따라
-FSV40 미연결 상태에서는 명령과 성공 기록 없이 OK로 스킵한다.
+FSV40 미연결 상태에서는 명령과 성공 기록 없이 OK로 스킵한다. 목록 조회가 성공했다면 이후
+매칭 또는 적용에 실패해도 조회된 전체 목록은 UI에 전달한다.
 
 ### 측정 공유 스텝 — [states/measurement/common.py](../src/app/core/fsm/states/measurement/common.py)
 
@@ -229,7 +230,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 
 | 방향 | 수단 | 사례 |
 | --- | --- | --- |
-| FSM → UI | `RunnerEvents` 시그널 ([events.py](../src/app/core/events.py)) | `state_changed`(모든 전이), `tc_started/finished`, `progress`, `active_tdf_file_changed`, `user_action_required`, `manual_marker_edit_required`, `*_info_changed`(SA/SwitchBox/턴테이블/편파), `screenshot_saved`, `session_finished` |
+| FSM → UI | `RunnerEvents` 시그널 ([events.py](../src/app/core/events.py)) | `state_changed`(모든 전이), `tc_started/finished`, `progress`, `tdf_file_list_changed`, `active_tdf_file_changed`, `user_action_required`, `manual_marker_edit_required`, `*_info_changed`(SA/SwitchBox/턴테이블/편파), `screenshot_saved`, `session_finished` |
 | UI → FSM | `threading.Event` set | 장비 준비(`equipment_connect_requested`), 시험 시작(`test_start_requested`), 수동 확인(`user_action_completed`) |
 | UI → FSM | bool 플래그 | 정지(`stopped`), 현재 TC만 중단(`current_case_stop_requested`) |
 

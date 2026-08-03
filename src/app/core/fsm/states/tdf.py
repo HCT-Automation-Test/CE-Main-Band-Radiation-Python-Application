@@ -58,6 +58,17 @@ def _emit_active_tdf_file_changed(
         signal.emit(tdf_file_name)
 
 
+def _emit_tdf_file_list_changed(
+    ctx: "SessionContext",
+    tdf_file_names: Sequence[str],
+) -> None:
+    if ctx.events is None:
+        return
+    signal = getattr(ctx.events, "tdf_file_list_changed", None)
+    if signal is not None:
+        signal.emit(list(tdf_file_names))
+
+
 class ApplyTdfState(State):
     """현재 Test Case의 Factor에 맞는 TDF를 측정 전에 적용한다."""
 
@@ -77,6 +88,7 @@ class ApplyTdfState(State):
 
         try:
             tdf_file_names = ctx.commands.get_tdf_list(ctx.client)
+            _emit_tdf_file_list_changed(ctx, tdf_file_names)
             tdf_file_name = resolve_tdf_file_name(
                 tdf_file_names,
                 factor_keyword,

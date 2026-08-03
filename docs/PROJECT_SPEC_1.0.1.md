@@ -460,7 +460,8 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 
 `last_applied_factor_keyword`는 마지막 Set TDF 성공 Factor를 보관한다. `Idle`에서 Test Start를
 수락할 때와 `TestEnd`에서 초기화하고, 같은 Factor가 연속되면 TDF 목록 조회와 적용을 생략한다.
-새 파일 적용에 성공하면 `RunnerEvents.active_tdf_file_changed`로 실제 파일명을 UI에 전달한다.
+목록 조회에 성공하면 `RunnerEvents.tdf_file_list_changed`로 전체 목록을 UI에 전달하고, 새 파일
+적용에 성공하면 `RunnerEvents.active_tdf_file_changed`로 실제 파일명을 UI에 전달한다.
 
 ### 12.3 등록되는 State 그룹
 
