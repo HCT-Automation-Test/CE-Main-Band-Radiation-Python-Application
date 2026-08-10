@@ -260,7 +260,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
   Harmonic 정밀측정은 등록된 인스턴스를 재사용하지 않고 **새 인스턴스를 만들어
   enter/run/exit를 직접 호출**한다. 턴테이블 이벤트는 시그널과 버퍼 양쪽에서 도착할 수
   있어 객체 identity로 dedup한다.
-- NR/LTE `Handover`의 mid_channel은 **이전 TC** band/BW의 MID 채널이다(현재 TC 아님).
+- NR/LTE `Handover`는 이전 TC의 MID 채널을 조회하지 않고 **현재 TC** 목적지 채널만 전달한다.
 - `CheckNextCaseState`는 run 결과를 인스턴스 필드(`_previous_case`, `_advanced`)에 저장해
   `next_state`에서 쓴다(매 run마다 리셋됨).
 - TODO(spec) 지점: generation 변경 전환 정책, 편파 변경 후 확인 순서, 1m Mast 각도
