@@ -423,7 +423,6 @@ def test_handover_calls_command_with_current_case_params() -> None:
         (
             client,
             {
-                "mid_channel": 145600,
                 "band": 78,
                 "bw": 100,
                 "modulation": Modulation.QPSK,
@@ -552,7 +551,7 @@ def test_handover_goes_to_nr_call_disconnected_on_exception() -> None:
     assert events.error.messages == ["NR Handover 실패: instrument timeout"]
 
 
-def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None:
+def test_handover_does_not_lookup_previous_mid_channel() -> None:
     prev_case = _make_case(band=NRBand.N28, bandwidth=25.0)
     current_case = _make_case(band=NRBand.N78)
     ctx, commands, events, _ = _make_ctx(
@@ -564,13 +563,23 @@ def test_handover_goes_to_nr_call_disconnected_on_channel_lookup_error() -> None
 
     result = state.run(ctx)
 
-    assert result is StateResult.FAIL
-    assert state.next_state(ctx, result) == "NRCallDisconnected"
-    assert commands.handover_calls == []
-    assert events.error.messages == [
-        "NR Handover 실패: No NR channel lookup for "
-        "band='n28', bandwidth='25', test_channel='mid'"
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ApplyTdf"
+    assert commands.handover_calls == [
+        (
+            ctx.client,
+            {
+                "band": 78,
+                "bw": 100,
+                "modulation": Modulation.QPSK,
+                "rb_size": 135,
+                "rb_offset": 67,
+                "channel": 636666,
+                "waiting_time": 5,
+            },
+        )
     ]
+    assert events.error.messages == []
 
 
 def test_recall_change_emits_user_action_and_waits_for_completion() -> None:

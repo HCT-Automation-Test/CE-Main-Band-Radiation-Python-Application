@@ -326,7 +326,7 @@ def test_lte_call_handover_sends_params() -> None:
     assert commands.lte_call_handover(
         client,
         bw=10.0,
-        mid_channel=18300,
+        dl_channel=550,
         ul_channel=18550,
         rb_offset=49,
         max_retry_count=7,
@@ -338,7 +338,7 @@ def test_lte_call_handover_sends_params() -> None:
             "LTE Handover",
             {
                 "BandWidth": "10",
-                "Mid Channel": 18300,
+                "DL Channel": 550,
                 "UL Channel": 18550,
                 "RB Offset": 49,
                 "Max Retry Count": 7,
@@ -353,7 +353,6 @@ def test_call_handover_sends_nr_handover_params() -> None:
 
     assert commands.call_handover(
         client,
-        mid_channel=636666,
         band=78,
         bw=100,
         modulation="256QAM",
@@ -366,7 +365,6 @@ def test_call_handover_sends_nr_handover_params() -> None:
             "MT8000A",
             "NR Handover",
             {
-                "Mid Channel": 636666,
                 "Band": 78,
                 "BandWidth": 100,
                 "Center Channel": 636666,
@@ -380,12 +378,11 @@ def test_call_handover_sends_nr_handover_params() -> None:
     ]
 
 
-def test_call_handover_sends_separate_mid_and_center_channel() -> None:
+def test_call_handover_sends_current_center_channel_and_options() -> None:
     client = _Client(_default_ok())
 
     assert commands.call_handover(
         client,
-        mid_channel=636666,
         band=78,
         bw=100,
         modulation="256QAM",
@@ -395,10 +392,12 @@ def test_call_handover_sends_separate_mid_and_center_channel() -> None:
         max_retry_count=7,
         waiting_time=11,
     ) is True
-    assert client.calls[0][2]["Mid Channel"] == 636666
     assert client.calls[0][2]["Center Channel"] == 650000
     assert client.calls[0][2]["Max Retry Count"] == 7
     assert client.calls[0][2]["Waiting Time"] == 11
+    assert "Mid Channel" not in client.calls[0][2]
+    assert "Wating Time" not in client.calls[0][2]
+    assert "Max Retrey Count" not in client.calls[0][2]
 
 
 def test_set_reference_co3000_sends_default_params() -> None:

@@ -161,7 +161,6 @@ class MockLvClientConsole:
         if name == "handover":
             return commands.call_handover(
                 self._recording_client,
-                mid_channel=_int_arg(args, "mid_channel"),
                 band=_int_arg(args, "band"),
                 bw=_int_arg(args, "bw"),
                 modulation=_modulation_arg(args, "modulation"),
@@ -175,7 +174,7 @@ class MockLvClientConsole:
             return commands.lte_call_handover(
                 self._recording_client,
                 bw=_float_arg(args, "bw"),
-                mid_channel=_int_arg(args, "mid_channel"),
+                dl_channel=_int_arg(args, "dl_channel"),
                 ul_channel=_int_arg(args, "ul_channel"),
                 rb_offset=_int_arg(args, "rb_offset"),
                 max_retry_count=_int_arg(args, "max_retry_count", default=3),
@@ -448,13 +447,13 @@ class MockLvClientConsole:
                         "[max_retry_count=3] [waiting_time=5]"
                     ),
                     (
-                        "  handover mid_channel=636666 band=78 bw=100 "
+                        "  handover band=78 bw=100 "
                         "modulation=QPSK rb_size=135 rb_offset=67 channel=640000 "
                         "[max_retry_count=3] [waiting_time=5]"
                     ),
                     (
-                        "  lte-handover bw=20 mid_channel=18300 "
-                        "ul_channel=18500 rb_offset=99 "
+                        "  lte-handover bw=20 dl_channel=350 "
+                        "ul_channel=18350 rb_offset=99 "
                         "[max_retry_count=3] [waiting_time=5]"
                     ),
                     "  setup-sa-level atten=1.5 next_peak=-20",
