@@ -11,8 +11,8 @@ from app.core.fsm.call_routing import (
 )
 from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.transition_flow import next_transition_or
-from app.models.enums import AntennaPol, Generation, InputPath, TestChannel
-from app.models.lte_channel_lookup import resolve_arfcn
+from app.models.enums import AntennaPol, Generation, InputPath
+from app.models.lte_channel_lookup import resolve_dl_channel
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -133,11 +133,6 @@ class HandoverState(State):
         try:
             band = parse_band_number(test_case.band.value)
             bw = int(test_case.bandwidth)
-            mid_channel = resolve_call_channel(
-                prev_case.band,
-                prev_case.bandwidth,
-                TestChannel.MID,
-            )
             channel = resolve_call_channel(
                 test_case.band,
                 test_case.bandwidth,
@@ -145,7 +140,6 @@ class HandoverState(State):
             )
             handed_over = ctx.commands.call_handover(
                 ctx.client,
-                mid_channel=mid_channel,
                 band=band,
                 bw=bw,
                 modulation=test_case.modulation,
@@ -195,15 +189,15 @@ class LTEHandoverState(State):
             waiting_time = ctx.settings.connection_waiting_time_sec
 
         try:
-            mid_channel = resolve_arfcn(
-                prev_case.band,
-                prev_case.bandwidth,
-                TestChannel.MID,
+            dl_channel = resolve_dl_channel(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
             )
             handed_over = ctx.commands.lte_call_handover(
                 ctx.client,
                 bw=test_case.bandwidth,
-                mid_channel=mid_channel,
+                dl_channel=dl_channel,
                 ul_channel=test_case.channel_number,
                 rb_offset=test_case.rb_offset,
                 waiting_time=waiting_time,

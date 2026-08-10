@@ -578,13 +578,13 @@ def test_mock_lv_server_restart_resets_set_stop_flag(qtbot, tmp_path) -> None:
     (
         "bw",
         "call_ul_channel",
-        "mid_channel",
+        "handover_dl_channel",
         "handover_ul_channel",
         "handover_rb_offset",
     ),
     [
-        (20, 18100, 18300, 18500, 99),
-        (10, 36250, 36275, 36300, 49),
+        (20, 18100, 500, 18500, 99),
+        (10, 36250, 36300, 36300, 49),
     ],
     ids=["fdd-b1", "tdd-b34"],
 )
@@ -593,7 +593,7 @@ def test_mock_lv_server_lte_call_and_handover_flow(
     tmp_path,
     bw,
     call_ul_channel,
-    mid_channel,
+    handover_dl_channel,
     handover_ul_channel,
     handover_rb_offset,
 ) -> None:
@@ -614,7 +614,7 @@ def test_mock_lv_server_lte_call_and_handover_flow(
         assert commands.lte_call_handover(
             client,
             bw=bw,
-            mid_channel=mid_channel,
+            dl_channel=handover_dl_channel,
             ul_channel=handover_ul_channel,
             rb_offset=handover_rb_offset,
         )
@@ -645,7 +645,7 @@ def test_mock_lv_server_lte_call_and_handover_flow(
                 "LTE Handover",
                 {
                     "BandWidth": str(bw),
-                    "Mid Channel": mid_channel,
+                    "DL Channel": handover_dl_channel,
                     "UL Channel": handover_ul_channel,
                     "RB Offset": handover_rb_offset,
                     "Max Retry Count": 3,

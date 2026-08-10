@@ -88,8 +88,8 @@ LTE는 LTE Call/Handover 상태로 진입하고, NR NSA는 Call/Handover 앞에 
 | 상태 | 트리거 (prev vs current diff) | 동작 | next |
 | --- | --- | --- | --- |
 | `RecallChange` | Band가 다르고 TC의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
-| `Handover` | band 다름 + recall 같음 | Call 유지한 채 `commands.call_handover(이전 TC의 MID 채널, 새 band 파라미터)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `LTEHandover` | LTE Band 다름 + recall 같음 | 이전 TC Band/BW의 MID ARFCN과 현재 TC 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
+| `Handover` | band 다름 + recall 같음 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `LTEHandover` | LTE Band 다름 + recall 같음 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
 | `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
@@ -260,7 +260,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
   Harmonic 정밀측정은 등록된 인스턴스를 재사용하지 않고 **새 인스턴스를 만들어
   enter/run/exit를 직접 호출**한다. 턴테이블 이벤트는 시그널과 버퍼 양쪽에서 도착할 수
   있어 객체 identity로 dedup한다.
-- NR/LTE `Handover`의 mid_channel은 **이전 TC** band/BW의 MID 채널이다(현재 TC 아님).
+- NR/LTE `Handover`는 이전 TC의 MID 채널을 조회하지 않고 **현재 TC** 목적지 채널만 전달한다.
 - `CheckNextCaseState`는 run 결과를 인스턴스 필드(`_previous_case`, `_advanced`)에 저장해
   `next_state`에서 쓴다(매 run마다 리셋됨).
 - TODO(spec) 지점: generation 변경 전환 정책, 편파 변경 후 확인 순서, 1m Mast 각도

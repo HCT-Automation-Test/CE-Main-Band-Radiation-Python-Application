@@ -228,7 +228,7 @@ def test_mock_lv_client_lte_call_handover_and_status_aliases(qtbot, tmp_path) ->
         )
         assert console.execute_line("check-call")
         assert console.execute_line(
-            "lte-handover bw=10.0 mid_channel=18300 ul_channel=18500 "
+            "lte-handover bw=10.0 dl_channel=500 ul_channel=18500 "
             "rb_offset=99 max_retry_count=7 waiting_time=11"
         )
         assert console.execute_line("check-call-status")
@@ -254,7 +254,7 @@ def test_mock_lv_client_lte_call_handover_and_status_aliases(qtbot, tmp_path) ->
                 "LTE Handover",
                 {
                     "BandWidth": "10",
-                    "Mid Channel": 18300,
+                    "DL Channel": 500,
                     "UL Channel": 18500,
                     "RB Offset": 99,
                     "Max Retry Count": 7,
@@ -288,7 +288,7 @@ def test_mock_lv_client_nr_handover_passes_retry_and_waiting_time(
         _connect(client, server, qtbot)
 
         assert console.execute_line(
-            "handover mid_channel=636666 band=78 bw=100 modulation=QPSK "
+            "handover band=78 bw=100 modulation=QPSK "
             "rb_size=135 rb_offset=67 channel=640000 "
             "max_retry_count=9 waiting_time=12"
         )
@@ -298,7 +298,6 @@ def test_mock_lv_client_nr_handover_passes_retry_and_waiting_time(
             "MT8000A",
             "NR Handover",
             {
-                "Mid Channel": 636666,
                 "Band": 78,
                 "BandWidth": 100,
                 "Center Channel": 640000,
@@ -354,7 +353,7 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "set-tdf file=NR_Radiated.tdf" in text
     assert "measure-inband limit=-30" in text
     assert "setup-lte-mt8000 bw=20 ul_channel=18100 rb_offset=0" in text
-    assert "lte-handover bw=20 mid_channel=18300" in text
-    assert "handover mid_channel=636666" in text
+    assert "lte-handover bw=20 dl_channel=350" in text
+    assert "handover band=78" in text
     assert "[max_retry_count=3] [waiting_time=5]" in text
     assert "check-call-status (alias: check-call)" in text

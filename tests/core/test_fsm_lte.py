@@ -273,7 +273,7 @@ def test_lte_call_disconnected_uses_nr_message_and_retries_lte_call() -> None:
     assert state.next_state(ctx, result) == "LTECallConnect"
 
 
-def test_lte_handover_uses_previous_mid_and_current_case_params() -> None:
+def test_lte_handover_uses_current_dl_and_ul_channel_params() -> None:
     prev_case = _make_case(band=LTEBand.B1, bandwidth=10.0)
     current_case = _make_case(
         band=LTEBand.B3,
@@ -298,7 +298,7 @@ def test_lte_handover_uses_previous_mid_and_current_case_params() -> None:
             client,
             {
                 "bw": 10.0,
-                "mid_channel": 18300,
+                "dl_channel": 1900,
                 "ul_channel": 19900,
                 "rb_offset": 49,
                 "waiting_time": 9,

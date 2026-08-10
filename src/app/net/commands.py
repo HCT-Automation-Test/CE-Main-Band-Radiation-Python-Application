@@ -142,7 +142,6 @@ def _build_mt8000_params(
 
 def _build_handover_params(
     *,
-    mid_channel: int,
     band: int,
     bw: int,
     modulation: Modulation | str,
@@ -153,7 +152,6 @@ def _build_handover_params(
     waiting_time: int,
 ) -> dict[str, Any]:
     return {
-        "Mid Channel": int(mid_channel),
         "Band": int(band),
         "BandWidth": int(bw),
         "Center Channel": int(channel),
@@ -185,7 +183,7 @@ def _build_lte_call_params(
 def _build_lte_handover_params(
     *,
     bw: int | float,
-    mid_channel: int,
+    dl_channel: int,
     ul_channel: int,
     rb_offset: int,
     max_retry_count: int,
@@ -193,7 +191,7 @@ def _build_lte_handover_params(
 ) -> dict[str, Any]:
     return {
         "BandWidth": _normalize_lte_bandwidth(bw),
-        "Mid Channel": int(mid_channel),
+        "DL Channel": int(dl_channel),
         "UL Channel": int(ul_channel),
         "RB Offset": int(rb_offset),
         "Max Retry Count": int(max_retry_count),
@@ -322,7 +320,6 @@ def setup_lte_mt8000(
 def call_handover(
     client: Any,
     *,
-    mid_channel: int,
     band: int,
     bw: int,
     modulation: Modulation | str,
@@ -338,7 +335,6 @@ def call_handover(
         _TARGET_MT8000A,
         _COMMAND_NR_HANDOVER,
         _build_handover_params(
-            mid_channel=mid_channel,
             band=band,
             bw=bw,
             modulation=modulation,
@@ -356,7 +352,7 @@ def lte_call_handover(
     client: Any,
     *,
     bw: int | float,
-    mid_channel: int,
+    dl_channel: int,
     ul_channel: int,
     rb_offset: int,
     max_retry_count: int = 3,
@@ -369,7 +365,7 @@ def lte_call_handover(
         _COMMAND_LTE_HANDOVER,
         _build_lte_handover_params(
             bw=bw,
-            mid_channel=mid_channel,
+            dl_channel=dl_channel,
             ul_channel=ul_channel,
             rb_offset=rb_offset,
             max_retry_count=max_retry_count,
