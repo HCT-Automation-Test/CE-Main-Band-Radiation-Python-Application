@@ -2,6 +2,7 @@
 from __future__ import annotations
 from collections.abc import Iterable
 import math
+import sys
 from pathlib import Path
 from typing import Any, Literal
 
@@ -98,6 +99,7 @@ _INFO_FIELDS: tuple[tuple[str, str], ...] = (
 
 _MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
 _MAX_CUSTOM_TURNTABLE_SPEED = 10
+_CSV_DIRECTORY_NAME = "CSV"
 
 _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "saturationTimeEdit": "5",
@@ -222,6 +224,16 @@ _FILTER_LABELS: dict[FilterMode, str] = {
     FilterMode.HPF_3G: "3G HPF",
     FilterMode.HPF_6G: "6G HPF",
 }
+
+
+def _default_csv_directory() -> Path:
+    """배포 EXE 또는 개발 작업 디렉터리 기준 CSV 폴더를 반환한다."""
+
+    if getattr(sys, "frozen", False):
+        base_directory = Path(sys.executable).resolve().parent
+    else:
+        base_directory = Path.cwd().resolve()
+    return base_directory / _CSV_DIRECTORY_NAME
 
 
 class TestManagerPanel(QWidget):
@@ -1625,10 +1637,11 @@ class TestManagerPanel(QWidget):
     def on_load_item_button_clicked(self) -> None:
         """CSV 파일에서 TestCase를 읽어 기존 목록 뒤에 추가한다."""
 
+        csv_directory = self._prepare_csv_dialog_directory()
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Test Case CSV 불러오기",
-            "",
+            str(csv_directory),
             "CSV Files (*.csv);;All Files (*)",
         )
         if not file_path:
@@ -1650,10 +1663,11 @@ class TestManagerPanel(QWidget):
     def on_save_item_button_clicked(self) -> None:
         """현재 TestCase 목록을 CSV 파일로 저장한다."""
 
+        csv_directory = self._prepare_csv_dialog_directory()
         file_path, _ = QFileDialog.getSaveFileName(
             self,
             "Test Case CSV 저장",
-            "",
+            str(csv_directory),
             "CSV Files (*.csv);;All Files (*)",
         )
         if not file_path:
@@ -1668,6 +1682,21 @@ class TestManagerPanel(QWidget):
         except OSError as exc:
             self._show_warning(f"CSV 저장에 실패했습니다.\n{exc}")
             return
+
+    def _prepare_csv_dialog_directory(self) -> Path:
+        """실행 환경 기준 CSV 폴더를 만들고 대화상자 시작 경로를 반환한다."""
+
+        directory = _default_csv_directory()
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self._show_warning(
+                "CSV 폴더를 생성하지 못했습니다. "
+                "상위 폴더에서 시작합니다.\n"
+                f"{exc}"
+            )
+            return directory.parent
+        return directory
 
     def _required_file(self, value: Path | None, label: str) -> Path:
         if value is None:

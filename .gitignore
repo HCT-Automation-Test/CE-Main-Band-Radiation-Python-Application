@@ -20,6 +20,7 @@ dist/
 pytest-work*/
 test-temp/
 /screenshots/
+/CSV/
 temp/
 .codex-pytest-temp/
 .tmp/
