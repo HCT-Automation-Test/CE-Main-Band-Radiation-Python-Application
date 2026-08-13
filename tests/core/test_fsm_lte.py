@@ -6,6 +6,8 @@ import time
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
+
 from app.core.fsm.base import StateResult
 from app.core.fsm.call_routing import handover_entry_state_for_case
 from app.core.fsm.context import SessionContext
@@ -345,26 +347,36 @@ def test_lte_band_change_routes_by_recall() -> None:
     assert changed_state.next_state(changed_ctx, changed_result) == "RecallChange"
 
 
-def test_lte_same_band_does_not_handover_for_call_param_changes() -> None:
-    cases = [
-        _make_case(
-            band=LTEBand.B3,
-            bandwidth=5.0,
-            rb_allocation=LTERBAllocation.LOW,
-            test_channel=ChannelEnum.LOW,
-        ),
-        _make_case(
-            band=LTEBand.B3,
-            bandwidth=10.0,
-            rb_allocation=LTERBAllocation.HIGH,
-            test_channel=ChannelEnum.HIGH,
-        ),
-    ]
+@pytest.mark.parametrize(
+    "case_changes",
+    [
+        {"bandwidth": 5.0},
+        {"test_channel": ChannelEnum.HIGH},
+        {"rb_allocation": LTERBAllocation.HIGH},
+    ],
+    ids=["bandwidth", "channel", "rb"],
+)
+def test_lte_same_band_routes_call_config_change_to_handover(
+    case_changes: dict[str, Any],
+) -> None:
+    cases = [_make_case(), _make_case(**case_changes)]
     ctx, _, _, _ = _make_ctx(cases[0], queue=cases)
     state = CheckNextCaseState()
 
     result = state.run(ctx)
 
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "LTEHandover"
+
+
+def test_lte_same_call_config_does_not_handover() -> None:
+    cases = [_make_case(), _make_case()]
+    ctx, _, _, _ = _make_ctx(cases[0], queue=cases)
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
     assert state.next_state(ctx, result) == "ApplyTdf"
 
 

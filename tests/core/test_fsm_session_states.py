@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.session import (
@@ -14,6 +16,7 @@ from app.core.fsm.states.session import (
 from app.models.enums import (
     AntennaPol,
     DUTAxis,
+    Generation,
     InputPath,
     Modulation,
     NRBand,
@@ -75,16 +78,21 @@ def _make_case(
     *,
     band: NRBand = NRBand.N78,
     bandwidth: float = 100.0,
+    modulation: Modulation = Modulation.QPSK,
+    rb_allocation: RBAllocation = RBAllocation.INNER_FULL,
+    test_channel: TestChannel = TestChannel.MID,
     antenna_pol: AntennaPol = AntennaPol.H,
     dut_axis: DUTAxis = DUTAxis.X,
+    generation: Generation = Generation.NR_SA,
 ) -> TestCase:
     return TestCase(
+        generation=generation,
         band=band,
         bandwidth=bandwidth,
         test_type=test_type,
-        modulation=Modulation.QPSK,
-        rb_allocation=RBAllocation.INNER_FULL,
-        test_channel=TestChannel.MID,
+        modulation=modulation,
+        rb_allocation=rb_allocation,
+        test_channel=test_channel,
         antenna_pol=antenna_pol,
         dut_axis=dut_axis,
         dut_ant_position="Upper",
@@ -467,9 +475,74 @@ def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() ->
     assert state.next_state(ctx, result) == "Handover"
 
 
+@pytest.mark.parametrize(
+    "case_changes",
+    [
+        {"bandwidth": 90.0},
+        {"test_channel": TestChannel.HIGH},
+        {"rb_allocation": RBAllocation.INNER_1RB_LEFT},
+        {"modulation": Modulation.PI_OVER_2_BPSK},
+    ],
+    ids=["bandwidth", "channel", "rb", "modulation"],
+)
+def test_check_next_case_routes_same_band_call_config_change_to_handover(
+    case_changes: dict[str, Any],
+) -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(), _make_case(**case_changes)],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "Handover"
+
+
+def test_check_next_case_routes_same_band_nr_nsa_config_change_via_anchor() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(generation=Generation.NR_NSA),
+            _make_case(generation=Generation.NR_NSA, bandwidth=90.0),
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "LTECallAnchorBeforeHandover"
+
+
+def test_check_next_case_skips_handover_when_call_config_is_unchanged() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[_make_case(), _make_case()],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ApplyTdf"
+
+
 def test_check_next_case_routes_band_change_to_recall_change_when_recall_differs() -> None:
     events = _Events()
-    next_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    next_case = _make_case(
+        band=NRBand.N38,
+        bandwidth=20.0,
+        test_channel=TestChannel.HIGH,
+        rb_allocation=RBAllocation.INNER_1RB_LEFT,
+    )
     ctx = SessionContext(
         queue=[
             _make_case(band=NRBand.N7, bandwidth=20.0),
