@@ -88,8 +88,8 @@ LTE는 LTE Call/Handover 상태로 진입하고, NR NSA는 Call/Handover 앞에 
 | 상태 | 트리거 (prev vs current diff) | 동작 | next |
 | --- | --- | --- | --- |
 | `RecallChange` | Band가 다르고 TC의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
-| `Handover` | band 다름 + recall 같음 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `LTEHandover` | LTE Band 다름 + recall 같음 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
+| `Handover` | NR Call 설정(Band/BW/Channel/RB/Modulation) 다름. 단, Band와 Recall이 모두 다르면 `RecallChange` 우선 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `LTEHandover` | LTE Call 설정(Band/BW/Channel/RB) 다름. 단, Band와 Recall이 모두 다르면 `RecallChange` 우선 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
 | `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
@@ -215,7 +215,8 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 `_transition_states_for(prev, cur)`로 전환 상태 이름 **리스트**를 만든다.
 리스트 순서 = 실행 순서:
 
-1. band 다름 → recall 다르면 `RecallChange`, 같으면 Generation별 `Handover`
+1. Call 설정 다름(NR: band/BW/Channel/RB/Modulation, LTE: band/BW/Channel/RB)
+   → band와 recall이 모두 다르면 `RecallChange`, 그 외에는 Generation별 `Handover`
 2. `dut_axis` 다름 → `DUTAxisChange`
 3. 편파 셋업 필요(편파 값 또는 input_path→mast 매핑 변화) → `AntPolChange`
 4. generation 다름 → TODO(spec), 현재 no-op
@@ -231,7 +232,8 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 `call_entry_state_for`(Generation별 풀 재연결)로 간다 — 잔여 전환은 재연결된 Call 상태의
 `next_state`가 이어서 소비하는 설계다.
 
-같은 Band 내 파라미터(BW/Mod/RB/Channel)만 바뀌면 전환 상태 없이 `ApplyTdf`로 직행한다.
+같은 Band에서도 BW/Channel/RB가 바뀌면 Generation별 `Handover`를 실행하고,
+NR은 Modulation 변경도 같은 기준으로 처리한다. Call 설정이 모두 같을 때만 `ApplyTdf`로 직행한다.
 
 ## 5. UI ↔ FSM 상호작용
 

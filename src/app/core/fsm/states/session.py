@@ -66,10 +66,18 @@ def _transition_states_for(
 ) -> list[str]:
     transition_states: list[str] = []
 
-    if prev_case.band != current_case.band:
+    band_changed = prev_case.band != current_case.band
+    call_config_changed = (
+        band_changed
+        or prev_case.bandwidth != current_case.bandwidth
+        or prev_case.test_channel != current_case.test_channel
+        or prev_case.rb_allocation != current_case.rb_allocation
+        or prev_case.modulation != current_case.modulation
+    )
+    if call_config_changed:
         prev_recall = prev_case.mt8000_recall
         current_recall = current_case.mt8000_recall
-        if prev_recall != current_recall:
+        if band_changed and prev_recall != current_recall:
             transition_states.append("RecallChange")
         else:
             transition_states.append(handover_entry_state_for_case(current_case))
