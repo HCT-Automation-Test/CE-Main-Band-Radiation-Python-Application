@@ -678,9 +678,9 @@ def test_build_lte_sa_screenshot_path_matches_required_example(
         / "SM-000"
         / "Traffic"
         / "4G"
-        / "b1"
+        / "B1"
         / "Lower"
-        / "SM-000_Traffic_4G_b1_LOWER_1950.000MHz_1GHz_3GHz_XH.png"
+        / "SM-000_Traffic_4G_B1_LOWER_1950.000MHz_1GHz_3GHz_XH.png"
     )
 
 
@@ -700,9 +700,9 @@ def test_build_lte_fundamental_screenshot_path_uses_target_frequency(
         / "SM-000"
         / "Traffic"
         / "4G"
-        / "b1"
+        / "B1"
         / "Lower"
-        / "SM-000_Traffic_4G_b1_LOWER_1950.000MHz_Fundamental Frequency.png"
+        / "SM-000_Traffic_4G_B1_LOWER_1950.000MHz_Fundamental Frequency.png"
     )
 
 
@@ -724,9 +724,9 @@ def test_build_lte_precision_screenshot_path_uses_measured_peak(
         / "SM-000"
         / "Traffic"
         / "4G"
-        / "b1"
+        / "B1"
         / "Lower"
-        / "SM-000_Traffic_4G_b1_LOWER_3900.125MHz_XH_100ms.png"
+        / "SM-000_Traffic_4G_B1_LOWER_3900.125MHz_XH_100ms.png"
     )
 
 
