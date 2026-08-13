@@ -45,11 +45,13 @@ SHEET_BY_BAND: dict[NRBand | LTEBand, str] = {
 class BandInfoCells:
     """Band 공통 시험 정보 셀."""
 
+    band: str
     channel: str
     bandwidth: str
     rb_size: str
     rb_offset: str
     modulation: str
+    scs: str
     dut_ant_position: str
 
 
@@ -69,11 +71,13 @@ LAYOUTS: dict[str, ReportLayout] = {
     DEFAULT_LAYOUT_KEY: ReportLayout(
         key=DEFAULT_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
+            band="A49",
             channel="C49",
             bandwidth="D49",
             rb_size="E49",
             rb_offset="F49",
             modulation="G49",
+            scs="H49",
             dut_ant_position="I49",
         ),
         fundamental_frequency_cell="J49",
@@ -84,11 +88,13 @@ LAYOUTS: dict[str, ReportLayout] = {
     LB_LAYOUT_KEY: ReportLayout(
         key=LB_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
+            band="A44",
             channel="C44",
             bandwidth="D44",
             rb_size="E44",
             rb_offset="F44",
             modulation="G44",
+            scs="H44",
             dut_ant_position="I44",
         ),
         fundamental_frequency_cell="J44",
@@ -99,11 +105,13 @@ LAYOUTS: dict[str, ReportLayout] = {
     LTE_DEFAULT_LAYOUT_KEY: ReportLayout(
         key=LTE_DEFAULT_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
+            band="A7",
             channel="B7",
             bandwidth="C7",
             rb_size="D7",
             rb_offset="E7",
             modulation="F7",
+            scs="G7",
             dut_ant_position="H7",
         ),
         fundamental_frequency_cell="I7",
@@ -114,11 +122,13 @@ LAYOUTS: dict[str, ReportLayout] = {
     LTE_LB_LAYOUT_KEY: ReportLayout(
         key=LTE_LB_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
+            band="A7",
             channel="B7",
             bandwidth="C7",
             rb_size="D7",
             rb_offset="E7",
             modulation="F7",
+            scs="G7",
             dut_ant_position="H7",
         ),
         fundamental_frequency_cell="I7",
@@ -191,11 +201,13 @@ def offset_layout_rows(
         layout,
         key=key,
         band_info_cells=BandInfoCells(
+            band=offset_cell_row(layout.band_info_cells.band, row_offset),
             channel=offset_cell_row(layout.band_info_cells.channel, row_offset),
             bandwidth=offset_cell_row(layout.band_info_cells.bandwidth, row_offset),
             rb_size=offset_cell_row(layout.band_info_cells.rb_size, row_offset),
             rb_offset=offset_cell_row(layout.band_info_cells.rb_offset, row_offset),
             modulation=offset_cell_row(layout.band_info_cells.modulation, row_offset),
+            scs=offset_cell_row(layout.band_info_cells.scs, row_offset),
             dut_ant_position=offset_cell_row(
                 layout.band_info_cells.dut_ant_position,
                 row_offset,

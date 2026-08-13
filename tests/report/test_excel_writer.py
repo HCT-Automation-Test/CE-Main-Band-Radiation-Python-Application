@@ -293,11 +293,14 @@ def test_write_fundamental_saves_default_cells_to_template_file(tmp_path: Path) 
     sheet = "Sub6 n78"
     workbook = load_workbook(path)
     worksheet = workbook[sheet]
+    assert worksheet["A49"].value == "n78"
+    assert worksheet["B49"].value is None
     assert worksheet["C49"].value == 636666
     assert worksheet["D49"].value == 100
     assert worksheet["E49"].value == case.rb_size
     assert worksheet["F49"].value == case.rb_offset
     assert worksheet["G49"].value == "QPSK"
+    assert worksheet["H49"].value == 30
     assert worksheet["I49"].value == "Upper"
     assert worksheet["J49"].value == 3550.25
     assert worksheet["A66"].value == 7100.5
@@ -473,8 +476,11 @@ def test_write_fundamental_and_harmonic_use_lb_layout(tmp_path: Path) -> None:
 
     workbook = load_workbook(path)
     worksheet = workbook["Sub6 n5"]
+    assert worksheet["A44"].value == "n5"
+    assert worksheet["B44"].value is None
     assert worksheet["C44"].value == 167300
     assert worksheet["D44"].value == 20
+    assert worksheet["H44"].value == 15
     assert worksheet["I44"].value == "Lower"
     assert worksheet["J44"].value == 836.5
     assert worksheet["A56"].value == 1673
@@ -554,7 +560,10 @@ def test_write_nsa_default_cells_use_shifted_rows(tmp_path: Path) -> None:
     writer.write_bilog(bilog_case, BilogResult(bilog_peak_level_dbm=-38.25))
 
     worksheet = load_workbook(path)["Sub6 n78"]
+    assert worksheet["A7"].value == "n78"
+    assert worksheet["B7"].value is None
     assert worksheet["C7"].value == 636666
+    assert worksheet["H7"].value == 30
     assert worksheet["J7"].value == 3550.25
     assert worksheet["A24"].value == 7100.5
     assert worksheet["B24"].value == -41.0
@@ -592,7 +601,10 @@ def test_write_nsa_lb_cells_use_shifted_rows(tmp_path: Path) -> None:
     writer.write_inband(inband_case, InbandResult(inband_peak_level_dbm=-47.0))
 
     worksheet = load_workbook(path)["Sub6 n5"]
+    assert worksheet["A7"].value == "n5"
+    assert worksheet["B7"].value is None
     assert worksheet["C7"].value == 167300
+    assert worksheet["H7"].value == 15
     assert worksheet["J7"].value == 836.5
     assert worksheet["A19"].value == 1673
     assert worksheet["B19"].value == -42.0
@@ -613,6 +625,21 @@ def test_band_info_is_written_once_per_band(tmp_path: Path) -> None:
     writer.write_inband(second_case, InbandResult(inband_peak_level_dbm=-44.0))
 
     assert _cell(path, "Sub6 n78", "D49") == 100
+
+
+def test_non_fundamental_write_writes_band_and_scs(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+
+    writer.write_inband(
+        _make_case(test_type=MeasurementTestType.INBAND),
+        InbandResult(inband_peak_level_dbm=-45.0),
+    )
+
+    worksheet = load_workbook(path)["Sub6 n78"]
+    assert worksheet["A49"].value == "n78"
+    assert worksheet["B49"].value is None
+    assert worksheet["H49"].value == 30
 
 
 def test_write_fails_when_sheet_is_missing(tmp_path: Path) -> None:
@@ -1025,6 +1052,23 @@ def test_write_lte_mhb_results_preserves_template_values_and_formulas(
         -38.0,
     ]
     assert writer.read_fundamental_frequency(harmonic_case) == 1950.125
+
+
+def test_write_lte_fundamental_overwrites_band_and_scs(tmp_path: Path) -> None:
+    path = _make_lte_workbook(tmp_path / "lte.xlsx", LTEBand.B1)
+    writer = ExcelReportWriter(path)
+    worksheet = writer.workbook["LTE_BAND 1"]
+    worksheet["A7"] = "stale-band"
+    worksheet["G7"] = 99
+
+    writer.write_fundamental(
+        _make_lte_case(),
+        FundamentalResult(fundamental_frequency_mhz=1950.125),
+    )
+
+    worksheet = load_workbook(path)["LTE_BAND 1"]
+    assert worksheet["A7"].value == "B1"
+    assert worksheet["G7"].value == 15
 
 
 def test_write_lte_b34_uses_mhb_sheet_and_bilog_cells(tmp_path: Path) -> None:

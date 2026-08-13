@@ -32,7 +32,7 @@
 
 | 항목 | default | lb |
 | --- | --- | --- |
-| band info 셀 (channel/BW/RB size/RB offset/Mod/Ant position) | C49~I49 | C44~I44 |
+| band info 셀 (Band/channel/BW/RB size/RB offset/Mod/SCS/Ant position) | A49, C49~I49 | A44, C44~I44 |
 | fundamental 주파수 셀 | J49 | J44 |
 | harmonic base row | 66 | 56 |
 | inband base row | 61 | 51 |
@@ -43,8 +43,11 @@
 - **셀 좌표 계산**: DUT축이 열(X→B, Y→C, Z→D), 편파가 행 오프셋(V→+0, H→+1),
   하모닉 차수가 행 오프셋(2차+0, 3차+2, 4차+4, 5차+6).
   예: default SA, 3차, Z축, H편파 → `D69`. 하모닉 주파수(기본파×차수)는 A열 고정.
-- band info 6셀은 "시트+레이아웃키당 1회"만 기록된다(인스턴스 내 가드 —
+- band info 8셀은 "시트+레이아웃키당 1회"만 기록된다(인스턴스 내 가드 —
   Runner 재시작 시 새 인스턴스가 다시 덮어씀).
+- Band/SCS는 다른 band info와 함께 최초 결과 작성 시 기록된다. NR은 SA default
+  `A49/H49`, SA LB `A44/H44`, NSA `A7/H7`을 사용하고, LTE는 `A7/G7`을 사용한다.
+  NR B열 Anchor Band는 기록하지 않는다.
 - peak level이 None(=limit−10dB 미만)이면 셀에 문자열 **"-"** 가 들어간다.
 
 ## 3. 저장 경로와 라이브 모니터링 — excel_writer.py

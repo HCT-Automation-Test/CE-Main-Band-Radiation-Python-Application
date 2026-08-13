@@ -230,6 +230,11 @@ class ExcelReportWriter:
 
         self._set_cell(
             worksheet,
+            validate_single_cell(cells.band),
+            test_case.band.value,
+        )
+        self._set_cell(
+            worksheet,
             validate_single_cell(cells.channel),
             test_case.channel_number,
         )
@@ -248,6 +253,11 @@ class ExcelReportWriter:
             worksheet,
             validate_single_cell(cells.modulation),
             test_case.modulation.value,
+        )
+        self._set_cell(
+            worksheet,
+            validate_single_cell(cells.scs),
+            test_case.scs_khz,
         )
         self._set_cell(
             worksheet,

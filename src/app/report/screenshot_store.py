@@ -54,8 +54,6 @@ def _generation_dir(test_case: TestCase) -> str:
 
 
 def _band_dir_name(test_case: TestCase) -> str:
-    if test_case.generation is Generation.LTE:
-        return test_case.band.value.lower()
     return test_case.band.value
 
 
