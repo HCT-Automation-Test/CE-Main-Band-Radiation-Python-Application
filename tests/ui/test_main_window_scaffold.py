@@ -25,6 +25,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.file_dialog_directory_settings import (
+    FileDialogDirectorySettingsStore,
+)
 from app.core.instrument_connection import (
     CONNECTION_IN_PROGRESS_MESSAGE,
     INSTRUMENT_SET_IN_PROGRESS_MESSAGE,
@@ -1210,7 +1213,11 @@ def test_test_manager_panel_excel_browse_button_sets_selected_path(
 ) -> None:
     """Excel 양식 찾기 버튼이 선택한 파일 경로를 입력칸에 반영한다."""
 
-    panel = ManagerPanel()
+    panel = ManagerPanel(
+        file_dialog_settings_store=FileDialogDirectorySettingsStore(
+            tmp_path / "settings.json",
+        ),
+    )
     qtbot.addWidget(panel)
     selected_path = tmp_path / "report_template.xlsx"
 

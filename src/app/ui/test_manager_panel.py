@@ -2,7 +2,6 @@
 from __future__ import annotations
 from collections.abc import Iterable
 import math
-import sys
 from pathlib import Path
 from typing import Any, Literal
 
@@ -41,6 +40,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.config.file_dialog_directory_settings import (
+    FileDialogDirectorySettings,
+    FileDialogDirectorySettingsStore,
+    runtime_base_directory,
+)
 from app.core.tc_loader import load_csv, save_csv
 from app.models.enums import FilterMode, Generation, InputPath, LTEBand, NRBand
 from app.models.test_case import TestCase
@@ -229,11 +233,7 @@ _FILTER_LABELS: dict[FilterMode, str] = {
 def _default_csv_directory() -> Path:
     """배포 EXE 또는 개발 작업 디렉터리 기준 CSV 폴더를 반환한다."""
 
-    if getattr(sys, "frozen", False):
-        base_directory = Path(sys.executable).resolve().parent
-    else:
-        base_directory = Path.cwd().resolve()
-    return base_directory / _CSV_DIRECTORY_NAME
+    return runtime_base_directory() / _CSV_DIRECTORY_NAME
 
 
 class TestManagerPanel(QWidget):
@@ -246,8 +246,19 @@ class TestManagerPanel(QWidget):
     tdf_all_off_requested = Signal()
     set_tdf_requested = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        *,
+        file_dialog_settings_store: FileDialogDirectorySettingsStore | None = None,
+    ) -> None:
         super().__init__(parent)
+        self._file_dialog_settings_store = (
+            FileDialogDirectorySettingsStore()
+            if file_dialog_settings_store is None
+            else file_dialog_settings_store
+        )
+        self._file_dialog_settings = self._file_dialog_settings_store.load()
         self._active_tdf_file_name: str | None = None
         self._test_cases: list[TestCase] = []
         self._test_case_progress: list[_TestCaseProgress] = []
@@ -1425,11 +1436,39 @@ class TestManagerPanel(QWidget):
         file_path, _ = QFileDialog.getOpenFileName(
             self,
             "Excel 양식 선택",
-            self._excel_template_path_edit.text().strip(),
+            str(self._excel_dialog_initial_location()),
             "Excel Files (*.xlsx *.xlsm);;All Files (*)",
         )
         if file_path:
-            self._excel_template_path_edit.setText(str(Path(file_path)))
+            selected_path = Path(file_path)
+            self._excel_template_path_edit.setText(str(selected_path))
+            self._remember_excel_directory(selected_path.parent)
+
+    def _excel_dialog_initial_location(self) -> Path:
+        """CSV 최근 경로와 무관한 Excel 대화상자 시작 위치를 반환한다."""
+
+        current_value = self._excel_template_path_edit.text().strip()
+        if current_value:
+            current_path = Path(current_value)
+            if current_path.is_file():
+                return current_path
+
+        stored_value = self._file_dialog_settings.excel_directory
+        if stored_value:
+            stored_directory = Path(stored_value)
+            if stored_directory.is_dir():
+                return stored_directory
+
+        return runtime_base_directory()
+
+    def _remember_excel_directory(self, directory: Path) -> None:
+        """선택한 Excel 파일의 부모 디렉터리만 기억한다."""
+
+        resolved_directory = directory.resolve()
+        self._file_dialog_settings = FileDialogDirectorySettings(
+            excel_directory=str(resolved_directory),
+        )
+        self._file_dialog_settings_store.save(self._file_dialog_settings)
 
     def on_nr_button_clicked(self) -> None:
         """NR 버튼 클릭 시 TestCase 선택 팝업을 연다."""
