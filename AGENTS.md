@@ -72,6 +72,10 @@ uv run --no-sync pytest tests/core -k harmonic
 ```
 
 - 테스트 실행은 기본적으로 `uv run --no-sync pytest ...`를 사용한다.
+- 기본 pytest는 `tests/ui/**`, Qt/QThread 의존 core/net 테스트, native desktop 테스트를
+  `quarantined`로 skip하며 안전한 순수 테스트만 실행한다. 직접 경로나 `-m` 지정도 격리를 우회하지 못한다.
+- `--run-quarantined`는 사용자의 명시적 승인 없이 사용하지 않는다. 승인된 격리 환경에서만
+  `uv run --no-sync pytest --run-quarantined ...`로 실행한다.
 - 의존성 변경 후 환경 갱신이 필요할 때만 `uv sync`를 별도로 실행한다.
 - `uv` 캐시는 저장소 내부 `.uv-cache/`를 사용한다.
 
@@ -155,6 +159,8 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 - `core`, `net`, `report`: 순수 Python 단위 테스트를 우선한다.
 - `models`, `ui`: Qt 관련 검증은 `pytest-qt`를 사용한다.
 - 통합 테스트는 `src/app/net/mock_server.py` 기반 loopback 테스트를 우선한다.
+- `qtbot`/`qapp` fixture를 사용하는 신규 테스트는 collection 시 자동으로
+  `qt_runtime` + `quarantined`로 분류된다.
 
 ## Reference Notes
 

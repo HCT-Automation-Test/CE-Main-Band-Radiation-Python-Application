@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+import shiboken6
+from PySide6.QtCore import QCoreApplication, QEvent, QObject
 
 import app.core.runner as runner_module
 
@@ -70,6 +72,20 @@ class _ExitAfterStartEngine:
         self.current_state_name = "MeasureFundamental"
 
 
+class _BlockingEngine:
+    def __init__(self, ctx: SessionContext, release: threading.Event) -> None:
+        self.ctx = ctx
+        self.release = release
+        self.current_state_name: str | None = None
+        self.started = threading.Event()
+
+    def run(self, initial_state: str = "SessionInit") -> None:
+        _ = initial_state
+        self.current_state_name = "Idle"
+        self.started.set()
+        self.release.wait()
+
+
 class _ReportWriter:
     def __init__(self, *, prepare_exception: Exception | None = None) -> None:
         self.prepare_exception = prepare_exception
@@ -87,6 +103,14 @@ class _Client:
 
     def connect_to(self, host: str, port: int) -> None:
         self.connect_calls.append((host, port))
+
+
+class _ClosableClient:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 class _ConnectionCommands:
@@ -531,6 +555,12 @@ def test_runner_emits_session_stopped_when_active_run_is_stopped(
     runner.events.session_failed.connect(lambda: failed.append(None))
     runner.mark_equipment_ready(_ready_states())
     qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+    thread = runner._thread
+    assert thread is not None
+    thread_valid_at_stop: list[bool] = []
+    runner.events.session_stopped.connect(
+        lambda: thread_valid_at_stop.append(shiboken6.isValid(thread))
+    )
     engines[0].current_state_name = "Idle"
 
     runner.start([_make_case()], settings=_make_settings(tmp_path))
@@ -540,6 +570,7 @@ def test_runner_emits_session_stopped_when_active_run_is_stopped(
 
     assert stopped == [None]
     assert failed == []
+    assert thread_valid_at_stop == [False]
 
 
 def test_runner_emits_session_failed_when_active_run_exits_without_completion(
@@ -777,6 +808,266 @@ def test_start_after_stop_initializes_new_worker(
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_stop_cleanup_gap_rejects_restart_until_generation_is_finalized(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    messages: list[str] = []
+    report_writers: list[_ReportWriter] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    def report_writer_factory(*_: Any) -> _ReportWriter:
+        writer = _ReportWriter()
+        report_writers.append(writer)
+        return writer
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.error.connect(messages.append)
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: len(engines) == 1 and engines[0].started.is_set())
+    engines[0].current_state_name = "Idle"
+
+    thread = runner._thread
+    worker = runner._worker
+    ctx = runner.context
+    generation = runner._active_generation
+    assert thread is not None
+    assert generation is not None
+
+    runner.stop()
+    assert thread.wait(1000)
+    assert runner.is_running
+    assert ctx is not None and ctx.stopped
+
+    runner.initialize()
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+
+    assert runner._thread is thread
+    assert runner._worker is worker
+    assert runner.context is ctx
+    assert runner._active_generation == generation
+    assert len(engines) == 1
+    assert report_writers == []
+    assert messages == ["시험 시작 실패: Runner is not idle"]
+    assert ctx.stopped
+
+    runner._finalize_thread(thread, generation)
+    assert runner.is_running
+    assert runner._thread is None
+    assert runner._worker is None
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_stale_thread_completion_cannot_clear_new_generation(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.initialize()
+    qtbot.waitUntil(lambda: len(engines) == 1 and engines[0].started.is_set())
+    old_thread = runner._thread
+    old_generation = runner._active_generation
+    assert old_thread is not None
+    assert old_generation is not None
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+    runner.initialize()
+    qtbot.waitUntil(lambda: len(engines) == 2 and engines[1].started.is_set())
+    current_thread = runner._thread
+    current_worker = runner._worker
+    current_context = runner.context
+    current_generation = runner._active_generation
+    assert current_generation is not None
+    assert current_generation > old_generation
+
+    runner._finalize_thread(old_thread, old_generation)
+
+    assert runner.is_running
+    assert runner._thread is current_thread
+    assert runner._worker is current_worker
+    assert runner.context is current_context
+    assert runner._active_generation == current_generation
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_runner_survives_fifty_stop_restart_generations(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    generations: list[int] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+
+    for index in range(50):
+        runner.initialize()
+        qtbot.waitUntil(
+            lambda index=index: (
+                len(engines) == index + 1 and engines[index].started.is_set()
+            ),
+            timeout=1000,
+        )
+        assert runner._active_generation is not None
+        generations.append(runner._active_generation)
+        runner.stop()
+        qtbot.waitUntil(lambda: not runner.is_running, timeout=1000)
+
+    assert generations == list(range(1, 51))
+    assert runner._generation == 50
+
+
+def test_shutdown_is_idempotent_and_prevents_restart(
+    qtbot: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    client = _ClosableClient()
+    completed: list[None] = []
+
+    def engine_factory(ctx: SessionContext) -> _FakeEngine:
+        engine = _FakeEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    monkeypatch.setattr(runner_module, "TcpClient", lambda _parent=None: client)
+    runner = Runner(
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.shutdown_finished.connect(lambda: completed.append(None))
+    runner.initialize()
+    qtbot.waitUntil(lambda: len(engines) == 1 and engines[0].started.is_set())
+
+    assert not runner.shutdown()
+    qtbot.waitUntil(lambda: completed == [None] and not runner.is_running)
+    assert runner.shutdown()
+
+    assert completed == [None]
+    assert client.close_calls == 1
+    assert not runner.is_running
+    generation = runner._generation
+
+    runner.initialize()
+
+    assert not runner.is_running
+    assert runner._generation == generation
+    assert len(engines) == 1
+
+
+def test_shutdown_timeout_keeps_entire_runner_alive_until_worker_finishes(
+    qtbot: Any,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    release = threading.Event()
+    engines: list[_BlockingEngine] = []
+    completed: list[None] = []
+    owner = QObject()
+    client = _ClosableClient()
+
+    def engine_factory(ctx: SessionContext) -> _BlockingEngine:
+        engine = _BlockingEngine(ctx, release)
+        engines.append(engine)
+        return engine
+
+    monkeypatch.setattr(runner_module, "_SHUTDOWN_WAIT_MS", 10)
+    monkeypatch.setattr(runner_module, "TcpClient", lambda _parent=None: client)
+    runner = Runner(
+        owner,
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.shutdown_finished.connect(lambda: completed.append(None))
+    runner.initialize()
+    qtbot.waitUntil(lambda: len(engines) == 1 and engines[0].started.is_set())
+
+    thread = runner._thread
+    worker = runner._worker
+    ctx = runner.context
+    events = runner.events
+    assert thread is not None
+    assert worker is not None
+    assert ctx is not None
+
+    assert not runner.shutdown()
+    assert not runner.shutdown()
+
+    assert runner.parent() is None
+    assert runner_module._SHUTDOWN_KEEPERS[id(runner)] is runner
+    assert runner._thread is thread
+    assert runner._worker is worker
+    assert runner.context is ctx
+    assert runner.events is events
+    assert runner.client is client
+    assert client.close_calls == 0
+    assert runner.is_running
+    assert completed == []
+
+    owner.deleteLater()
+    QCoreApplication.sendPostedEvents(owner, QEvent.Type.DeferredDelete)
+    assert runner_module._SHUTDOWN_KEEPERS[id(runner)] is runner
+    assert runner._thread is thread
+    assert runner._worker is worker
+    assert runner.context is ctx
+    assert runner.events is events
+    assert runner.client is client
+    assert client.close_calls == 0
+
+    release.set()
+    qtbot.waitUntil(
+        lambda: completed == [None] and not runner.is_running,
+        timeout=1000,
+    )
+
+    assert id(runner) not in runner_module._SHUTDOWN_KEEPERS
+    assert runner._thread is None
+    assert runner._worker is None
+    assert not shiboken6.isValid(thread)
+    assert not shiboken6.isValid(worker)
+    assert runner.context is ctx
+    assert client.close_calls == 1
+    assert runner.shutdown()
 
 
 def test_start_ignores_previous_stop_state_and_uses_requested_index(

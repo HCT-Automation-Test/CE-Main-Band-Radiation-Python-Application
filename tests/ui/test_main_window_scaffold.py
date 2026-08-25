@@ -51,6 +51,7 @@ from app.models.enums import (
     TestType as NRTestType,
 )
 from app.models.test_case import TestCase
+from app.ui import main_window as main_window_module
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
 from app.ui.main_window import MainWindow, RF_SWITCH_BOX_OPERATION_IN_PROGRESS_MESSAGE
@@ -68,6 +69,74 @@ from app.ui.test_plot_screenshot_panel import (
 
 DEFAULT_WINDOW_SIZE = QSize(1760, 940)
 UNBOUNDED_WINDOW_SIZE = QSize(16777215, 16777215)
+_SET_WINDOWS_RESIZE_FRAME_ENABLED = MainWindow._set_windows_resize_frame_enabled
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_main_window_resize_frame_uses_only_its_own_hwnd(
+    monkeypatch: pytest.MonkeyPatch,
+    enabled: bool,
+) -> None:
+    """Windows 창 스타일 로직은 가짜 user32와 대상 MainWindow HWND로 검증한다."""
+
+    hwnd = 4321
+    initial_style = 0x0040 | main_window_module._WS_THICKFRAME
+    calls: list[tuple[object, ...]] = []
+
+    class FakeUser32:
+        def GetWindowLongPtrW(self, target_hwnd: int, index: int) -> int:  # noqa: N802
+            calls.append(("get", target_hwnd, index))
+            return initial_style
+
+        def SetWindowLongPtrW(  # noqa: N802
+            self,
+            target_hwnd: int,
+            index: int,
+            style: int,
+        ) -> None:
+            calls.append(("set", target_hwnd, index, style))
+
+        def SetWindowPos(self, *args: object) -> None:  # noqa: N802
+            calls.append(("position", *args))
+
+    native_window = SimpleNamespace(winId=lambda: hwnd)
+    monkeypatch.setattr(main_window_module.sys, "platform", "win32")
+    monkeypatch.setattr(
+        main_window_module.ctypes,
+        "windll",
+        SimpleNamespace(user32=FakeUser32()),
+        raising=False,
+    )
+
+    _SET_WINDOWS_RESIZE_FRAME_ENABLED(native_window, enabled)
+
+    if enabled:
+        expected_style = (
+            initial_style
+            | main_window_module._WS_THICKFRAME
+            | main_window_module._WS_MAXIMIZEBOX
+        )
+    else:
+        expected_style = (
+            initial_style & ~main_window_module._WS_THICKFRAME
+        ) | main_window_module._WS_MAXIMIZEBOX
+    assert calls == [
+        ("get", hwnd, main_window_module._GWL_STYLE),
+        ("set", hwnd, main_window_module._GWL_STYLE, expected_style),
+        (
+            "position",
+            hwnd,
+            0,
+            0,
+            0,
+            0,
+            0,
+            main_window_module._SWP_NOMOVE
+            | main_window_module._SWP_NOSIZE
+            | main_window_module._SWP_NOZORDER
+            | main_window_module._SWP_FRAMECHANGED,
+        ),
+    ]
 
 
 def _make_test_case() -> TestCase:
@@ -110,6 +179,41 @@ def test_main_window_has_five_navigation_buttons_and_four_pages(qtbot) -> None:
 
     assert stack is not None
     assert stack.count() == 4
+
+
+def test_main_window_defers_close_until_runner_shutdown_finishes(
+    qtbot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실행 중 Runner가 남아 있으면 MainWindow 파괴를 정리 완료까지 미룬다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    qtbot.waitUntil(window.isVisible, timeout=1000)
+    shutdown_calls: list[bool] = []
+    real_shutdown = window._runner.shutdown
+
+    def fake_shutdown() -> bool:
+        shutdown_calls.append(True)
+        if len(shutdown_calls) == 1:
+            return False
+        return real_shutdown()
+
+    monkeypatch.setattr(window._runner, "shutdown", fake_shutdown)
+
+    window.close()
+
+    assert window.isVisible()
+    assert not window.isEnabled()
+    assert window._close_pending_runner_shutdown is True
+    assert shutdown_calls == [True]
+
+    window._runner.shutdown_finished.emit()
+    qtbot.waitUntil(lambda: not window.isVisible(), timeout=1000)
+
+    assert window._close_pending_runner_shutdown is False
+    assert shutdown_calls == [True, True]
 
 
 def test_main_window_pages_use_expected_panel_classes(qtbot) -> None:
@@ -2535,9 +2639,8 @@ def test_main_window_applies_initial_switch_box_101_after_connection(
 ) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
-    service = window._runner.instrument_connection_service
 
-    service.connection_finished.emit(
+    window.on_instrument_connection_finished(
         {
             "MT8000A": True,
             "FSV40": True,
@@ -2554,6 +2657,7 @@ def test_main_window_applies_initial_switch_box_101_after_connection(
     assert rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
     assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
+    assert window._runner._thread is None
 
 
 @pytest.mark.parametrize(
@@ -2580,9 +2684,8 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
 ) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
-    service = window._runner.instrument_connection_service
 
-    service.connection_finished.emit(
+    window.on_instrument_connection_finished(
         {
             "MT8000A": True,
             "FSV40": True,
@@ -2591,7 +2694,7 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
             "Switch Box": True,
         }
     )
-    service.connection_finished.emit(states)
+    window.on_instrument_connection_finished(states)
 
     rf_panel = window._rf_filter_box_panel
     assert rf_panel.findChild(QLabel, "currentInputLabel").text() == "Input: Unknown"
@@ -2600,6 +2703,7 @@ def test_main_window_does_not_apply_initial_switch_box_101_when_unavailable(
     assert not rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == ""
     assert window.findChild(QLineEdit, "filterEdit").text() == ""
+    assert window._runner._thread is None
 
 
 @pytest.mark.parametrize(
@@ -2621,7 +2725,7 @@ def test_main_window_preserves_switch_box_path_on_guard_connection_error(
     monkeypatch.setattr(instrument_panel, "_show_warning", lambda message: None)
     service = window._runner.instrument_connection_service
 
-    service.connection_finished.emit(
+    window.on_instrument_connection_finished(
         {
             "MT8000A": True,
             "FSV40": True,
@@ -2640,6 +2744,7 @@ def test_main_window_preserves_switch_box_path_on_guard_connection_error(
     assert rf_panel.findChild(QPushButton, "filterButton01").isChecked()
     assert window.findChild(QLineEdit, "mastEdit").text() == "Bilog"
     assert window.findChild(QLineEdit, "filterEdit").text() == "Thru"
+    assert window._runner._thread is None
 
 
 def test_main_window_marks_connecting_indicators_failed_on_connection_error(

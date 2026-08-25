@@ -143,7 +143,15 @@ uv run --no-sync pytest tests/models -q
 uv run --no-sync pytest tests/core -q
 uv run --no-sync pytest tests/net -q
 uv run --no-sync pytest tests/report -q
-uv run --no-sync pytest tests/ui -q
+```
+
+기본 pytest는 `tests/ui/**`, Qt/QThread runtime 의존 테스트, native desktop 테스트를
+`quarantined`로 skip하고 안전한 순수 테스트만 실행한다. 명시 경로와 `-m`으로는
+이 격리를 우회할 수 없다. 사용자가 명시적으로 승인한 격리 환경에서만 다음
+opt-in 명령을 사용한다.
+
+```bash
+uv run --no-sync pytest --run-quarantined tests/ui -q
 ```
 
 PyInstaller 빌드 설정은 `CE_NR_Radiated.spec`에 있다.
@@ -1134,6 +1142,10 @@ Python 앱은 장비를 직접 제어하지 않는다.
 | `tests/ui` | PySide6 UI 패널, main window scaffold, interaction |
 
 테스트 실행에는 pytest와 pytest-qt를 사용한다.
+`qt_runtime`, `native_desktop`, `quarantined` marker는 위험 테스트를 식별한다.
+`tests/ui/**`와 지정된 Qt core/net 모듈은 자동 분류되며, 신규 테스트가
+`qtbot` 또는 `qapp` fixture를 사용해도 collection 시 자동으로 격리된다.
+`--run-quarantined`는 사용자의 명시적 승인 없이 사용하지 않는다.
 
 ## 21. 개발자가 먼저 보면 좋은 파일 순서
 

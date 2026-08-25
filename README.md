@@ -39,8 +39,18 @@ uv run --no-sync pytest -q
 uv run --no-sync pytest tests/core -q
 uv run --no-sync pytest tests/net -q
 uv run --no-sync pytest tests/report -q
-uv run --no-sync pytest tests/ui -q
 ```
+
+기본 명령은 UI, Qt/QThread runtime, Windows native desktop 테스트를 자동으로
+skip하고 안전한 순수 테스트만 실행합니다. `tests/ui` 경로나 `-m qt_runtime`을
+직접 지정해도 격리는 유지됩니다. 격리 테스트는 사용자가 명시적으로 승인한
+Windows Sandbox/VM 또는 별도 사용자 세션에서만 다음과 같이 실행합니다.
+
+```bash
+uv run --no-sync pytest --run-quarantined tests/ui -q
+```
+
+코딩 에이전트는 사용자의 명시적 승인 없이 `--run-quarantined`를 사용하면 안 됩니다.
 
 실장비/LabVIEW 없이 개발할 때는 모의 LabVIEW 서버를 사용합니다:
 

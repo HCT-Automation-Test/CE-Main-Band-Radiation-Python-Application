@@ -28,3 +28,8 @@ packages = ["src/app"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-p no:cacheprovider"
+markers = [
+    "qt_runtime: QApplication, Qt event loop, or QThread runtime is required",
+    "native_desktop: test can call native desktop or window-management APIs",
+    "quarantined: test is excluded unless --run-quarantined is explicitly supplied",
+]
