@@ -1,7 +1,7 @@
 """NR Test Case 선택 팝업."""
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from PySide6.QtCore import QSignalBlocker, Qt, Signal
@@ -11,8 +11,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
-    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -30,6 +28,7 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     Generation,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -40,6 +39,7 @@ from app.models.nr_channel_lookup import (
     resolve_call_channel,
     resolve_target_frequency_mhz,
 )
+from app.models.nsa_anchor import SUPPORTED_NSA_ANCHOR_BANDS
 from app.models.supported_bandwidths import get_supported_bandwidths
 from app.models.test_case import TestCase
 
@@ -50,7 +50,8 @@ _GROUP_TITLES: dict[str, str] = {
     "uhb_tdd": "UHB_TDD",
 }
 
-_PARAMETER_HEADERS: tuple[str, ...] = (
+_SA_PARAMETER_HEADERS: tuple[str, ...] = (
+    "",
     "",
     "NR Band",
     "SCS",
@@ -67,24 +68,33 @@ _PARAMETER_HEADERS: tuple[str, ...] = (
     "Position",
 )
 
+_NSA_PARAMETER_HEADERS: tuple[str, ...] = (
+    *_SA_PARAMETER_HEADERS[:3],
+    "LTE Anchor Band",
+    *_SA_PARAMETER_HEADERS[3:],
+)
+
 _GROUP_COLUMN = 0
-_BAND_COLUMN = 1
-_SCS_COLUMN = 2
-_BANDWIDTH_COLUMN = 3
-_MODULATION_COLUMN = 4
-_RB_ALLOCATION_COLUMN = 5
-_CHANNEL_COLUMN = 6
-_EUT_ANT_COLUMN = 7
-_NARFCN_COLUMN = 8
-_FREQUENCY_COLUMN = 9
-_RB_SIZE_COLUMN = 10
-_RB_OFFSET_COLUMN = 11
-_TEST_RANGE_COLUMN = 12
-_POSITION_COLUMN = 13
+_BAND_SELECT_COLUMN = 1
+_BAND_COLUMN = 2
+_ANCHOR_COLUMN = 3
+_SCS_COLUMN = 3
+_BANDWIDTH_COLUMN = 4
+_MODULATION_COLUMN = 5
+_RB_ALLOCATION_COLUMN = 6
+_CHANNEL_COLUMN = 7
+_EUT_ANT_COLUMN = 8
+_NARFCN_COLUMN = 9
+_FREQUENCY_COLUMN = 10
+_RB_SIZE_COLUMN = 11
+_RB_OFFSET_COLUMN = 12
+_TEST_RANGE_COLUMN = 13
+_POSITION_COLUMN = 14
 _MIN_PARAMETER_ROW_HEIGHT = 30
 _POSITION_OPTION_MIN_WIDTH = 86
-_PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
+_SA_PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
     76,
+    40,
     66,
     46,
     66,
@@ -98,6 +108,11 @@ _PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
     74,
     105,
     210,
+)
+_NSA_PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
+    *_SA_PARAMETER_COLUMN_WIDTHS[:3],
+    98,
+    *_SA_PARAMETER_COLUMN_WIDTHS[3:],
 )
 _RB_ALLOCATION_OPTIONS: tuple[RBAllocation, ...] = (
     RBAllocation.INNER_1RB_LEFT,
@@ -144,6 +159,17 @@ class NRGroupSettings:
     selected_test_types: tuple[TestType, ...]
     axis_sequence: tuple[DUTAxis, ...]
     antenna_pol_sequence: tuple[AntennaPol, ...]
+
+
+@dataclass(frozen=True)
+class NRSelectState:
+    """Generation별 NR 통합 생성 화면 상태."""
+
+    generation: Generation
+    selected_bands: tuple[NRBand, ...]
+    parameters_by_band: dict[NRBand, NRCaseParameters]
+    group_settings: dict[str, NRGroupSettings]
+    anchor_bands_by_band: dict[NRBand, LTEBand]
 
 
 def _band_from_number(band_number: int) -> NRBand:
@@ -267,28 +293,90 @@ def _create_default_group_settings() -> dict[str, NRGroupSettings]:
     }
 
 
-class NRParameterDialog(QDialog):
-    """Band별 TestCase 파라미터를 입력하는 보조 팝업."""
+class _BandSelectionHeader(QHeaderView):
+    """Band 선택 열에 전체 선택 체크박스를 배치하는 헤더."""
+
+    def __init__(self, parent: QTableWidget) -> None:
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.checkbox = QCheckBox(self.viewport())
+        self.checkbox.setObjectName("nrBandMasterCheck")
+        self.checkbox.setToolTip("전체 NR Band 선택/해제")
+        self.sectionResized.connect(self._update_checkbox_geometry)
+        self.geometriesChanged.connect(self._update_checkbox_geometry)
+
+    def _update_checkbox_geometry(self) -> None:
+        section_x = self.sectionViewportPosition(_BAND_SELECT_COLUMN)
+        section_width = self.sectionSize(_BAND_SELECT_COLUMN)
+        size = self.checkbox.sizeHint()
+        self.checkbox.setGeometry(
+            section_x + max(0, (section_width - size.width()) // 2),
+            max(0, (self.height() - size.height()) // 2),
+            size.width(),
+            size.height(),
+        )
+
+    def showEvent(self, event) -> None:  # noqa: N802
+        super().showEvent(event)
+        self._update_checkbox_geometry()
+
+
+class NRSelectDialog(QDialog):
+    """NR Band 선택과 파라미터 입력을 한 화면에서 처리한다."""
+
+    test_cases_created = Signal(list)
 
     def __init__(
         self,
-        parameters_by_band: Mapping[NRBand, NRCaseParameters],
-        group_settings: Mapping[str, NRGroupSettings] | None = None,
         parent: QWidget | None = None,
+        *,
+        generation: Generation = Generation.NR_SA,
+        state: NRSelectState | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setObjectName("nrParameterDialog")
-        self.setWindowTitle("NR Table")
-        self._parameters_by_band = dict(parameters_by_band)
-        self._group_settings = dict(group_settings or _create_default_group_settings())
+        if generation not in {Generation.NR_SA, Generation.NR_NSA}:
+            raise ValueError(f"Unsupported NR generation: {generation.value}")
+        if state is not None and state.generation is not generation:
+            raise ValueError(
+                "NRSelectState generation does not match dialog generation: "
+                f"{state.generation.value} != {generation.value}"
+            )
+
+        self.setObjectName("nrSelectDialog")
+        self.setWindowTitle(f"{'NR SA' if generation is Generation.NR_SA else 'NR NSA'} Test Case")
+        self._generation = generation
+        self._parameters_by_band = _create_default_parameters()
+        self._group_settings = _create_default_group_settings()
+        self._selected_bands: set[NRBand] = set()
+        self._anchor_bands_by_band = {
+            band: SUPPORTED_NSA_ANCHOR_BANDS[0]
+            for band in self._parameters_by_band
+        }
+        if state is not None:
+            self._parameters_by_band.update(state.parameters_by_band)
+            self._group_settings.update(state.group_settings)
+            self._selected_bands.update(state.selected_bands)
+            self._anchor_bands_by_band.update(state.anchor_bands_by_band)
+
+        self._band_checks: dict[NRBand, QCheckBox] = {}
+        self._group_checks: dict[str, QCheckBox] = {}
         self._combo_by_cell: dict[tuple[NRBand, str], QComboBox] = {}
+        self._anchor_combo_by_band: dict[NRBand, QComboBox] = {}
         self._preview_items: dict[tuple[NRBand, int], QTableWidgetItem] = {}
         self._test_range_checks: dict[tuple[str, TestType], QCheckBox] = {}
         self._axis_button_groups: dict[str, QButtonGroup] = {}
         self._pol_button_groups: dict[str, QButtonGroup] = {}
+        self._column_offset = 1 if generation is Generation.NR_NSA else 0
         self._setup_layout()
         self._apply_styles()
+        self._sync_aggregate_checks()
 
+    @property
+    def generation(self) -> Generation:
+        """이 화면에 고정된 NR Generation을 반환한다."""
+
+        return self._generation
+
+    @property
     def parameters_by_band(self) -> dict[NRBand, NRCaseParameters]:
         """표에 입력된 band별 파라미터를 반환한다."""
 
@@ -303,6 +391,7 @@ class NRParameterDialog(QDialog):
             )
         return parameters
 
+    @property
     def group_settings(self) -> dict[str, NRGroupSettings]:
         """표에 입력된 group별 Test 대역/Position 설정을 반환한다."""
 
@@ -315,6 +404,39 @@ class NRParameterDialog(QDialog):
             )
         return settings
 
+    @property
+    def anchor_bands_by_band(self) -> dict[NRBand, LTEBand]:
+        """NSA 화면의 NR Band별 Anchor 선택값을 반환한다."""
+
+        if self._generation is Generation.NR_SA:
+            return {}
+        return {
+            band: combo.currentData()
+            for band, combo in self._anchor_combo_by_band.items()
+        }
+
+    @property
+    def state(self) -> NRSelectState:
+        """현재 화면 값을 다음 진입에서 복원할 상태로 반환한다."""
+
+        return NRSelectState(
+            generation=self._generation,
+            selected_bands=tuple(self.selected_bands()),
+            parameters_by_band=self.parameters_by_band,
+            group_settings=self.group_settings,
+            anchor_bands_by_band=self.anchor_bands_by_band,
+        )
+
+    def selected_bands(self) -> list[NRBand]:
+        """선택된 Band를 화면 표시 순서로 반환한다."""
+
+        return [
+            band
+            for group in BAND_GROUPS
+            for band in (_band_from_number(number) for number in group.bands)
+            if self._band_checks[band].isChecked()
+        ]
+
     def _setup_layout(self) -> None:
         """첨부 Table 형태의 설정/미리보기 표를 배치한다."""
 
@@ -322,9 +444,17 @@ class NRParameterDialog(QDialog):
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
 
-        self._table = QTableWidget(len(self._parameters_by_band), len(_PARAMETER_HEADERS), self)
+        headers = (
+            _NSA_PARAMETER_HEADERS
+            if self._generation is Generation.NR_NSA
+            else _SA_PARAMETER_HEADERS
+        )
+        self._table = QTableWidget(len(self._parameters_by_band), len(headers), self)
         self._table.setObjectName("nrParameterTable")
-        self._table.setHorizontalHeaderLabels(_PARAMETER_HEADERS)
+        header = _BandSelectionHeader(self._table)
+        self._table.setHorizontalHeader(header)
+        self._master_check = header.checkbox
+        self._table.setHorizontalHeaderLabels(headers)
         self._table.verticalHeader().setVisible(False)
         self._table.setAlternatingRowColors(False)
         self._table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
@@ -339,16 +469,23 @@ class NRParameterDialog(QDialog):
         self._normalize_group_row_heights()
         self._fit_parameter_table_width()
         self._fit_parameter_table_height()
+        self._master_check.clicked.connect(self.on_master_check_clicked)
         layout.addWidget(self._table)
 
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel,
-            self,
-        )
-        button_box.setObjectName("nrParameterButtonBox")
-        button_box.accepted.connect(self.accept)
-        button_box.rejected.connect(self.reject)
-        layout.addWidget(button_box)
+        button_layout = QHBoxLayout()
+        cancel_button = QPushButton("Cancel", self)
+        cancel_button.setObjectName("nrCancelButton")
+        cancel_button.setAutoDefault(False)
+        cancel_button.clicked.connect(self.reject)
+        add_button = QPushButton("Add", self)
+        add_button.setObjectName("nrAddButton")
+        add_button.setDefault(True)
+        add_button.setAutoDefault(True)
+        add_button.clicked.connect(self.on_add_clicked)
+        button_layout.addWidget(cancel_button)
+        button_layout.addStretch(1)
+        button_layout.addWidget(add_button)
+        layout.addLayout(button_layout)
         self.resize(self.sizeHint())
 
     def _apply_parameter_table_geometry(self) -> None:
@@ -359,7 +496,12 @@ class NRParameterDialog(QDialog):
         header.setStretchLastSection(False)
         header.setMinimumSectionSize(40)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        for column, width in enumerate(_PARAMETER_COLUMN_WIDTHS):
+        widths = (
+            _NSA_PARAMETER_COLUMN_WIDTHS
+            if self._generation is Generation.NR_NSA
+            else _SA_PARAMETER_COLUMN_WIDTHS
+        )
+        for column, width in enumerate(widths):
             self._table.setColumnWidth(column, width)
 
     def _fit_parameter_table_width(self) -> None:
@@ -378,8 +520,14 @@ class NRParameterDialog(QDialog):
         start_row = 0
         for group in BAND_GROUPS:
             row_count = len(group.bands)
-            test_range_widget = self._table.cellWidget(start_row, _TEST_RANGE_COLUMN)
-            position_widget = self._table.cellWidget(start_row, _POSITION_COLUMN)
+            test_range_widget = self._table.cellWidget(
+                start_row,
+                self._parameter_column(_TEST_RANGE_COLUMN),
+            )
+            position_widget = self._table.cellWidget(
+                start_row,
+                self._parameter_column(_POSITION_COLUMN),
+            )
             span_height = max(
                 test_range_widget.sizeHint().height() if test_range_widget else 0,
                 position_widget.sizeHint().height() if position_widget else 0,
@@ -416,17 +564,21 @@ class NRParameterDialog(QDialog):
         """그룹 병합 셀과 해당 Band 행들을 구성한다."""
 
         row_count = len(band_numbers)
-        group_title = _GROUP_TITLES[group_key]
-        self._set_spanned_item(start_row, _GROUP_COLUMN, row_count, group_title)
         self._set_spanned_widget(
             start_row,
-            _TEST_RANGE_COLUMN,
+            _GROUP_COLUMN,
+            row_count,
+            self._create_group_widget(group_key),
+        )
+        self._set_spanned_widget(
+            start_row,
+            self._parameter_column(_TEST_RANGE_COLUMN),
             row_count,
             self._create_test_range_widget(group_key),
         )
         self._set_spanned_widget(
             start_row,
-            _POSITION_COLUMN,
+            self._parameter_column(_POSITION_COLUMN),
             row_count,
             self._create_position_widget(group_key),
         )
@@ -438,17 +590,33 @@ class NRParameterDialog(QDialog):
             self._setup_band_row(row, band, parameters)
         return start_row + row_count
 
-    def _set_spanned_item(
-        self,
-        row: int,
-        column: int,
-        row_count: int,
-        text: str,
-    ) -> None:
-        item = QTableWidgetItem(text)
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._table.setItem(row, column, item)
-        self._table.setSpan(row, column, row_count, 1)
+    def _parameter_column(self, base_column: int) -> int:
+        """NSA Anchor 열 추가 여부를 반영한 실제 컬럼 인덱스를 반환한다."""
+
+        return base_column + self._column_offset
+
+    def _create_group_widget(self, group_key: str) -> QWidget:
+        widget = QWidget(self._table)
+        widget.setObjectName(f"nrBandGroup_{group_key}")
+        layout = QHBoxLayout(widget)
+        layout.setContentsMargins(6, 6, 6, 6)
+        layout.setSpacing(5)
+        label = QLabel(_GROUP_TITLES[group_key], widget)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        checkbox = QCheckBox(widget)
+        checkbox.setObjectName(f"nrBandGroupCheck_{group_key}")
+        checkbox.clicked.connect(
+            lambda checked=False, key=group_key: self.on_group_check_clicked(
+                key,
+                checked,
+            ),
+        )
+        self._group_checks[group_key] = checkbox
+        layout.addStretch(1)
+        layout.addWidget(label)
+        layout.addWidget(checkbox)
+        layout.addStretch(1)
+        return widget
 
     def _set_spanned_widget(
         self,
@@ -468,17 +636,33 @@ class NRParameterDialog(QDialog):
     ) -> None:
         """한 band에 해당하는 입력/미리보기 행을 구성한다."""
 
+        band_check = QCheckBox(self._table)
+        band_check.setObjectName(f"nrBandCheck_{band.value}")
+        band_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        band_check.setChecked(band in self._selected_bands)
+        band_check.stateChanged.connect(self._sync_aggregate_checks)
+        check_panel = QWidget(self._table)
+        check_layout = QHBoxLayout(check_panel)
+        check_layout.setContentsMargins(0, 0, 0, 0)
+        check_layout.addStretch(1)
+        check_layout.addWidget(band_check)
+        check_layout.addStretch(1)
+        self._table.setCellWidget(row, _BAND_SELECT_COLUMN, check_panel)
+        self._band_checks[band] = band_check
+
         band_item = self._create_center_item(_band_label(band))
         band_item.setData(Qt.ItemDataRole.UserRole, band)
         self._table.setItem(row, _BAND_COLUMN, band_item)
+        if self._generation is Generation.NR_NSA:
+            self._set_anchor_combo(row, band)
         self._table.setItem(
             row,
-            _SCS_COLUMN,
+            self._parameter_column(_SCS_COLUMN),
             self._create_center_item(str(find_band_group(band).scs_khz)),
         )
         self._set_combo(
             row,
-            _BANDWIDTH_COLUMN,
+            self._parameter_column(_BANDWIDTH_COLUMN),
             band,
             "bandwidth",
             get_supported_bandwidths(band),
@@ -487,7 +671,7 @@ class NRParameterDialog(QDialog):
         )
         self._set_combo(
             row,
-            _MODULATION_COLUMN,
+            self._parameter_column(_MODULATION_COLUMN),
             band,
             "modulation",
             tuple(Modulation),
@@ -495,7 +679,7 @@ class NRParameterDialog(QDialog):
         )
         self._set_combo(
             row,
-            _RB_ALLOCATION_COLUMN,
+            self._parameter_column(_RB_ALLOCATION_COLUMN),
             band,
             "rb_allocation",
             _RB_ALLOCATION_OPTIONS,
@@ -503,7 +687,7 @@ class NRParameterDialog(QDialog):
         )
         self._set_combo(
             row,
-            _CHANNEL_COLUMN,
+            self._parameter_column(_CHANNEL_COLUMN),
             band,
             "test_channel",
             _available_channels(band, parameters.bandwidth),
@@ -511,7 +695,7 @@ class NRParameterDialog(QDialog):
         )
         self._set_combo(
             row,
-            _EUT_ANT_COLUMN,
+            self._parameter_column(_EUT_ANT_COLUMN),
             band,
             "dut_ant_position",
             _DUT_ANT_POSITION_OPTIONS,
@@ -523,11 +707,23 @@ class NRParameterDialog(QDialog):
             _RB_SIZE_COLUMN,
             _RB_OFFSET_COLUMN,
         ):
+            column = self._parameter_column(column)
             item = self._create_center_item("")
             self._table.setItem(row, column, item)
             self._preview_items[(band, column)] = item
         self._connect_row_updates(band)
         self._refresh_row_preview(band)
+
+    def _set_anchor_combo(self, row: int, band: NRBand) -> None:
+        combo = QComboBox(self._table)
+        combo.setObjectName(f"nrAnchorBand_{band.value}")
+        for anchor_band in SUPPORTED_NSA_ANCHOR_BANDS:
+            combo.addItem(anchor_band.value, anchor_band)
+        current_anchor = self._anchor_bands_by_band[band]
+        index = combo.findData(current_anchor)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        self._table.setCellWidget(row, _ANCHOR_COLUMN, combo)
+        self._anchor_combo_by_band[band] = combo
 
     def _create_center_item(self, text: str) -> QTableWidgetItem:
         item = QTableWidgetItem(text)
@@ -604,7 +800,13 @@ class NRParameterDialog(QDialog):
             narfcn = resolve_call_channel(band, bandwidth, channel)
             frequency = resolve_target_frequency_mhz(band, bandwidth, channel)
             preview_case = TestCase(
+                generation=self._generation,
                 band=band,
+                anchor_band=(
+                    self._anchor_combo_by_band[band].currentData()
+                    if self._generation is Generation.NR_NSA
+                    else None
+                ),
                 bandwidth=bandwidth,
                 test_type=_test_range_options_for_group(_group_key_for_band(band))[0].test_type,
                 modulation=self._current_data(band, "modulation"),
@@ -615,17 +817,17 @@ class NRParameterDialog(QDialog):
                 dut_ant_position=self._current_data(band, "dut_ant_position"),
             )
             values = {
-                _NARFCN_COLUMN: str(narfcn),
-                _FREQUENCY_COLUMN: _format_number(frequency),
-                _RB_SIZE_COLUMN: str(preview_case.rb_size),
-                _RB_OFFSET_COLUMN: str(preview_case.rb_offset),
+                self._parameter_column(_NARFCN_COLUMN): str(narfcn),
+                self._parameter_column(_FREQUENCY_COLUMN): _format_number(frequency),
+                self._parameter_column(_RB_SIZE_COLUMN): str(preview_case.rb_size),
+                self._parameter_column(_RB_OFFSET_COLUMN): str(preview_case.rb_offset),
             }
         except ValueError:
             values = {
-                _NARFCN_COLUMN: "",
-                _FREQUENCY_COLUMN: "",
-                _RB_SIZE_COLUMN: "",
-                _RB_OFFSET_COLUMN: "",
+                self._parameter_column(_NARFCN_COLUMN): "",
+                self._parameter_column(_FREQUENCY_COLUMN): "",
+                self._parameter_column(_RB_SIZE_COLUMN): "",
+                self._parameter_column(_RB_OFFSET_COLUMN): "",
             }
         for column, value in values.items():
             self._preview_items[(band, column)].setText(value)
@@ -740,6 +942,120 @@ class NRParameterDialog(QDialog):
     def _current_data(self, band: NRBand, field_name: str) -> object:
         return self._combo_by_cell[(band, field_name)].currentData()
 
+    def on_master_check_clicked(self, checked: bool) -> None:
+        """전체 NR Band 선택 상태를 변경한다."""
+
+        for checkbox in self._band_checks.values():
+            checkbox.setChecked(checked)
+        self._sync_aggregate_checks()
+
+    def on_group_check_clicked(self, group_key: str, checked: bool) -> None:
+        """선택한 NR Band Group의 체크 상태를 변경한다."""
+
+        group = next(candidate for candidate in BAND_GROUPS if candidate.key == group_key)
+        for band_number in group.bands:
+            self._band_checks[_band_from_number(band_number)].setChecked(checked)
+        self._sync_aggregate_checks()
+
+    def _sync_aggregate_checks(self, state: int = 0) -> None:
+        del state
+        for group in BAND_GROUPS:
+            bands = [_band_from_number(number) for number in group.bands]
+            selected_count = sum(self._band_checks[band].isChecked() for band in bands)
+            self._set_aggregate_check_state(
+                self._group_checks[group.key],
+                selected_count,
+                len(bands),
+            )
+        selected_count = sum(
+            checkbox.isChecked()
+            for checkbox in self._band_checks.values()
+        )
+        self._set_aggregate_check_state(
+            self._master_check,
+            selected_count,
+            len(self._band_checks),
+        )
+
+    def _set_aggregate_check_state(
+        self,
+        checkbox: QCheckBox,
+        selected_count: int,
+        total_count: int,
+    ) -> None:
+        with QSignalBlocker(checkbox):
+            is_partial = 0 < selected_count < total_count
+            checkbox.setTristate(is_partial)
+            if selected_count == 0:
+                checkbox.setCheckState(Qt.CheckState.Unchecked)
+            elif selected_count == total_count:
+                checkbox.setCheckState(Qt.CheckState.Checked)
+            else:
+                checkbox.setCheckState(Qt.CheckState.PartiallyChecked)
+
+    def on_add_clicked(self) -> None:
+        """현재 화면 선택으로 NR TestCase를 생성한다."""
+
+        selected_bands = self.selected_bands()
+        if not selected_bands:
+            QMessageBox.warning(self, "NR Select", "선택된 Band가 없습니다.")
+            return
+        try:
+            cases = self._build_test_cases(selected_bands)
+        except ValueError as exc:
+            QMessageBox.warning(self, "NR Select", str(exc))
+            return
+        self.test_cases_created.emit(cases)
+        self.accept()
+
+    def _build_test_cases(self, bands: list[NRBand]) -> list[TestCase]:
+        self._validate_group_settings_for_bands(bands)
+        parameters_by_band = self.parameters_by_band
+        settings_by_group = self.group_settings
+        anchors_by_band = self.anchor_bands_by_band
+        cases: list[TestCase] = []
+        for band in bands:
+            settings = settings_by_group[_group_key_for_band(band)]
+            parameters = parameters_by_band[band]
+            for test_type in settings.selected_test_types:
+                for axis in settings.axis_sequence:
+                    for pol in settings.antenna_pol_sequence:
+                        cases.append(
+                            TestCase(
+                                generation=self._generation,
+                                band=band,
+                                anchor_band=(
+                                    anchors_by_band[band]
+                                    if self._generation is Generation.NR_NSA
+                                    else None
+                                ),
+                                bandwidth=parameters.bandwidth,
+                                test_type=test_type,
+                                modulation=parameters.modulation,
+                                rb_allocation=parameters.rb_allocation,
+                                test_channel=parameters.test_channel,
+                                antenna_pol=pol,
+                                dut_axis=axis,
+                                dut_ant_position=parameters.dut_ant_position,
+                            ),
+                        )
+        return cases
+
+    def _validate_group_settings_for_bands(self, bands: list[NRBand]) -> None:
+        settings_by_group = self.group_settings
+        selected_group_keys = {_group_key_for_band(band) for band in bands}
+        for group in BAND_GROUPS:
+            if group.key not in selected_group_keys:
+                continue
+            settings = settings_by_group[group.key]
+            group_title = _GROUP_TITLES[group.key]
+            if not settings.selected_test_types:
+                raise ValueError(f"{group_title} Test 대역을 선택하세요.")
+            if not settings.axis_sequence:
+                raise ValueError(f"{group_title} Axis Position을 선택하세요.")
+            if not settings.antenna_pol_sequence:
+                raise ValueError(f"{group_title} Pol Position을 선택하세요.")
+
     def _apply_styles(self) -> None:
         """NR Table 팝업 전용 스타일을 적용한다."""
 
@@ -798,353 +1114,12 @@ class NRParameterDialog(QDialog):
                 font-weight: 600;
             }
 
-            QDialogButtonBox QPushButton {
+            QPushButton#nrCancelButton,
+            QPushButton#nrAddButton {
                 background: #fbfbfb;
                 color: #111111;
                 border: 1px solid #2f5aa8;
                 padding: 5px 12px;
-            }
-            """
-        )
-
-
-class NRSelectDialog(QDialog):
-    """Test Manager에서 사용할 NR Test Case 선택 팝업."""
-
-    test_cases_created = Signal(list)
-
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        *,
-        parameters_by_band: Mapping[NRBand, NRCaseParameters] | None = None,
-        group_settings: Mapping[str, NRGroupSettings] | None = None,
-        generation: Generation = Generation.NR_SA,
-    ) -> None:
-        super().__init__(parent)
-        self.setObjectName("nrSelectDialog")
-        self.setWindowTitle("NR Select")
-        self._band_checks: dict[NRBand, QCheckBox] = {}
-        self._generation_buttons: dict[Generation, QPushButton] = {}
-        self._generation = generation
-        self._parameters_by_band = dict(parameters_by_band or _create_default_parameters())
-        self._group_settings = dict(group_settings or _create_default_group_settings())
-        self._setup_layout()
-        self._apply_styles()
-
-    @property
-    def generation(self) -> Generation:
-        """현재 선택된 NR generation을 반환한다."""
-
-        return self._generation
-
-    @property
-    def parameters_by_band(self) -> dict[NRBand, NRCaseParameters]:
-        """현재 저장된 band별 TestCase 파라미터를 반환한다."""
-
-        return dict(self._parameters_by_band)
-
-    @property
-    def group_settings(self) -> dict[str, NRGroupSettings]:
-        """현재 저장된 group별 Test 대역/Position 설정을 반환한다."""
-
-        return dict(self._group_settings)
-
-    def selected_bands(self) -> list[NRBand]:
-        """선택된 band 목록을 화면 순서대로 반환한다."""
-
-        return [
-            band
-            for band in self._parameters_by_band
-            if self._band_checks[band].isChecked()
-        ]
-
-    def _setup_layout(self) -> None:
-        """초안 기준 NR Select 레이아웃을 구성한다."""
-
-        root_layout = QHBoxLayout(self)
-        root_layout.setContentsMargins(18, 18, 18, 18)
-        root_layout.setSpacing(16)
-
-        band_layout = QVBoxLayout()
-        band_layout.setContentsMargins(0, 0, 0, 0)
-        band_layout.setSpacing(6)
-
-        title = QLabel("BAND", self)
-        title.setObjectName("nrBandTitle")
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setFixedSize(86, 46)
-        band_layout.addWidget(title, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        group_layout = QHBoxLayout()
-        group_layout.setContentsMargins(0, 0, 0, 0)
-        group_layout.setSpacing(14)
-        for group in BAND_GROUPS:
-            group_layout.addWidget(self._create_band_group(group.key, group.bands))
-        band_layout.addLayout(group_layout, 1)
-
-        action_layout = QVBoxLayout()
-        action_layout.setContentsMargins(0, 52, 0, 0)
-        action_layout.setSpacing(8)
-
-        action_layout.addWidget(self._create_generation_toggle())
-
-        self._table_button = QPushButton("Table", self)
-        self._table_button.setObjectName("nrTableButton")
-        self._table_button.setMinimumSize(210, 108)
-        self._table_button.clicked.connect(self.on_table_clicked)
-
-        self._add_button = QPushButton("Add", self)
-        self._add_button.setObjectName("nrAddButton")
-        self._add_button.setMinimumSize(210, 48)
-        self._add_button.clicked.connect(self.on_add_clicked)
-
-        action_layout.addWidget(self._table_button)
-        action_layout.addStretch(1)
-        action_layout.addWidget(self._add_button)
-
-        root_layout.addLayout(band_layout, 1)
-        root_layout.addLayout(action_layout)
-        self.setMinimumSize(860, 350)
-
-    def _create_generation_toggle(self) -> QWidget:
-        """NR SA/NSA 선택 토글을 만든다."""
-
-        panel = QWidget(self)
-        layout = QHBoxLayout(panel)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-        group = QButtonGroup(panel)
-        group.setExclusive(True)
-
-        for generation, label in (
-            (Generation.NR_SA, "SA"),
-            (Generation.NR_NSA, "NSA"),
-        ):
-            button = QPushButton(label, panel)
-            button.setObjectName(f"nrGenerationButton_{generation.value}")
-            button.setCheckable(True)
-            button.setMinimumWidth(102)
-            button.setMinimumHeight(32)
-            button.setChecked(generation is self._generation)
-            button.clicked.connect(
-                lambda checked=False, value=generation: self.on_generation_clicked(value),
-            )
-            group.addButton(button)
-            self._generation_buttons[generation] = button
-            layout.addWidget(button)
-
-        return panel
-
-    def on_generation_clicked(self, generation: Generation) -> None:
-        """NR generation 토글 선택값을 저장한다."""
-
-        self._generation = generation
-
-    def _create_band_group(self, group_key: str, band_numbers: tuple[int, ...]) -> QFrame:
-        """Band 그룹별 체크박스 영역을 만든다."""
-
-        group = QFrame(self)
-        group.setObjectName(f"nrBandGroup_{group_key}")
-        group.setProperty("nrBandGroup", True)
-        group.setMinimumWidth(144)
-        layout = QVBoxLayout(group)
-        layout.setContentsMargins(12, 12, 12, 8)
-        layout.setSpacing(4)
-
-        group_title = QLabel(_GROUP_TITLES[group_key], group)
-        group_title.setObjectName(f"nrBandGroupTitle_{group_key}")
-        group_title.setProperty("nrBandGroupTitle", True)
-        layout.addWidget(group_title)
-
-        for band_number in band_numbers:
-            band = _band_from_number(band_number)
-            layout.addWidget(self._create_band_check_row(group, band))
-
-        layout.addStretch(1)
-        toggle_button = QPushButton("ALL/RESET", group)
-        toggle_button.setObjectName(f"nrBandToggle_{group_key}")
-        toggle_button.clicked.connect(
-            lambda checked=False, key=group_key: self.on_group_toggle_clicked(key),
-        )
-        layout.addWidget(toggle_button)
-        return group
-
-    def _create_band_check_row(self, parent: QWidget, band: NRBand) -> QWidget:
-        """Band 라벨 오른쪽에 체크박스를 둔 행을 만든다."""
-
-        row = QWidget(parent)
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
-
-        label = QLabel(f"B{band.value[1:]}", row)
-        label.setObjectName(f"nrBandLabel_{band.value}")
-        checkbox = QCheckBox(row)
-        checkbox.setObjectName(f"nrBandCheck_{band.value}")
-        checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
-        checkbox.setFixedSize(22, 22)
-        self._band_checks[band] = checkbox
-
-        layout.addWidget(label)
-        layout.addStretch(1)
-        layout.addWidget(checkbox)
-        return row
-
-    def on_group_toggle_clicked(self, group_key: str) -> None:
-        """해당 그룹의 모든 Band를 선택하거나 해제한다."""
-
-        group = next(item for item in BAND_GROUPS if item.key == group_key)
-        bands = [_band_from_number(band_number) for band_number in group.bands]
-        should_check = not all(self._band_checks[band].isChecked() for band in bands)
-        for band in bands:
-            self._band_checks[band].setChecked(should_check)
-
-    def on_table_clicked(self) -> None:
-        """Band별 파라미터 입력 팝업을 연다."""
-
-        dialog = NRParameterDialog(
-            self._parameters_by_band,
-            self._group_settings,
-            self,
-        )
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self._parameters_by_band = dialog.parameters_by_band()
-            self._group_settings = dialog.group_settings()
-
-    def on_add_clicked(self) -> None:
-        """선택한 Band와 Table 파라미터로 TestCase를 생성한다."""
-
-        selected_bands = self.selected_bands()
-        if not selected_bands:
-            QMessageBox.warning(self, "NR Select", "선택된 Band가 없습니다.")
-            return
-
-        try:
-            cases = self._build_test_cases(selected_bands)
-        except ValueError as exc:
-            QMessageBox.warning(self, "NR Select", str(exc))
-            return
-
-        self.test_cases_created.emit(cases)
-        self.accept()
-
-    def _build_test_cases(self, bands: list[NRBand]) -> list[TestCase]:
-        """선택 Band/Test 대역/Position 조합을 TestCase 목록으로 펼친다."""
-
-        self._validate_group_settings_for_bands(bands)
-        cases: list[TestCase] = []
-        for band in bands:
-            group_key = _group_key_for_band(band)
-            group_settings = self._group_settings[group_key]
-            band_parameters = self._parameters_by_band[band]
-            for test_type in group_settings.selected_test_types:
-                for dut_axis in group_settings.axis_sequence:
-                    for antenna_pol in group_settings.antenna_pol_sequence:
-                        case = TestCase(
-                            generation=self._generation,
-                            band=band,
-                            bandwidth=band_parameters.bandwidth,
-                            test_type=test_type,
-                            modulation=band_parameters.modulation,
-                            rb_allocation=band_parameters.rb_allocation,
-                            test_channel=band_parameters.test_channel,
-                            antenna_pol=antenna_pol,
-                            dut_axis=dut_axis,
-                            dut_ant_position=band_parameters.dut_ant_position,
-                        )
-                        resolve_call_channel(case.band, case.bandwidth, case.test_channel)
-                        cases.append(case)
-        return cases
-
-    def _validate_group_settings_for_bands(self, bands: list[NRBand]) -> None:
-        selected_group_keys = {_group_key_for_band(band) for band in bands}
-        for group_key in selected_group_keys:
-            settings = self._group_settings[group_key]
-            group_title = _GROUP_TITLES[group_key]
-            if not settings.selected_test_types:
-                raise ValueError(f"{group_title} Test 대역을 선택하세요.")
-            if not settings.axis_sequence:
-                raise ValueError(f"{group_title} Axis Position을 선택하세요.")
-            if not settings.antenna_pol_sequence:
-                raise ValueError(f"{group_title} Pol Position을 선택하세요.")
-
-    def _apply_styles(self) -> None:
-        """NR Select 전용 기본 스타일을 적용한다."""
-
-        self.setStyleSheet(
-            """
-            QLabel#nrBandTitle,
-            QFrame[nrBandGroup="true"],
-            QPushButton {
-                border: 1px solid #2f5aa8;
-            }
-
-            QDialog#nrSelectDialog,
-            QFrame[nrBandGroup="true"],
-            QWidget {
-                background: #ffffff;
-                color: #111111;
-            }
-
-            QLabel {
-                color: #111111;
-            }
-
-            QLabel#nrBandTitle {
-                font-size: 20px;
-                background: #ffffff;
-                color: #111111;
-            }
-
-            QFrame[nrBandGroup="true"] {
-                background: #ffffff;
-            }
-
-            QLabel[nrBandGroupTitle="true"] {
-                font-size: 18px;
-                color: #111111;
-            }
-
-            QPushButton {
-                background: #fbfbfb;
-                color: #111111;
-                font-size: 18px;
-                padding: 5px 10px;
-            }
-
-            QPushButton:hover {
-                background: #f1f7ff;
-            }
-
-            QPushButton#nrGenerationButton_NR_SA,
-            QPushButton#nrGenerationButton_NR_NSA {
-                background: #ffffff;
-                border: 1px solid #2f5aa8;
-                color: #1f2937;
-                font-weight: 500;
-            }
-
-            QPushButton#nrGenerationButton_NR_SA:hover,
-            QPushButton#nrGenerationButton_NR_NSA:hover {
-                background: #edf5ff;
-            }
-
-            QPushButton#nrGenerationButton_NR_SA:checked,
-            QPushButton#nrGenerationButton_NR_NSA:checked {
-                background: #2f5aa8;
-                color: #ffffff;
-                font-weight: 700;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 1px solid #2f5aa8;
-                background: #ffffff;
-            }
-
-            QCheckBox::indicator:checked {
-                background: #5a9bd5;
             }
             """
         )
