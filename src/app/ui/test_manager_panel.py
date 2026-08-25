@@ -20,7 +20,6 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
-    QDialog,
     QFileDialog,
     QFrame,
     QGridLayout,
@@ -46,16 +45,16 @@ from app.config.file_dialog_directory_settings import (
     runtime_base_directory,
 )
 from app.core.tc_loader import load_csv, save_csv
-from app.models.enums import FilterMode, Generation, InputPath, LTEBand, NRBand
+from app.models.enums import Generation, LTEBand
 from app.models.test_case import TestCase
-from app.models.test_range import ALL_TEST_RANGES, TestRange
+from app.models.test_range import TestRange
 from app.models.test_run_settings import (
     TestRunSettings,
     default_screenshot_root_dir,
 )
 from app.ui.log_panel import LogPanel
 from app.ui.lte_select import LTECaseParameters, LTEGroupSettings, LTESelectDialog
-from app.ui.nr_select import NRCaseParameters, NRGroupSettings, NRSelectDialog
+from app.ui.nr_select import NRSelectDialog, NRSelectState
 
 _TABLE_HEADERS: tuple[str, ...] = (
     "Index",
@@ -120,7 +119,8 @@ _RUN_SETTING_BUTTON_NAMES = (
     "clearButton",
     "loadItemButton",
     "saveItemButton",
-    "nrButton",
+    "nrSaButton",
+    "nrNsaButton",
     "lteButton",
     "wcdmaButton",
     "gsmButton",
@@ -186,50 +186,6 @@ _TABLE_COLUMN_BASE_WIDTHS: tuple[int, ...] = (
     42,  # Pol
 )
 _TABLE_COLUMN_BASE_TOTAL = sum(_TABLE_COLUMN_BASE_WIDTHS)
-_RANGE_SETTING_HEADERS: tuple[str, ...] = (
-    "Mode",
-    "Range",
-    "Start Freq",
-    "Stop Freq",
-    "RBW(MHz)",
-    "VBW(MHz)",
-    "Limit(dBm)",
-    "Sweep point",
-    "Mast",
-    "Controller",
-    "Filter",
-)
-_RANGE_SETTING_COLUMN_WIDTHS: tuple[int, ...] = (
-    72,
-    72,
-    86,
-    86,
-    88,
-    88,
-    88,
-    98,
-    86,
-    104,
-    92,
-)
-_MAST_LABELS: dict[InputPath, str] = {
-    InputPath.INPUT1: "Mast2",
-    InputPath.INPUT2: "Mast1",
-    InputPath.INPUT3: "Mast3",
-}
-_CONTROLLER_LABELS: dict[InputPath, str] = {
-    InputPath.INPUT1: "CO3000",
-    InputPath.INPUT2: "CO3000",
-    InputPath.INPUT3: "TeraTerm",
-}
-_FILTER_LABELS: dict[FilterMode, str] = {
-    FilterMode.BRF: "BRF",
-    FilterMode.HPF_1G: "1G HPF",
-    FilterMode.HPF_3G: "3G HPF",
-    FilterMode.HPF_6G: "6G HPF",
-}
-
-
 def _default_csv_directory() -> Path:
     """배포 EXE 또는 개발 작업 디렉터리 기준 CSV 폴더를 반환한다."""
 
@@ -264,9 +220,10 @@ class TestManagerPanel(QWidget):
         self._test_case_progress: list[_TestCaseProgress] = []
         self._completed_test_case_indexes: set[int] = set()
         self._connection_indicators: dict[str, QFrame] = {}
-        self._nr_parameters_by_band: dict[NRBand, NRCaseParameters] | None = None
-        self._nr_generation: Generation = Generation.NR_SA
-        self._nr_group_settings: dict[str, NRGroupSettings] | None = None
+        self._nr_states: dict[Generation, NRSelectState | None] = {
+            Generation.NR_SA: None,
+            Generation.NR_NSA: None,
+        }
         self._lte_parameters_by_band: dict[LTEBand, LTECaseParameters] | None = None
         self._lte_group_settings: dict[str, LTEGroupSettings] | None = None
         self._setup_layout()
@@ -868,13 +825,13 @@ class TestManagerPanel(QWidget):
         self._excel_template_browse_button.clicked.connect(
             self.on_excel_template_browse_clicked,
         )
-        self._nr_button.clicked.connect(self.on_nr_button_clicked)
+        self._nr_sa_button.clicked.connect(self.on_nr_sa_button_clicked)
+        self._nr_nsa_button.clicked.connect(self.on_nr_nsa_button_clicked)
         self._lte_button.clicked.connect(self.on_lte_button_clicked)
         self._delete_button.clicked.connect(self.on_delete_button_clicked)
         self._clear_button.clicked.connect(self.on_clear_button_clicked)
         self._load_item_button.clicked.connect(self.on_load_item_button_clicked)
         self._save_item_button.clicked.connect(self.on_save_item_button_clicked)
-        self._case_confirm_button.clicked.connect(self.on_case_confirm_button_clicked)
         self._start_button.clicked.connect(self.start_requested.emit)
         self._single_start_button.clicked.connect(self.single_start_requested.emit)
         self._stop_button.clicked.connect(self.stop_requested.emit)
@@ -1145,11 +1102,11 @@ class TestManagerPanel(QWidget):
         layout.setSpacing(8)
 
         for text, object_name in (
-            ("NR", "nrButton"),
+            ("NR SA", "nrSaButton"),
+            ("NR NSA", "nrNsaButton"),
             ("LTE", "lteButton"),
             ("WCDMA", "wcdmaButton"),
             ("GSM", "gsmButton"),
-            ("Case 확인(1~6)", "caseConfirmButton"),
         ):
             button = QPushButton(text, panel)
             button.setObjectName(object_name)
@@ -1159,12 +1116,12 @@ class TestManagerPanel(QWidget):
                 QSizePolicy.Policy.Fixed,
                 QSizePolicy.Policy.Expanding,
             )
-            if object_name == "nrButton":
-                self._nr_button = button
+            if object_name == "nrSaButton":
+                self._nr_sa_button = button
+            elif object_name == "nrNsaButton":
+                self._nr_nsa_button = button
             elif object_name == "lteButton":
                 self._lte_button = button
-            elif object_name == "caseConfirmButton":
-                self._case_confirm_button = button
             layout.addWidget(button)
 
         return panel
@@ -1470,20 +1427,27 @@ class TestManagerPanel(QWidget):
         )
         self._file_dialog_settings_store.save(self._file_dialog_settings)
 
-    def on_nr_button_clicked(self) -> None:
-        """NR 버튼 클릭 시 TestCase 선택 팝업을 연다."""
+    def on_nr_sa_button_clicked(self) -> None:
+        """NR SA 통합 생성 팝업을 연다."""
+
+        self._open_nr_dialog(Generation.NR_SA)
+
+    def on_nr_nsa_button_clicked(self) -> None:
+        """NR NSA 통합 생성 팝업을 연다."""
+
+        self._open_nr_dialog(Generation.NR_NSA)
+
+    def _open_nr_dialog(self, generation: Generation) -> None:
+        """Generation별 독립 상태로 NR 통합 생성 팝업을 연다."""
 
         dialog = NRSelectDialog(
             self,
-            parameters_by_band=self._nr_parameters_by_band,
-            group_settings=self._nr_group_settings,
-            generation=self._nr_generation,
+            generation=generation,
+            state=self._nr_states[generation],
         )
         dialog.test_cases_created.connect(self.add_test_cases)
         dialog.exec()
-        self._nr_parameters_by_band = dialog.parameters_by_band
-        self._nr_group_settings = dialog.group_settings
-        self._nr_generation = dialog.generation
+        self._nr_states[generation] = dialog.state
 
     def on_lte_button_clicked(self) -> None:
         """LTE 버튼 클릭 시 통합 TestCase 생성 팝업을 연다."""
@@ -1497,13 +1461,6 @@ class TestManagerPanel(QWidget):
         dialog.exec()
         self._lte_parameters_by_band = dialog.parameters_by_band
         self._lte_group_settings = dialog.group_settings
-
-    def on_case_confirm_button_clicked(self) -> None:
-        """Range 1~6 세팅 확인 팝업을 연다."""
-
-        dialog = self._create_range_setting_dialog()
-        self._range_setting_dialog = dialog
-        dialog.show()
 
     def on_set_tdf_button_clicked(self) -> None:
         """선택된 TDF 파일 활성화를 요청한다."""
@@ -1568,80 +1525,6 @@ class TestManagerPanel(QWidget):
         if isinstance(file_name, str):
             return file_name
         return item.text()
-
-    def _create_range_setting_dialog(self) -> QDialog:
-        """Range 세팅 값을 읽기 전용 표로 표시하는 팝업을 만든다."""
-
-        dialog = QDialog(self)
-        dialog.setObjectName("rangeSettingDialog")
-        dialog.setWindowTitle("Range Setting")
-        dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
-
-        layout = QVBoxLayout(dialog)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(10)
-        layout.addWidget(self._create_range_setting_table(dialog))
-
-        close_button = QPushButton("Close", dialog)
-        close_button.setObjectName("rangeSettingCloseButton")
-        close_button.clicked.connect(dialog.close)
-        layout.addWidget(close_button, alignment=Qt.AlignmentFlag.AlignRight)
-        dialog.setFixedSize(dialog.sizeHint())
-        return dialog
-
-    def _create_range_setting_table(self, parent: QWidget) -> QTableWidget:
-        """고정 Range 정의를 사람이 읽기 쉬운 확인 표로 변환한다."""
-
-        table = QTableWidget(len(ALL_TEST_RANGES), len(_RANGE_SETTING_HEADERS), parent)
-        table.setObjectName("rangeSettingTable")
-        table.setHorizontalHeaderLabels(_RANGE_SETTING_HEADERS)
-        table.verticalHeader().setVisible(False)
-        table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        table.setAlternatingRowColors(False)
-
-        traffic_item = self._create_center_table_item("Traffic")
-        table.setItem(0, 0, traffic_item)
-        table.setSpan(0, 0, len(ALL_TEST_RANGES), 1)
-
-        for row, test_range in enumerate(ALL_TEST_RANGES):
-            for offset, value in enumerate(self._range_setting_row_values(test_range), start=1):
-                table.setItem(row, offset, self._create_center_table_item(value))
-
-        header = table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-        header.setStretchLastSection(False)
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
-        for column, width in enumerate(_RANGE_SETTING_COLUMN_WIDTHS):
-            table.setColumnWidth(column, width)
-        table.resizeRowsToContents()
-        table.setFixedSize(
-            sum(_RANGE_SETTING_COLUMN_WIDTHS) + table.verticalHeader().width() + 2,
-            table.horizontalHeader().height()
-            + sum(table.rowHeight(row) for row in range(table.rowCount()))
-            + (table.frameWidth() * 2)
-            + 2,
-        )
-        return table
-
-    def _create_center_table_item(self, text: str) -> QTableWidgetItem:
-        item = QTableWidgetItem(text)
-        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-        return item
-
-    def _range_setting_row_values(self, test_range: TestRange) -> tuple[str, ...]:
-        return (
-            str(test_range.id.value),
-            self._format_number(test_range.start_freq),
-            self._format_number(test_range.stop_freq),
-            self._format_number(test_range.rbw),
-            self._format_number(test_range.vbw),
-            self._format_number(test_range.limit),
-            str(test_range.sweep_point),
-            _MAST_LABELS[test_range.input_path],
-            _CONTROLLER_LABELS[test_range.input_path],
-            _FILTER_LABELS[test_range.filter_mode],
-        )
 
     def on_delete_button_clicked(self) -> None:
         """선택한 TestCase 하나를 삭제한다."""
@@ -1964,6 +1847,10 @@ class TestManagerPanel(QWidget):
         )
 
     def _format_band_label(self, case: TestCase) -> str:
+        if case.generation is Generation.NR_NSA:
+            if case.anchor_band is None:
+                raise ValueError("NR_NSA requires anchor_band")
+            return f"{case.band.value}-{case.anchor_band.value}"
         return case.band.value
 
     def _format_number(self, value: float) -> str:

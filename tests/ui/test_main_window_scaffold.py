@@ -1202,11 +1202,11 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         "getTdfListButton": "Get List",
         "tdfAllOffButton": "All Off",
         "setTdfButton": "Set TDF",
-        "nrButton": "NR",
+        "nrSaButton": "NR SA",
+        "nrNsaButton": "NR NSA",
         "lteButton": "LTE",
         "wcdmaButton": "WCDMA",
         "gsmButton": "GSM",
-        "caseConfirmButton": "Case 확인(1~6)",
     }
 
     for object_name, expected_text in expected_button_texts.items():
@@ -1216,58 +1216,20 @@ def test_test_manager_panel_buttons_have_visible_text(qtbot) -> None:
         assert button.text().strip()
         assert button.text() == expected_text
 
-
-def test_case_confirm_button_opens_range_setting_dialog(qtbot) -> None:
-    """Case 확인 버튼은 Range 1~6 세팅 값을 읽기 전용 팝업으로 표시한다."""
-
-    panel = ManagerPanel()
-    qtbot.addWidget(panel)
-
-    button = panel.findChild(QPushButton, "caseConfirmButton")
-    assert button is not None
-    button.click()
-
-    dialog = panel.findChild(QDialog, "rangeSettingDialog")
-    table = panel.findChild(QTableWidget, "rangeSettingTable")
-
-    assert dialog is not None
-    assert table is not None
-    assert dialog.isVisible()
-    assert table.rowCount() == 6
-    assert table.columnCount() == 11
-    assert [table.horizontalHeaderItem(index).text() for index in range(11)] == [
-        "Mode",
-        "Range",
-        "Start Freq",
-        "Stop Freq",
-        "RBW(MHz)",
-        "VBW(MHz)",
-        "Limit(dBm)",
-        "Sweep point",
-        "Mast",
-        "Controller",
-        "Filter",
-    ]
-    assert table.item(0, 0).text() == "Traffic"
-    assert table.rowSpan(0, 0) == 6
-    assert table.item(0, 1).text() == "1"
-    assert table.item(0, 8).text() == "Mast2"
-    assert table.item(1, 1).text() == "2"
-    assert table.item(1, 8).text() == "Mast1"
-    assert table.item(1, 9).text() == "CO3000"
-    assert table.item(1, 10).text() == "BRF"
-    assert table.item(5, 1).text() == "6"
-    assert table.item(5, 8).text() == "Mast3"
-    assert table.item(5, 9).text() == "TeraTerm"
-    assert table.item(5, 10).text() == "6G HPF"
-
-    dialog.close()
+    assert panel.findChild(QPushButton, "nrButton") is None
+    assert panel.findChild(QPushButton, "caseConfirmButton") is None
+    technology_panel = panel.findChild(QWidget, "technologyButtonPanel")
+    assert technology_panel is not None
+    assert [
+        technology_panel.layout().itemAt(index).widget().objectName()
+        for index in range(technology_panel.layout().count())
+    ] == ["nrSaButton", "nrNsaButton", "lteButton", "wcdmaButton", "gsmButton"]
 
 
 def test_test_manager_panel_technology_buttons_match_info_group_height(
     qtbot,
 ) -> None:
-    """우측 RAT/Case 버튼 영역을 Info 박스 높이에 맞춘다."""
+    """우측 RAT 버튼 영역을 Info 박스 높이에 맞춘다."""
 
     panel = ManagerPanel()
     qtbot.addWidget(panel)
@@ -1291,11 +1253,11 @@ def test_test_manager_panel_technology_buttons_match_info_group_height(
 
     button_heights = []
     for object_name in (
-        "nrButton",
+        "nrSaButton",
+        "nrNsaButton",
         "lteButton",
         "wcdmaButton",
         "gsmButton",
-        "caseConfirmButton",
     ):
         button = panel.findChild(QPushButton, object_name)
 
@@ -2101,7 +2063,8 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         "clearButton",
         "loadItemButton",
         "saveItemButton",
-        "nrButton",
+        "nrSaButton",
+        "nrNsaButton",
         "lteButton",
         "wcdmaButton",
         "gsmButton",
@@ -2124,7 +2087,6 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
         assert not window.findChild(QPushButton, object_name).isEnabled()
     for object_name in unlocked_buttons:
         assert window.findChild(QPushButton, object_name).isEnabled()
-    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert not custom_option_check_box.isEnabled()
     assert not marker_check_box.isEnabled()
 
@@ -2139,7 +2101,6 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
     for object_name in locked_buttons:
         assert window.findChild(QPushButton, object_name).isEnabled()
     assert not window.findChild(QPushButton, "stopButton").isEnabled()
-    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert custom_option_check_box.isEnabled()
     assert marker_check_box.isEnabled()
 
@@ -2147,7 +2108,6 @@ def test_main_window_locks_start_settings_while_measurement_active(qtbot) -> Non
 
     for object_name in locked_buttons:
         assert not window.findChild(QPushButton, object_name).isEnabled()
-    assert window.findChild(QPushButton, "caseConfirmButton").isEnabled()
     assert window.findChild(QPushButton, "stopButton").isEnabled()
 
 

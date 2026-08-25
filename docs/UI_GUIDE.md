@@ -76,8 +76,9 @@
   Turn Table Speed(1~10)/Next Peak Search Level(0~80] 오버라이드 + Marker 체크박스
   (수동 마커 모드). 미체크 시 기본값 5/5/0/6/None.
 - **스크린샷 미리보기** + 우측 고정 **LogPanel**(280px).
-- RAT 버튼(NR/LTE/WCDMA/GSM): **NR만 결선되어 있다** — LTE/WCDMA/GSM은 버튼만 존재.
-  "Case 확인" 버튼은 Range 1~6 설정을 read-only 표로 보여준다.
+- RAT 버튼은 **NR SA → NR NSA → LTE → WCDMA → GSM** 순서다. NR SA/NR NSA와
+  LTE는 각각의 통합 생성 화면에 연결되고 WCDMA/GSM은 현재 버튼만 유지한다.
+- TestCase 표에서 NSA Band는 `n5-B1`처럼 NR Band와 LTE Anchor를 함께 표시한다.
 
 실행 요청은 `start_requested`/`single_start_requested`/`stop_requested` 시그널로
 MainWindow에 위임되고, MainWindow가 `build_test_run_settings()` 검증 후 `Runner.start()`를
@@ -85,17 +86,19 @@ MainWindow에 위임되고, MainWindow가 `build_test_run_settings()` 검증 후
 
 ### NR TestCase 생성 — [nr_select.py](../src/app/ui/nr_select.py)
 
-2단 다이얼로그:
+**NRSelectDialog** 하나에서 Band 선택과 Parameter Table을 함께 제공한다. NR SA와 NR NSA는
+Test Manager의 별도 버튼에서 Generation이 고정된 화면으로 열리고 `NRSelectState`도 서로
+독립적으로 보존된다. 표는 band별 BW/MOD/RB Allocation/Channel/EUT ANT 콤보와
+NARFCN/주파수/RB Size/Offset 자동 미리보기를 제공한다. 그룹 단위로 시험 대역
+(라벨↔TestType 매핑: lb는 `30M-1G`=INBAND·`1-12.75G`=HARMONIC, mhb/uhb는
+BILOG/INBAND/HARMONIC 3종)과 Axis(X/Y/Z/X→Y→Z/Z→Y→X)/Pol(H/V/H→V/V→H) 시퀀스를
+선택한다.
 
-1. **NRSelectDialog**: band 그룹 4열의 band 체크박스, 그룹 ALL/RESET 토글, SA/NSA 토글,
-   Table/Add 버튼.
-2. **NRParameterDialog** (Table 버튼): band별 행에 BW/MOD/RB Allocation/Channel/EUT ANT
-   콤보와 NARFCN/주파수/RB Size/Offset 자동 미리보기. 그룹 단위로 시험 대역
-   (라벨↔TestType 매핑: lb는 `30M-1G`=INBAND·`1-12.75G`=HARMONIC, mhb/uhb는
-   BILOG/INBAND/HARMONIC 3종)과 Axis(X/Y/Z/X→Y→Z/Z→Y→X)/Pol(H/V/H→V/V→H) 시퀀스 선택.
+NSA 화면에만 NR Band 바로 옆 `LTE Anchor Band` 열이 표시되며 각 NR Band 행에서
+`B1/B3/B7/B8/B20/B28/B38/B40/B41` 중 하나를 고른다. Anchor Profile 입력은 제공하지 않는다.
 
 Add 시 **band × 시험타입 × axis 시퀀스 × pol 시퀀스** 중첩 루프로 TestCase 리스트를
-생성한다(중첩 순서 = 실행 순서). 다이얼로그 입력값은 패널에 보존되어 재열람 시 복원된다.
+생성한다(중첩 순서 = 실행 순서). NSA는 선택한 Anchor를 각 TestCase에 보존한다.
 
 ### RF Switch Box 수동 제어 — [rf_filter_box_panel.py](../src/app/ui/rf_filter_box_panel.py)
 

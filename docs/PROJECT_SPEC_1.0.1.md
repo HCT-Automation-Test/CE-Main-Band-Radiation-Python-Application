@@ -949,7 +949,7 @@ src/app/ui/test_manager_panel.py
 - Next Peak Search Level 입력
 - Custom Turn Table Speed 입력
 - Manual Marker mode 선택
-- NR Test Case 생성 dialog 실행
+- NR SA/NR NSA Test Case 통합 생성 dialog 실행
 - CSV Test Case load/save
 - Test Case table 표시
 - Start / Single Start / Stop
@@ -964,8 +964,10 @@ src/app/ui/test_manager_panel.py
 - Switch Box info 표시
 - Turntable info 표시
 - Polarization info 표시
-- Range setting 확인 dialog 표시
 - UI log panel 표시
+
+RAT 버튼은 `NR SA → NR NSA → LTE → WCDMA → GSM` 순서이며, SA와 NSA 화면 상태는
+Generation별로 독립 보존한다. NSA TestCase의 Band 표시는 `n5-B1` 형식을 사용한다.
 
 Test Case table 주요 컬럼:
 
@@ -998,10 +1000,14 @@ src/app/ui/nr_select.py
 
 주요 기능:
 
+- NR SA/NR NSA Generation별 단일 통합 화면
+- NR Band 선택과 Parameter Table 동시 표시
 - NR Band별 parameter 선택
 - Band group별 test range option 구성
 - Axis/Pol option 선택
 - 기본 parameter 생성
+- NSA 화면의 Band별 LTE Anchor 선택
+- Generation별 `NRSelectState` 저장과 복원
 - TestCase 목록 생성 후 Test Manager로 전달
 
 ### 16.5 RF Filter Box 화면

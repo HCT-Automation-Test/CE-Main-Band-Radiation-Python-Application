@@ -36,10 +36,19 @@ from app.ui.nr_select import (
 from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
 
 
-def _make_case(*, test_type: NRTestType = NRTestType.HARMONIC) -> TestCase:
+def _make_case(
+    *,
+    test_type: NRTestType = NRTestType.HARMONIC,
+    generation: Generation = Generation.NR_SA,
+    band: NRBand = NRBand.N78,
+    anchor_band: LTEBand | None = None,
+    bandwidth: float = 100.0,
+) -> TestCase:
     return TestCase(
-        band=NRBand.N78,
-        bandwidth=100.0,
+        generation=generation,
+        band=band,
+        anchor_band=anchor_band,
+        bandwidth=bandwidth,
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
@@ -540,6 +549,60 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert table.palette().color(QPalette.ColorRole.HighlightedText).name() == "#111111"
 
 
+def test_test_manager_panel_displays_nsa_band_with_anchor(qtbot) -> None:
+    """NSA TestCase는 Generation과 NR-Anchor 조합을 함께 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N5,
+        anchor_band=LTEBand.B1,
+        bandwidth=20.0,
+    )
+
+    panel.add_test_cases([case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 1).text() == "NR_NSA"
+    assert table.item(0, 2).text() == "n5-B1"
+
+
+def test_test_manager_load_displays_nsa_band_with_anchor(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """CSV에서 읽은 NSA TestCase에도 동일한 NR-Anchor 표시 규칙을 적용한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    csv_path = tmp_path / "nsa_cases.csv"
+    save_csv(
+        csv_path,
+        [
+            _make_case(
+                generation=Generation.NR_NSA,
+                band=NRBand.N5,
+                anchor_band=LTEBand.B1,
+                bandwidth=20.0,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args: (str(csv_path), "CSV Files (*.csv)"),
+    )
+
+    panel.findChild(QPushButton, "loadItemButton").click()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table.item(0, 1).text() == "NR_NSA"
+    assert table.item(0, 2).text() == "n5-B1"
+
+
 def test_test_manager_delete_button_removes_selected_single_case(qtbot) -> None:
     """삭제 버튼은 선택된 TestCase 하나만 제거한다."""
 
@@ -734,11 +797,11 @@ def test_test_manager_save_button_writes_current_cases_with_csv_suffix(
     ]
 
 
-def test_test_manager_nr_button_opens_dialog_and_appends_cases(
+def test_test_manager_nr_sa_button_opens_dialog_and_appends_cases(
     qtbot,
     monkeypatch,
 ) -> None:
-    """NR 버튼이 선택 팝업의 생성 결과를 Test Manager 표에 연결한다."""
+    """NR SA 버튼이 고정 Generation 팝업의 결과를 표에 연결한다."""
 
     case = _make_case()
     created: dict[str, object] = {}
@@ -750,27 +813,17 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
             self,
             parent: QWidget | None = None,
             *,
-            parameters_by_band=None,
-            group_settings=None,
             generation=Generation.NR_SA,
+            state=None,
         ) -> None:
             super().__init__(parent)
             created["parent"] = parent
-            created["parameters_by_band"] = parameters_by_band
-            created["group_settings"] = group_settings
             created["generation"] = generation
+            created["state"] = state
 
         @property
-        def parameters_by_band(self) -> dict:
-            return {}
-
-        @property
-        def group_settings(self) -> dict:
-            return {}
-
-        @property
-        def generation(self) -> Generation:
-            return Generation.NR_SA
+        def state(self) -> NRSelectState:
+            return NRSelectState(Generation.NR_SA, (), {}, {}, {})
 
         def exec(self) -> int:
             self.test_cases_created.emit([case])
@@ -781,38 +834,29 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
-    panel.findChild(QPushButton, "nrButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
 
     assert created["parent"] is panel
-    assert created["parameters_by_band"] is None
-    assert created["group_settings"] is None
     assert created["generation"] is Generation.NR_SA
+    assert created["state"] is None
     assert panel.test_cases == (case,)
 
 
-def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
+def test_test_manager_keeps_sa_and_nsa_states_independent(
     qtbot,
     monkeypatch,
 ) -> None:
-    """Test Manager가 NR Table 설정을 다음 NR 팝업에 다시 전달한다."""
+    """SA와 NSA 화면 상태는 각 진입점에서만 다시 사용한다."""
 
-    saved_parameters = {
-        NRBand.N78: NRCaseParameters(
-            bandwidth=100.0,
-            modulation=Modulation.QPSK,
-            rb_allocation=RBAllocation.INNER_FULL,
-            test_channel=NRTestChannel.MID,
-            dut_ant_position=DUTAntPosition.UPPER,
-        ),
-    }
-    saved_group_settings = {
-        "lb": NRGroupSettings(
-            selected_test_types=(NRTestType.HARMONIC,),
-            axis_sequence=(DUTAxis.X,),
-            antenna_pol_sequence=(AntennaPol.H,),
-        ),
-    }
-    calls: list[tuple[object, object, Generation]] = []
+    sa_state = NRSelectState(Generation.NR_SA, (NRBand.N78,), {}, {}, {})
+    nsa_state = NRSelectState(
+        Generation.NR_NSA,
+        (NRBand.N5,),
+        {},
+        {},
+        {NRBand.N5: LTEBand.B41},
+    )
+    calls: list[tuple[Generation, object]] = []
 
     class FakeDialog(QObject):
         test_cases_created = Signal(list)
@@ -821,24 +865,16 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
             self,
             parent: QWidget | None = None,
             *,
-            parameters_by_band=None,
-            group_settings=None,
             generation=Generation.NR_SA,
+            state=None,
         ) -> None:
             super().__init__(parent)
-            calls.append((parameters_by_band, group_settings, generation))
+            self._generation = generation
+            calls.append((generation, state))
 
         @property
-        def parameters_by_band(self) -> dict:
-            return saved_parameters
-
-        @property
-        def group_settings(self) -> dict:
-            return saved_group_settings
-
-        @property
-        def generation(self) -> Generation:
-            return Generation.NR_NSA
+        def state(self) -> NRSelectState:
+            return sa_state if self._generation is Generation.NR_SA else nsa_state
 
         def exec(self) -> int:
             return 0
@@ -848,10 +884,12 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
-    panel.findChild(QPushButton, "nrButton").click()
-    panel.findChild(QPushButton, "nrButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
+    panel.findChild(QPushButton, "nrNsaButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
 
     assert calls == [
-        (None, None, Generation.NR_SA),
-        (saved_parameters, saved_group_settings, Generation.NR_NSA),
+        (Generation.NR_SA, None),
+        (Generation.NR_NSA, None),
+        (Generation.NR_SA, sa_state),
     ]
