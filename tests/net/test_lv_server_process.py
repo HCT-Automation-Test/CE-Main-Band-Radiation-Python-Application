@@ -9,6 +9,28 @@ import pytest
 from app.net import lv_server_process
 from app.net.lv_server_process import LvServerError, LvServerManager
 
+_START_HIDE_PROCESS_WINDOWS_WORKER = (
+    lv_server_process._start_hide_process_windows_worker
+)
+
+
+@pytest.fixture(autouse=True)
+def _block_real_desktop_window_hiding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """실제 창 API 호출과 테스트 밖까지 남는 hide daemon 생성을 차단한다."""
+
+    monkeypatch.setattr(
+        lv_server_process,
+        "_hide_windows_for_process",
+        lambda _pid, _exe_path, _exe_name: False,
+    )
+    monkeypatch.setattr(
+        lv_server_process,
+        "_start_hide_process_windows_worker",
+        lambda _process, **_kwargs: None,
+    )
+
 
 def test_default_lv_server_exe_path_prefers_side_by_side_lv_server(
     tmp_path: Path,
@@ -221,7 +243,7 @@ def test_hide_process_windows_worker_runs_as_daemon(
     monkeypatch.setattr(lv_server_process.sys, "platform", "win32")
     monkeypatch.setattr(lv_server_process.threading, "Thread", Thread)
 
-    lv_server_process._start_hide_process_windows_worker(
+    _START_HIDE_PROCESS_WINDOWS_WORKER(
         process,
         exe_path=exe,
         timeout_s=3.0,

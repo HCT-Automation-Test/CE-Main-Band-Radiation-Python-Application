@@ -134,6 +134,11 @@ uv run pytest -q
 uv run pytest tests/core -k harmonic
 ```
 
+기본 pytest는 UI, Qt/QThread runtime, native desktop 테스트를 `quarantined`로 skip하고
+순수 테스트만 실행한다. 직접 경로나 `-m` 지정으로는 우회할 수 없다.
+`--run-quarantined`는 사용자의 명시적 승인 없이 사용하지 않으며, 승인된
+Windows Sandbox/VM 또는 별도 사용자 세션에서만 실행한다.
+
 ## Coding Rules
 
 - **레이어 분리**: `ui → core → (net | report)` 단방향. `net`/`report`는 `ui`에 의존하지 않는다.
@@ -210,6 +215,8 @@ uv run pytest tests/core -k harmonic
 - **report**: 실제 openpyxl 워크북 + COM fake.
 - **ui**: `pytest-qt`(qtbot) + `findChild(objectName)` 스캐폴드 검증.
 - **통합**: loopback 테스트만 CI 대상. 실기 외부 서버 대상 테스트는 사용자 승인 필요.
+- `qtbot`/`qapp` fixture를 사용하는 테스트는 collection 시 자동으로
+  `qt_runtime` + `quarantined`로 분류된다.
 
 ## Related Docs
 

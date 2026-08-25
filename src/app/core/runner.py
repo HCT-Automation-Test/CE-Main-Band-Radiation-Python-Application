@@ -38,6 +38,11 @@ _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
 _START_READY_TIMEOUT_SEC = 1.0
 _START_READY_POLL_SEC = 0.01
+_SHUTDOWN_WAIT_MS = 1000
+_THREAD_GENERATION_PROPERTY = "runner_generation"
+
+# 종료 제한 시간을 넘긴 Runner는 부모 UI와 분리한 뒤 스레드가 끝날 때까지 보존한다.
+_SHUTDOWN_KEEPERS: dict[int, "Runner"] = {}
 INSTRUMENT_SET_BLOCK_MESSAGE = "장비 Set이 진행 중입니다"
 INSTRUMENT_CONNECTION_BLOCK_MESSAGE = (
     "시험 실행 중에는 Instrument Check 연결을 시작할 수 없습니다."
@@ -95,6 +100,8 @@ class Runner(QObject):
     """
 
     measurement_active_changed = Signal(bool)
+    shutdown_finished = Signal()
+    _thread_destroyed_relay = Signal()
 
     def __init__(
         self,
@@ -115,6 +122,11 @@ class Runner(QObject):
         self._thread: QThread | None = None
         self._worker: _RunnerWorker | None = None
         self._ctx: SessionContext | None = None
+        self._generation = 0
+        self._active_generation: int | None = None
+        self._cleanup_thread: QThread | None = None
+        self._cleanup_worker: _RunnerWorker | None = None
+        self._pending_thread_completion: tuple[bool, bool, bool] | None = None
         self._owns_client = client is None
         self._client = client if client is not None else TcpClient(self)
         self._commands = commands
@@ -136,6 +148,9 @@ class Runner(QObject):
         self._measurement_active = False
         self._session_completed_normally = False
         self._shutting_down = False
+        self._shutdown_complete = False
+        self._shutdown_finished_emitted = False
+        self._client_closed = False
         self._instrument_connection_blockers: list[InstrumentConnectionBlocker] = []
         self._instrument_connection_service = (
             instrument_connection_service
@@ -160,11 +175,16 @@ class Runner(QObject):
         self._instrument_connection_service.equipment_disconnected.connect(
             self._on_equipment_disconnected
         )
+        self._thread_destroyed_relay.connect(
+            self._on_thread_destroyed,
+            Qt.ConnectionType.QueuedConnection,
+        )
 
     @property
     def is_running(self) -> bool:
-        """FSM worker thread 실행 여부."""
-        return self._thread is not None and self._thread.isRunning()
+        """현재 FSM 세대의 정리가 아직 완료되지 않았는지 반환한다."""
+
+        return self._active_generation is not None
 
     @property
     def context(self) -> SessionContext | None:
@@ -230,7 +250,7 @@ class Runner(QObject):
 
     def initialize(self) -> None:
         """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
-        if self.is_running:
+        if self._shutting_down or self.is_running:
             return
 
         self._temp_dir.mkdir(parents=True, exist_ok=True)
@@ -245,18 +265,28 @@ class Runner(QObject):
         )
         self._ctx.equipment_state = dict(self._equipment_state)
 
-        self._thread = QThread(self)
-        self._worker = _RunnerWorker(self._ctx, self._engine_factory)
-        self._worker.moveToThread(self._thread)
-        self._thread.started.connect(self._worker.run)
-        self._worker.finished.connect(
-            self._thread.quit,
+        self._generation += 1
+        generation = self._generation
+        thread = QThread(self)
+        worker = _RunnerWorker(self._ctx, self._engine_factory)
+        thread.setProperty(_THREAD_GENERATION_PROPERTY, generation)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(
+            thread.quit,
             Qt.ConnectionType.DirectConnection,
         )
-        self._worker.finished.connect(self._worker.deleteLater)
-        self._thread.finished.connect(self._thread.deleteLater)
-        self._thread.finished.connect(self._on_thread_finished)
-        self._thread.start()
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(
+            self._on_thread_finished,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        thread.destroyed.connect(self._thread_destroyed_relay)
+
+        self._thread = thread
+        self._worker = worker
+        self._active_generation = generation
+        thread.start()
 
     def connect_equipment(self) -> None:
         """기존 호출부 호환용 장비 준비 상태 재통지 shim."""
@@ -447,11 +477,18 @@ class Runner(QObject):
             self._emit_error(f"{label} 실패: command returned false")
         return ok
 
-    def shutdown(self) -> None:
-        """Runner가 소유한 worker, 연결 서비스, TCP client를 정리한다."""
+    def shutdown(self) -> bool:
+        """자원을 정리하고 완료 여부를 반환한다.
 
+        제한 시간 안에 worker가 끝나지 않으면 ``False``를 반환하고,
+        비동기 정리가 끝난 뒤 ``shutdown_finished``를 한 번 방출한다.
+        """
+
+        if self._shutdown_complete:
+            return True
         if self._shutting_down:
-            return
+            return False
+
         self._shutting_down = True
 
         shutdown = getattr(self._instrument_connection_service, "shutdown", None)
@@ -459,30 +496,48 @@ class Runner(QObject):
             shutdown()
 
         thread = self._thread
+        generation = self._active_generation
         self.stop()
-        if thread is not None and thread.isRunning() and not thread.wait(1000):
-            logger.error("Runner worker thread did not stop cleanly")
+        if thread is not None and thread.isRunning():
+            if not thread.wait(_SHUTDOWN_WAIT_MS):
+                logger.error("Runner worker thread did not stop cleanly")
+                self._retain_until_shutdown_finished()
+                return False
 
-        if self._owns_client:
-            close = getattr(self._client, "close", None)
-            if close is not None:
-                close()
+        if thread is not None and generation is not None:
+            self._finalize_thread(thread, generation)
+        elif generation is None:
+            self._complete_shutdown()
+
+        return self._shutdown_complete
 
     def _emit_error(self, message: str) -> None:
         logger.error(message)
         self.events.error.emit(message)
 
     def _is_waiting_for_start(self) -> bool:
-        if self._worker is None or self._worker.engine is None:
+        if (
+            self._active_generation is None
+            or self._ctx is None
+            or self._ctx.stopped
+            or self._thread is None
+            or not self._thread.isRunning()
+            or self._worker is None
+            or self._worker.engine is None
+        ):
             return False
         return self._worker.engine.current_state_name == _START_READY_STATE
 
     def _ensure_start_ready(self) -> bool:
+        if self._shutting_down:
+            return False
         if self._ctx is None or not self.is_running:
             self.initialize()
         if self._ctx is None:
             return False
         if not self.is_running:
+            return False
+        if self._ctx.stopped:
             return False
         if self._is_waiting_for_start():
             return True
@@ -491,6 +546,8 @@ class Runner(QObject):
         self._ctx.equipment_connect_requested.set()
         deadline = time.monotonic() + _START_READY_TIMEOUT_SEC
         while time.monotonic() < deadline:
+            if self._ctx.stopped:
+                return False
             if self._is_waiting_for_start():
                 return True
             if not self.is_running:
@@ -513,20 +570,104 @@ class Runner(QObject):
         self._measurement_active = active
         self.measurement_active_changed.emit(active)
 
+    @Slot()
     def _on_thread_finished(self) -> None:
+        sender = self.sender()
+        if not isinstance(sender, QThread):
+            logger.warning("Runner thread finished signal has an invalid sender")
+            return
+        generation = sender.property(_THREAD_GENERATION_PROPERTY)
+        if not isinstance(generation, int):
+            logger.warning("Runner thread finished signal has no generation")
+            return
+        self._finalize_thread(sender, generation)
+
+    def _finalize_thread(self, thread: QThread, generation: int) -> None:
+        """일치하는 실행 세대만 정리하고 QThread 삭제를 한 곳에서 예약한다."""
+
+        if self._thread is not thread or self._active_generation != generation:
+            logger.debug("Ignoring stale Runner thread completion: generation=%s", generation)
+            return
+
+        # QThread.finished는 native thread의 TLS 정리가 끝나기 직전에 방출될 수 있다.
+        # deleteLater 전에 wait()로 native tail까지 끝났음을 동기화한다.
+        thread.wait()
+
         ctx = self._ctx
         was_measurement_active = self._measurement_active
         completed_normally = self._session_completed_normally
         stopped = bool(ctx is not None and ctx.stopped)
-        self._set_measurement_active(False)
+
+        # 활성 참조를 먼저 비우되, deleteLater가 실제 처리될 때까지 세대는 유지한다.
+        # finished 직후 새 QThread를 만들면 이전 QThread의 DeferredDelete와 경쟁할 수 있다.
+        self._cleanup_thread = thread
+        self._cleanup_worker = self._worker
         self._thread = None
         self._worker = None
-        if not was_measurement_active or completed_normally or self._shutting_down:
+        self._pending_thread_completion = (
+            was_measurement_active,
+            completed_normally,
+            stopped,
+        )
+        self._set_measurement_active(False)
+        thread.deleteLater()
+
+    @Slot()
+    def _on_thread_destroyed(self) -> None:
+        """QThread의 DeferredDelete까지 끝난 세대만 최종 완료 처리한다."""
+
+        if self._active_generation is None or self._cleanup_thread is None:
+            logger.debug("Ignoring stale Runner thread destruction")
+            return
+
+        completion = self._pending_thread_completion
+        self._cleanup_thread = None
+        self._cleanup_worker = None
+        self._pending_thread_completion = None
+        self._active_generation = None
+
+        if self._shutting_down:
+            self._complete_shutdown()
+            return
+        if completion is None:
+            logger.warning("Runner thread destruction has no completion state")
+            return
+
+        was_measurement_active, completed_normally, stopped = completion
+        if not was_measurement_active or completed_normally:
             return
         if stopped:
             self.events.session_stopped.emit()
             return
         self.events.session_failed.emit()
+
+    def _retain_until_shutdown_finished(self) -> None:
+        """부모가 파괴되어도 실행 중인 Runner 전체가 살아 있도록 보존한다."""
+
+        if self.parent() is not None:
+            self.setParent(None)
+        _SHUTDOWN_KEEPERS[id(self)] = self
+
+    def _complete_shutdown(self) -> None:
+        """모든 Runner 자원의 종료 완료를 한 번만 알린다."""
+
+        if self._shutdown_complete or self._active_generation is not None:
+            return
+
+        if self._owns_client and not self._client_closed:
+            self._client_closed = True
+            close = getattr(self._client, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    logger.exception("Runner TCP client close failed")
+
+        self._shutdown_complete = True
+        if not self._shutdown_finished_emitted:
+            self._shutdown_finished_emitted = True
+            self.shutdown_finished.emit()
+        _SHUTDOWN_KEEPERS.pop(id(self), None)
 
     @Slot()
     def _on_session_finished(self) -> None:

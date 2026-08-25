@@ -34,6 +34,9 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 - 외부 I/O는 **반드시** mock 또는 loopback. 실기 서버 접속은 금지.
 - 플래키 테스트 금지: `sleep` 대신 `qtbot.waitUntil` / `waitSignal`.
 - 작성 후 `uv run pytest tests/<경로>` 로 실제 통과 확인.
+- `qtbot`/`qapp`을 사용하는 테스트는 자동으로 `qt_runtime` + `quarantined`로
+  분류된다. 경로를 직접 지정해도 기본 실행에서는 skip된다.
+- **사용자의 명시적 승인 없이 `--run-quarantined`를 절대 사용하지 않는다.**
 
 ## 실행 명령
 
@@ -43,6 +46,10 @@ uv run pytest tests/core -v                # 특정 계층
 uv run pytest -k "tc_loader and yaml"      # 키워드
 uv run pytest --lf                         # 마지막 실패한 것만
 ```
+
+위 명령은 모두 안전한 기본 suite만 실행한다. 승인된 Windows Sandbox/VM 또는
+별도 사용자 세션에서 격리 테스트를 실행할 때만 사용자가 지시한 범위에
+`--run-quarantined`를 추가한다.
 
 ## 출력
 

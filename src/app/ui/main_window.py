@@ -148,6 +148,8 @@ class MainWindow(QMainWindow):
         self._ui = Ui_MainWindow()
         self._ui.setupUi(self)
         self._runner = Runner(self)
+        self._close_pending_runner_shutdown = False
+        self._shutdown_dependencies_started = False
         self._instrument_set_active = False
         self._tdf_operation_active = False
         self._pending_tdf_operation: str | None = None
@@ -202,6 +204,10 @@ class MainWindow(QMainWindow):
         self._tdf_service.operation_failed.connect(self.on_tdf_operation_failed)
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
+        )
+        self._runner.shutdown_finished.connect(
+            self.on_runner_shutdown_finished,
+            Qt.ConnectionType.QueuedConnection,
         )
         self._runner.events.current_case_changed.connect(
             self.on_current_case_changed,
@@ -876,23 +882,40 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802
         """윈도우 종료 전에 worker를 가진 하위 패널을 정리한다."""
 
+        self._close_pending_runner_shutdown = True
+        self._shutdown_dependencies()
+        if not self._runner.shutdown():
+            self.setEnabled(False)
+            event.ignore()
+            return
+
+        self._close_pending_runner_shutdown = False
+        super().closeEvent(event)
+
+    def on_runner_shutdown_finished(self) -> None:
+        """지연된 Runner 정리가 끝나면 보류했던 윈도우 종료를 재개한다."""
+
+        if not self._close_pending_runner_shutdown:
+            return
+        self.close()
+
+    def event(self, event: QEvent) -> bool:
+        if event.type() == QEvent.Type.Destroy:
+            self._shutdown_dependencies()
+            self._runner.shutdown()
+        return super().event(event)
+
+    def _shutdown_dependencies(self) -> None:
+        """MainWindow가 소유한 보조 UI와 서비스를 한 번만 정리한다."""
+
+        if self._shutdown_dependencies_started:
+            return
+        self._shutdown_dependencies_started = True
         self._close_rf_switch_box_window()
         self._shutdown_child_panels()
         self._close_tdf_progress_dialog()
         self._close_manual_marker_dialog()
         self._tdf_service.shutdown()
-        self._runner.shutdown()
-        super().closeEvent(event)
-
-    def event(self, event: QEvent) -> bool:
-        if event.type() == QEvent.Type.Destroy:
-            self._close_rf_switch_box_window()
-            self._shutdown_child_panels()
-            self._close_tdf_progress_dialog()
-            self._close_manual_marker_dialog()
-            self._tdf_service.shutdown()
-            self._runner.shutdown()
-        return super().event(event)
 
     def _close_manual_marker_dialog(self) -> None:
         dialog = getattr(self, "_manual_marker_dialog", None)
