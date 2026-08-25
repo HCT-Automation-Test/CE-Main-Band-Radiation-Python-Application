@@ -229,6 +229,7 @@ Models 계층은 시험 조건을 코드에서 안정적으로 표현하기 위�
 
 - `generation`
 - `band`
+- `anchor_band`
 - `bandwidth`
 - `test_type`
 - `modulation`
@@ -255,8 +256,13 @@ Models 계층은 시험 조건을 코드에서 안정적으로 표현하기 위�
 CSV fieldnames:
 
 ```text
-generation,band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
+generation,band,anchor_band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
 ```
+
+`anchor_band`는 `NR_NSA`에서만 필수이며 지원값은
+`B1/B3/B7/B8/B20/B28/B38/B40/B41`이다. `NR_SA`와 `LTE`에서는 빈 값이어야 한다.
+기존 10열 `NR_SA`/`LTE` CSV는 읽을 수 있지만 저장 시 11열로 갱신되며, 10열
+`NR_NSA`는 Anchor를 추정하지 않고 차단한다.
 
 샘플 파일:
 
@@ -267,8 +273,8 @@ testcases/samples/harmonic_sample.csv
 샘플 내용:
 
 ```csv
-generation,band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
-NR_SA,n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper
+generation,band,anchor_band,bandwidth,test_type,modulation,rb_allocation,test_channel,antenna_pol,dut_axis,dut_ant_position
+NR_SA,n78,,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper
 ```
 
 ### 10.4 TestRange 정의

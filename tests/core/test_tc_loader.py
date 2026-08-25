@@ -9,6 +9,9 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
+    LTEBand,
+    LTERBAllocation,
     Modulation,
     NRBand,
     RBAllocation,
@@ -17,6 +20,10 @@ from app.models.enums import (
 )
 from app.models.test_case import CSV_FIELDNAMES, TestCase
 from app.models.test_range import RangeId
+
+_LEGACY_CSV_FIELDNAMES = tuple(
+    field_name for field_name in CSV_FIELDNAMES if field_name != "anchor_band"
+)
 
 
 def _build_case(
@@ -118,7 +125,7 @@ def test_load_csv_reports_row_and_field_context_for_invalid_rows(tmp_path: Path)
     path = tmp_path / "invalid_row.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "NR_SA,n78,100,unknown,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n78,,100,unknown,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -126,11 +133,11 @@ def test_load_csv_reports_row_and_field_context_for_invalid_rows(tmp_path: Path)
         load_csv(path)
 
 
-def test_load_csv_rejects_legacy_bandwidth_unit_suffix(tmp_path: Path) -> None:
+def test_load_csv_rejects_bandwidth_unit_suffix(tmp_path: Path) -> None:
     path = tmp_path / "legacy_bandwidth.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "NR_SA,n78,100MHz,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n78,,100MHz,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -142,7 +149,7 @@ def test_load_csv_rejects_unsupported_bandwidth_for_band(tmp_path: Path) -> None
     path = tmp_path / "unsupported_bandwidth.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "NR_SA,n71,30,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        "NR_SA,n71,,30,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 
@@ -151,3 +158,136 @@ def test_load_csv_rejects_unsupported_bandwidth_for_band(tmp_path: Path) -> None
         match=r"row 2: Unsupported bandwidth '30' for band 'n71'",
     ):
         load_csv(path)
+
+
+def test_load_csv_accepts_legacy_nr_sa_and_lte_rows(tmp_path: Path) -> None:
+    path = tmp_path / "legacy_cases.csv"
+    path.write_text(
+        ",".join(_LEGACY_CSV_FIELDNAMES) + "\n"
+        "NR_SA,n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n"
+        "LTE,B1,5,harmonic,QPSK,mid,mid,H,X,Upper\n",
+        encoding="utf-8",
+    )
+
+    cases = load_csv(path)
+
+    assert [case.generation for case in cases] == [
+        Generation.NR_SA,
+        Generation.LTE,
+    ]
+    assert all(case.anchor_band is None for case in cases)
+
+
+def test_load_csv_rejects_legacy_nr_nsa_without_anchor_migration(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "legacy_nsa.csv"
+    path.write_text(
+        ",".join(_LEGACY_CSV_FIELDNAMES) + "\n"
+        "NR_NSA,n78,100,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=r"row 2: legacy 10-column NR_NSA CSV requires anchor_band migration",
+    ):
+        load_csv(path)
+
+
+@pytest.mark.parametrize(
+    ("anchor_band", "expected_error"),
+    [
+        ("", "NR_NSA requires anchor_band"),
+        ("B5", "Unsupported NSA anchor_band"),
+    ],
+)
+def test_load_csv_rejects_invalid_nr_nsa_anchor_with_row_context(
+    tmp_path: Path,
+    anchor_band: str,
+    expected_error: str,
+) -> None:
+    path = tmp_path / "invalid_nsa.csv"
+    path.write_text(
+        ",".join(CSV_FIELDNAMES) + "\n"
+        f"NR_NSA,n78,{anchor_band},100,harmonic,QPSK,Inner_Full,mid,H,X,Upper\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=rf"row 2: {expected_error}"):
+        load_csv(path)
+
+
+@pytest.mark.parametrize("generation", ["NR_SA", "LTE"])
+def test_load_csv_rejects_anchor_for_non_nsa_generation(
+    tmp_path: Path,
+    generation: str,
+) -> None:
+    path = tmp_path / "invalid_non_nsa_anchor.csv"
+    band = "n78" if generation == "NR_SA" else "B1"
+    bandwidth = "100" if generation == "NR_SA" else "5"
+    rb_allocation = "Inner_Full" if generation == "NR_SA" else "mid"
+    path.write_text(
+        ",".join(CSV_FIELDNAMES) + "\n"
+        f"{generation},{band},B1,{bandwidth},harmonic,QPSK,"
+        f"{rb_allocation},mid,H,X,Upper\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=rf"row 2: {generation} must not define"):
+        load_csv(path)
+
+
+def test_save_csv_round_trips_sa_nsa_and_lte_with_current_schema(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "all_generations.csv"
+    cases = [
+        _build_case(band=NRBand.N78),
+        TestCase(
+            generation=Generation.NR_NSA,
+            anchor_band=LTEBand.B1,
+            band=NRBand.N78,
+            bandwidth=100.0,
+            test_type=MeasurementTestType.HARMONIC,
+            modulation=Modulation.QPSK,
+            rb_allocation=RBAllocation.INNER_FULL,
+            test_channel=ChannelEnum.MID,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.X,
+            dut_ant_position=DUTAntPosition.UPPER,
+        ),
+        TestCase(
+            generation=Generation.LTE,
+            band=LTEBand.B1,
+            bandwidth=5.0,
+            test_type=MeasurementTestType.HARMONIC,
+            modulation=Modulation.QPSK,
+            rb_allocation=LTERBAllocation.MID,
+            test_channel=ChannelEnum.MID,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.X,
+            dut_ant_position=DUTAntPosition.UPPER,
+        ),
+    ]
+
+    save_csv(path, cases)
+    loaded = load_csv(path)
+
+    assert [case.to_csv_row() for case in loaded] == [
+        case.to_csv_row() for case in cases
+    ]
+    assert loaded[1].anchor_band is LTEBand.B1
+
+
+def test_save_csv_rejects_mutated_invalid_anchor_before_creating_file(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "invalid.csv"
+    case = _build_case(band=NRBand.N78)
+    case.anchor_band = LTEBand.B1
+
+    with pytest.raises(ValueError, match="NR_SA must not define anchor_band"):
+        save_csv(path, [case])
+
+    assert not path.exists()

@@ -74,7 +74,7 @@ def test_lte_csv_reports_row_for_unsupported_bandwidth(tmp_path: Path) -> None:
     path = tmp_path / "invalid_lte.csv"
     path.write_text(
         ",".join(CSV_FIELDNAMES) + "\n"
-        "LTE,B34,20,harmonic,QPSK,mid,mid,H,X,Upper\n",
+        "LTE,B34,,20,harmonic,QPSK,mid,mid,H,X,Upper\n",
         encoding="utf-8",
     )
 

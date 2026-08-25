@@ -10,6 +10,7 @@ from app.models.enums import (
     FilterMode,
     Generation,
     InputPath,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -17,6 +18,7 @@ from app.models.enums import (
     TestType as MeasurementTestType,
 )
 from app.models.supported_bandwidths import get_supported_bandwidths
+from app.models.nsa_anchor import SUPPORTED_NSA_ANCHOR_BANDS
 from app.models.test_case import CSV_FIELDNAMES, TestCase
 from app.models.test_range import RangeId
 
@@ -63,6 +65,36 @@ def test_test_case_instantiation() -> None:
     assert case.antenna_pol is AntennaPol.H
     assert case.dut_axis is DUTAxis.X
     assert case.dut_ant_position is DUTAntPosition.UPPER
+
+
+def test_test_case_csv_fieldnames_include_anchor_in_canonical_order() -> None:
+    assert CSV_FIELDNAMES == (
+        "generation",
+        "band",
+        "anchor_band",
+        "bandwidth",
+        "test_type",
+        "modulation",
+        "rb_allocation",
+        "test_channel",
+        "antenna_pol",
+        "dut_axis",
+        "dut_ant_position",
+    )
+
+
+def test_supported_nsa_anchor_band_allowlist_is_exact() -> None:
+    assert SUPPORTED_NSA_ANCHOR_BANDS == (
+        LTEBand.B1,
+        LTEBand.B3,
+        LTEBand.B7,
+        LTEBand.B8,
+        LTEBand.B20,
+        LTEBand.B28,
+        LTEBand.B38,
+        LTEBand.B40,
+        LTEBand.B41,
+    )
 
 
 def test_test_case_coerces_test_channel_on_direct_instantiation() -> None:
@@ -280,6 +312,7 @@ def test_test_case_from_csv_row_parses_nr_nsa_generation() -> None:
         {
             "generation": "NR_NSA",
             "band": "n78",
+            "anchor_band": "B1",
             "bandwidth": "100",
             "test_type": "harmonic",
             "modulation": "QPSK",
@@ -292,6 +325,110 @@ def test_test_case_from_csv_row_parses_nr_nsa_generation() -> None:
     )
 
     assert case.generation is Generation.NR_NSA
+    assert case.anchor_band is LTEBand.B1
+
+
+def test_test_case_requires_anchor_band_for_nr_nsa() -> None:
+    with pytest.raises(ValueError, match="NR_NSA requires anchor_band"):
+        TestCase(
+            generation=Generation.NR_NSA,
+            band=NRBand.N78,
+            bandwidth=100.0,
+            test_type=MeasurementTestType.HARMONIC,
+            modulation=Modulation.QPSK,
+            rb_allocation=RBAllocation.INNER_FULL,
+            test_channel=ChannelEnum.MID,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.X,
+            dut_ant_position=DUTAntPosition.UPPER,
+        )
+
+
+def test_test_case_coerces_nr_nsa_anchor_band_case_insensitively() -> None:
+    case = TestCase(
+        generation=Generation.NR_NSA,
+        anchor_band="b1",
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=MeasurementTestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=RBAllocation.INNER_FULL,
+        test_channel=ChannelEnum.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    assert case.anchor_band is LTEBand.B1
+
+
+@pytest.mark.parametrize("anchor_band", [LTEBand.B5, LTEBand.B34])
+def test_test_case_rejects_unsupported_nr_nsa_anchor_band(
+    anchor_band: LTEBand,
+) -> None:
+    with pytest.raises(ValueError, match="Unsupported NSA anchor_band"):
+        TestCase(
+            generation=Generation.NR_NSA,
+            anchor_band=anchor_band,
+            band=NRBand.N78,
+            bandwidth=100.0,
+            test_type=MeasurementTestType.HARMONIC,
+            modulation=Modulation.QPSK,
+            rb_allocation=RBAllocation.INNER_FULL,
+            test_channel=ChannelEnum.MID,
+            antenna_pol=AntennaPol.H,
+            dut_axis=DUTAxis.X,
+            dut_ant_position=DUTAntPosition.UPPER,
+        )
+
+
+@pytest.mark.parametrize("generation", [Generation.NR_SA, Generation.LTE])
+def test_test_case_rejects_anchor_band_for_non_nsa_generation(
+    generation: Generation,
+) -> None:
+    case_args = {
+        "generation": generation,
+        "anchor_band": LTEBand.B1,
+        "band": NRBand.N78 if generation is Generation.NR_SA else LTEBand.B1,
+        "bandwidth": 100.0 if generation is Generation.NR_SA else 5.0,
+        "test_type": MeasurementTestType.HARMONIC,
+        "modulation": Modulation.QPSK,
+        "rb_allocation": (
+            RBAllocation.INNER_FULL
+            if generation is Generation.NR_SA
+            else "mid"
+        ),
+        "test_channel": ChannelEnum.MID,
+        "antenna_pol": AntennaPol.H,
+        "dut_axis": DUTAxis.X,
+        "dut_ant_position": DUTAntPosition.UPPER,
+    }
+
+    with pytest.raises(ValueError, match="must not define anchor_band"):
+        TestCase(**case_args)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("band", list(NRBand))
+@pytest.mark.parametrize("anchor_band", SUPPORTED_NSA_ANCHOR_BANDS)
+def test_test_case_allows_every_nr_band_and_supported_anchor_combination(
+    band: NRBand,
+    anchor_band: LTEBand,
+) -> None:
+    case = TestCase(
+        generation=Generation.NR_NSA,
+        anchor_band=anchor_band,
+        band=band,
+        bandwidth=get_supported_bandwidths(band)[0],
+        test_type=MeasurementTestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=RBAllocation.INNER_FULL,
+        test_channel=ChannelEnum.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position=DUTAntPosition.UPPER,
+    )
+
+    assert case.anchor_band is anchor_band
 
 
 def test_test_case_from_csv_row_rejects_unknown_generation() -> None:
@@ -316,6 +453,7 @@ def test_test_case_to_csv_row_uses_external_csv_schema_only() -> None:
     assert list(row) == list(CSV_FIELDNAMES)
     assert row["generation"] == "NR_SA"
     assert row["band"] == "n78"
+    assert row["anchor_band"] == ""
     assert row["bandwidth"] == "100"
     assert row["test_type"] == "harmonic"
     assert row["test_channel"] == "mid"

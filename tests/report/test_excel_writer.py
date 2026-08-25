@@ -60,6 +60,7 @@ def _make_case(
         dut_axis=dut_axis,
         dut_ant_position=dut_ant_position,
         generation=generation,
+        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
     )
 
 

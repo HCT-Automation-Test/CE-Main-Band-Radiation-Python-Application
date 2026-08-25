@@ -25,6 +25,7 @@ from app.models.lte_channel_lookup import resolve_arfcn, resolve_lte_frequency_m
 from app.models.lte_rb_parameters import resolve_lte_rb_parameters
 from app.models.lte_supported_bandwidths import validate_lte_supported_bandwidth
 from app.models.nr_channel_lookup import resolve_call_channel, resolve_target_frequency_mhz
+from app.models.nsa_anchor import validate_anchor_band_for_generation
 from app.models.rb_parameters import resolve_rb_parameters
 from app.models.supported_bandwidths import validate_supported_bandwidth
 from app.models.test_range import RangeId, TestRange, get_test_range
@@ -32,6 +33,7 @@ from app.models.test_range import RangeId, TestRange, get_test_range
 CSV_FIELDNAMES: tuple[str, ...] = (
     "generation",
     "band",
+    "anchor_band",
     "bandwidth",
     "test_type",
     "modulation",
@@ -99,6 +101,17 @@ def _parse_enum_value(row: dict[str, Any], field_name: str, enum_type: type[Enum
     return _coerce_enum_value(_get_required_csv_value(row, field_name), field_name, enum_type)
 
 
+def _parse_optional_enum_value(
+    row: dict[str, Any],
+    field_name: str,
+    enum_type: type[EnumT],
+) -> EnumT | None:
+    value = row.get(field_name)
+    if value is None or not str(value).strip():
+        return None
+    return _coerce_enum_value(value, field_name, enum_type)
+
+
 @dataclass
 class TestCase:
     """CSV 스키마의 한 행을 표현하는 Test Case."""
@@ -115,9 +128,21 @@ class TestCase:
     dut_axis: DUTAxis
     dut_ant_position: DUTAntPosition
     generation: Generation = Generation.NR_SA
+    anchor_band: LTEBand | None = None
 
     def __post_init__(self) -> None:
         self.generation = _coerce_enum_value(self.generation, "generation", Generation)
+        if self.anchor_band is not None and str(self.anchor_band).strip():
+            self.anchor_band = _coerce_enum_value(
+                self.anchor_band,
+                "anchor_band",
+                LTEBand,
+            )
+        else:
+            self.anchor_band = None
+
+        validate_anchor_band_for_generation(self.generation, self.anchor_band)
+
         if self.generation is Generation.LTE:
             self.band = _coerce_enum_value(self.band, "band", LTEBand)
             self.rb_allocation = _coerce_enum_value(
@@ -244,6 +269,7 @@ class TestCase:
         """검증한 CSV dict 한 행으로부터 TestCase를 생성한다."""
 
         generation = _parse_enum_value(row, "generation", Generation)
+        anchor_band = _parse_optional_enum_value(row, "anchor_band", LTEBand)
         band: NRBand | LTEBand
         rb_allocation: RBAllocation | LTERBAllocation
         if generation is Generation.LTE:
@@ -279,6 +305,7 @@ class TestCase:
             dut_axis=dut_axis,
             dut_ant_position=dut_ant_position,
             generation=generation,
+            anchor_band=anchor_band,
         )
 
     def to_csv_row(self) -> dict[str, Any]:
@@ -287,6 +314,9 @@ class TestCase:
         return {
             "generation": self.generation.value,
             "band": self.band.value,
+            "anchor_band": (
+                self.anchor_band.value if self.anchor_band is not None else ""
+            ),
             "bandwidth": _format_bandwidth_value(self.bandwidth),
             "test_type": self.test_type.value,
             "modulation": self.modulation.value,

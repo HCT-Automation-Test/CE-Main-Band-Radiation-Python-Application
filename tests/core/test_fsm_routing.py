@@ -34,6 +34,7 @@ from app.models.enums import (
     AntennaPol,
     DUTAxis,
     Generation,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -59,6 +60,7 @@ def _make_case(
         dut_axis=DUTAxis.X,
         dut_ant_position="Upper",
         generation=generation,
+        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
     )
 
 

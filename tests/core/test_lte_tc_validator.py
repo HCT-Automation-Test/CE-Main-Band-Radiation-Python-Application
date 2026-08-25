@@ -20,6 +20,7 @@ from app.models.test_case import TestCase
 def _make_nr_case(generation: Generation = Generation.NR_SA) -> TestCase:
     return TestCase(
         generation=generation,
+        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
         band=NRBand.N1,
         bandwidth=5.0,
         test_type=MeasurementTestType.HARMONIC,
@@ -51,9 +52,15 @@ def test_validate_accepts_lte_supported_bandwidth() -> None:
     assert validate(_make_lte_case()) == []
 
 
-def test_validate_queue_allows_nr_sa_and_nr_nsa() -> None:
+def test_validate_queue_rejects_nr_sa_and_nr_nsa_mix() -> None:
     assert validate_queue(
         [_make_nr_case(Generation.NR_SA), _make_nr_case(Generation.NR_NSA)]
+    ) == ["Generation 혼합 Queue는 실행할 수 없습니다: NR_NSA, NR_SA"]
+
+
+def test_validate_queue_allows_nr_nsa_only() -> None:
+    assert validate_queue(
+        [_make_nr_case(Generation.NR_NSA), _make_nr_case(Generation.NR_NSA)]
     ) == []
 
 
@@ -63,5 +70,20 @@ def test_validate_queue_allows_lte_only() -> None:
 
 def test_validate_queue_rejects_nr_lte_mix() -> None:
     assert validate_queue([_make_nr_case(), _make_lte_case()]) == [
-        "NR/LTE 혼합 Queue는 실행할 수 없습니다"
+        "Generation 혼합 Queue는 실행할 수 없습니다: LTE, NR_SA"
+    ]
+
+
+def test_validate_queue_rejects_nr_nsa_lte_mix() -> None:
+    assert validate_queue(
+        [_make_nr_case(Generation.NR_NSA), _make_lte_case()]
+    ) == ["Generation 혼합 Queue는 실행할 수 없습니다: LTE, NR_NSA"]
+
+
+def test_validate_queue_rechecks_mutated_anchor_band() -> None:
+    case = _make_nr_case(Generation.NR_NSA)
+    case.anchor_band = None
+
+    assert validate_queue([case]) == [
+        "Test Case 1: NR_NSA requires anchor_band"
     ]

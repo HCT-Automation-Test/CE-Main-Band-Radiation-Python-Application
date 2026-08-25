@@ -12,7 +12,7 @@ lookup, Band 그룹)은 JSON/DB가 아니라 코드 상수로 유지**하는 것
 | Enum | 값 | 용도 |
 | --- | --- | --- |
 | `NRBand` | n1, n3, n5, n7, n8, n20, n26, n28, n38, n40, n41, n71, n77, n78, n79 (15종) | 지원 NR band |
-| `Generation` | `NR_SA`, `NR_NSA` | Call 모드. 기본 SA |
+| `Generation` | `NR_SA`, `NR_NSA`, `LTE` | TestCase Generation. 기본 SA |
 | `TestType` | `harmonic`, `inband`, `bilog` | 시험 종류 |
 | `AntennaPol` | H, V | 측정 안테나 편파 |
 | `DUTAxis` | X, Y, Z | DUT 회전축 |
@@ -26,12 +26,23 @@ lookup, Band 그룹)은 JSON/DB가 아니라 코드 상수로 유지**하는 것
 
 ## 2. TestCase — [test_case.py](../src/app/models/test_case.py)
 
-CSV 한 행 = TestCase 하나. CSV 컬럼 10개(`CSV_FIELDNAMES`, 순서 고정):
+CSV 한 행 = TestCase 하나. 표준 CSV 컬럼 11개(`CSV_FIELDNAMES`, 순서 고정):
 
 ```text
-generation, band, bandwidth, test_type, modulation, rb_allocation,
+generation, band, anchor_band, bandwidth, test_type, modulation, rb_allocation,
 test_channel, antenna_pol, dut_axis, dut_ant_position
 ```
+
+`anchor_band`는 `NR_NSA`에서만 필수이며 `B1/B3/B7/B8/B20/B28/B38/B40/B41`만
+허용한다. `NR_SA`와 `LTE`에서는 비어 있어야 한다. Anchor의 BW/RB/Modulation이나
+Anchor Channel lookup은 이 모델에 포함하지 않는다.
+
+기존 10열 CSV는 `NR_SA`와 `LTE`에 한해 읽을 수 있고, 저장하면 빈 `anchor_band`를
+포함한 11열로 갱신된다. 10열 `NR_NSA`는 Anchor를 추정하지 않고 마이그레이션 오류로
+차단한다.
+
+실행 Queue에는 정확히 하나의 Generation만 허용한다. `NR_SA`, `NR_NSA`, `LTE` 중
+둘 이상이 섞이면 `Runner.start()`가 report setup과 FSM 시작 전에 차단한다.
 
 생성 시점(`__post_init__`)에 `resolve_range_id(band, test_type)`와
 `validate_supported_bandwidth(band, bandwidth)`로 조합 유효성을 검증한다(실패 시 ValueError).
@@ -44,7 +55,7 @@ test_channel, antenna_pol, dut_axis, dut_ant_position
 | `rb_size` / `rb_offset` | (bandwidth, scs, rb_allocation) → [rb_parameters.py](../src/app/models/rb_parameters.py) lookup |
 | `test_range` / `range_definition` | (band, test_type) → RangeId → TestRange 상수 |
 
-직렬화: `from_csv_row`(10개 필드 모두 필수, enum 대소문자 무시), `to_csv_row`
+직렬화: `from_csv_row`(표준 11열, enum 대소문자 무시), `to_csv_row`
 (bandwidth는 `.15g` 포맷이라 100.0 → "100").
 
 주의: `TestCase`를 코드에서 직접 생성할 때 문자열 관용 변환이 되는 필드는
