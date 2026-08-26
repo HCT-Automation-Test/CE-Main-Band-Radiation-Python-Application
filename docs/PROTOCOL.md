@@ -64,11 +64,66 @@ facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equi
 | --- | --- | --- |
 | `setup_mt8000` | `NR Call` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation(`pi/2 BPSK`→와이어 `PI/2 BPSK`), Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `call_handover` | `NR Handover` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation, Max Retry Count(기본 3), Waiting Time(기본 5) |
+| `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor DL Channel |
 | `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `lte_call_handover` | `LTE Handover` | BandWidth(문자열), DL Channel, UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `check_call_status` | `Check Call Status` | NR/LTE 공용 → Result `{ok, connected}` |
 
 LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`, `"3"`, `"5"`, `"10"`, `"15"`, `"20"` 중 하나로 전송한다.
+
+#### NSA Handover Interface Contract (H2026E014-36)
+
+Python은 첫 NSA TC 또는 Anchor 변경 시 `MT8000A / NSA Handover` request 하나만 보낸다.
+SCG Release, Anchor Handover, 내부 NR Call 및 최종 상태 확인은 LV composite의 책임이며,
+Python이 `NR Call`이나 장비 primitive를 추가로 조합하지 않는다.
+
+정확한 `Params`는 다음 9개다. 앞의 8개는 기존 `NR Call`과 같은 필드이며,
+신규 wire 필드는 `Anchor DL Channel` 하나뿐이다. `Max Retry Count=3`과
+`Waiting Time=5`도 기존 기본값을 그대로 사용한다.
+
+```json
+{
+  "Band": 78,
+  "BandWidth": 100,
+  "Center Channel": 636666,
+  "RB Size": 135,
+  "RB Offset": 67,
+  "Modulation": "QPSK",
+  "Anchor DL Channel": 300,
+  "Max Retry Count": 3,
+  "Waiting Time": 5
+}
+```
+
+다음 Anchor 정보는 보내지 않는다: `Anchor Band`, `UL Channel`, Anchor `BandWidth`,
+`RB Size`, `RB Offset`, `Modulation`, `Test Channel`. Anchor는 MID/5 MHz 고정 기준이며
+지원 Band와 채널은 다음과 같다.
+
+| Anchor Band | Anchor DL Channel | Anchor UL Channel |
+| --- | ---: | ---: |
+| B1 | 300 | 18300 |
+| B3 | 1575 | 19575 |
+| B7 | 3100 | 21100 |
+| B5 | 2525 | 20525 |
+| B8 | 3625 | 21625 |
+| B20 | 6300 | 24300 |
+| B28 | 9385 | 27385 |
+| B38 | 38000 | 38000 |
+| B40 | 39150 | 39150 |
+| B41 | 40620 | 40620 |
+
+`B34`와 표에 없는 Band는 지원하지 않는다. Python lookup의 UL/DL 값은 기존 LTE
+MID/5 MHz lookup과 일치해야 한다. Wire에는 위 DL 값만 넣고 UL 값은 전송하지 않는다.
+
+응답은 Default Response 계약을 사용한다. Python은 최종 `status`만 판정하며 `Result`가
+없거나 어떤 형식으로 존재하더라도 무시한다. 성공 시 `status="ok"`, 실패 시
+`status="error"`와 `Error.message`만 요구한다. 성공 read-back이나 단계별 상태를 담은
+`Result`, 또는 별도 failure envelope는 필수가 아니다.
+
+```jsonc
+{"type": "response", "id": "<같은 id>", "status": "ok"}
+{"type": "response", "id": "<같은 id>", "status": "error", "Error": {"message": "..."}}
+```
 
 ### FSV40 (Spectrum Analyzer)
 
@@ -143,7 +198,7 @@ LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`
 | 모듈 | 용도 | 특징 |
 | --- | --- | --- |
 | [mock_server.py](../src/app/net/mock_server.py) | pytest 픽스처용 저수준 스텁 | 도메인 로직 없음. `enqueue_response`로 응답 스크립팅, `send_event`로 Event 푸시. port=0이면 OS 임의 포트 |
-| [mock_lv_server.py](../src/app/net/mock_lv_server.py) | **모의 LabVIEW 서버** (수동 실행 + 통합 테스트) | 장비 상태 유지, 측정값 회신, 턴테이블 회전 Event 시뮬레이션, 스크린샷 PNG 생성. 시나리오 9종(normal/turntable-error/timeout/call-disconnected/…) |
+| [mock_lv_server.py](../src/app/net/mock_lv_server.py) | **모의 LabVIEW 서버** (수동 실행 + 통합 테스트) | 장비 상태 유지, 측정값 회신, 턴테이블 회전 Event 시뮬레이션, 스크린샷 PNG 생성. 기존 9개 시나리오와 NSA Handover 전용 8개 시나리오 제공 |
 | [mock_lv_client.py](../src/app/net/mock_lv_client.py) | commands facade 수동 검증 콘솔 | `lv>` REPL — `connect`, `setup-mt8000`, `measure-fundamental target_freq=3550`, `rotate angle=60 wait=true`, `raw` 등 |
 
 개발 환경에서 실장비 없이 앱을 돌리는 방법:
@@ -169,6 +224,27 @@ lv> check-call-status
 lv> lte-handover bw=20 dl_channel=500 ul_channel=18500 rb_offset=99 max_retry_count=7 waiting_time=11
 lv> check-call-status
 ```
+
+NSA Handover 수동 검증 예:
+
+```text
+lv> nsa-handover band=78 bw=100 modulation=QPSK rb_size=135 rb_offset=67 channel=636666 anchor_dl_channel=300
+```
+
+Mock은 외부 primitive command를 추가하지 않고 composite 내부 상태만 재현한다. 정상 완료는
+`8000A=8`, `8821C=6`이며 Result 없는 Default OK를 반환한다. 실패 시 도달한 단계의
+부분 상태와 Anchor/목표 NR 설정을 보존하고 `Error.message`만 있는 Default Error를 반환한다.
+
+| `--scenario` | 실패 지점 | 보존되는 REM_DEST 상태 |
+| --- | --- | --- |
+| `nsa-scg-release-error` | SCG Release 장비 오류 | `8000A=9`, `8821C=None` |
+| `nsa-scg-release-timeout` | SCG Release timeout | `8000A=9`, `8821C=None` |
+| `nsa-anchor-handover-error` | Anchor Handover 장비 오류 | `8000A=6`, `8821C=13` |
+| `nsa-anchor-handover-timeout` | Anchor Handover timeout | `8000A=6`, `8821C=13` |
+| `nsa-anchor-profile-mismatch` | Anchor profile 불일치 | `8000A=6`, `8821C=6` |
+| `nsa-nr-call-error` | 내부 NR Call 장비 오류 | `8000A=7`, `8821C=6` |
+| `nsa-nr-call-timeout` | 내부 NR Call timeout | `8000A=7`, `8821C=6` |
+| `nsa-final-status-timeout` | 최종 상태 확인 timeout | `8000A=7`, `8821C=6` |
 
 
 ## 6. 함정 정리
