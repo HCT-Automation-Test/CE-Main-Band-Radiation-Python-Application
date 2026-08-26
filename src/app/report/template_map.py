@@ -46,6 +46,7 @@ class BandInfoCells:
     """Band 공통 시험 정보 셀."""
 
     band: str
+    anchor_band: str | None
     channel: str
     bandwidth: str
     rb_size: str
@@ -72,6 +73,7 @@ LAYOUTS: dict[str, ReportLayout] = {
         key=DEFAULT_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
             band="A49",
+            anchor_band="B49",
             channel="C49",
             bandwidth="D49",
             rb_size="E49",
@@ -89,6 +91,7 @@ LAYOUTS: dict[str, ReportLayout] = {
         key=LB_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
             band="A44",
+            anchor_band="B44",
             channel="C44",
             bandwidth="D44",
             rb_size="E44",
@@ -106,6 +109,7 @@ LAYOUTS: dict[str, ReportLayout] = {
         key=LTE_DEFAULT_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
             band="A7",
+            anchor_band=None,
             channel="B7",
             bandwidth="C7",
             rb_size="D7",
@@ -123,6 +127,7 @@ LAYOUTS: dict[str, ReportLayout] = {
         key=LTE_LB_LAYOUT_KEY,
         band_info_cells=BandInfoCells(
             band="A7",
+            anchor_band=None,
             channel="B7",
             bandwidth="C7",
             rb_size="D7",
@@ -202,6 +207,10 @@ def offset_layout_rows(
         key=key,
         band_info_cells=BandInfoCells(
             band=offset_cell_row(layout.band_info_cells.band, row_offset),
+            anchor_band=_offset_optional_cell_row(
+                layout.band_info_cells.anchor_band,
+                row_offset,
+            ),
             channel=offset_cell_row(layout.band_info_cells.channel, row_offset),
             bandwidth=offset_cell_row(layout.band_info_cells.bandwidth, row_offset),
             rb_size=offset_cell_row(layout.band_info_cells.rb_size, row_offset),
@@ -234,6 +243,12 @@ def _offset_optional_row(row: int | None, row_offset: int) -> int | None:
     if row is None:
         return None
     return row + row_offset
+
+
+def _offset_optional_cell_row(cell: str | None, row_offset: int) -> str | None:
+    if cell is None:
+        return None
+    return offset_cell_row(cell, row_offset)
 
 
 def axis_pol_cell(base_row: int, axis: DUTAxis, antenna_pol: AntennaPol) -> str:
