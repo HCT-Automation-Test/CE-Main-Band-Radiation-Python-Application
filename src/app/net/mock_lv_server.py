@@ -14,6 +14,11 @@ from pathlib import Path
 from typing import Any, Literal
 from uuid import uuid4
 
+from app.models.nsa_anchor import (
+    NSAAnchorChannels,
+    SUPPORTED_NSA_ANCHOR_BANDS,
+    resolve_nsa_anchor_channels,
+)
 from app.net.mock_server import MockServer
 from app.net.protocol import Event, Request, Response
 
@@ -29,6 +34,14 @@ MockLvScenario = Literal[
     "self-alignment-timeout",
     "set-reference-error",
     "self-alignment-error",
+    "nsa-scg-release-error",
+    "nsa-scg-release-timeout",
+    "nsa-anchor-handover-error",
+    "nsa-anchor-handover-timeout",
+    "nsa-anchor-profile-mismatch",
+    "nsa-nr-call-error",
+    "nsa-nr-call-timeout",
+    "nsa-final-status-timeout",
 ]
 
 _TARGET_FSV40 = "FSV40"
@@ -54,6 +67,7 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -99,6 +113,22 @@ _SUPPORTED_TARGETS = {
     _TARGET_SWITCH_BOX,
     _TARGET_3D_CONTROLLER,
 }
+_NSA_HANDOVER_REQUIRED_PARAMS = {
+    "Band",
+    "BandWidth",
+    "Center Channel",
+    "RB Size",
+    "RB Offset",
+    "Modulation",
+    "Anchor DL Channel",
+    "Max Retry Count",
+    "Waiting Time",
+}
+_NSA_ANCHOR_CHANNELS_BY_DL: dict[int, NSAAnchorChannels] = {
+    channels.dl_channel: channels
+    for band in SUPPORTED_NSA_ANCHOR_BANDS
+    for channels in (resolve_nsa_anchor_channels(band),)
+}
 
 # 1x1 투명 PNG. 실제 화면 캡처 대신 파일 존재/형식 확인용으로만 사용한다.
 _MINIMAL_PNG = (
@@ -115,6 +145,12 @@ class MockLvState:
 
     connected_targets: set[str] = field(default_factory=set)
     call_connected: bool = False
+    call_state_by_rem_dest: dict[str, int | None] = field(
+        default_factory=lambda: {"8000A": None, "8821C": None}
+    )
+    anchor_dl_channel: int | None = None
+    anchor_ul_channel: int | None = None
+    last_nsa_nr_params: dict[str, Any] | None = None
     current_angle: float = 0.0
     switch_input_path: int | None = None
     switch_filter_path: int | None = None
@@ -220,6 +256,8 @@ class MockLvServer:
         return _error(request, "unsupported command")
 
     def _handle_mt8000a(self, request: Request) -> Response:
+        if request.command == _COMMAND_NSA_HANDOVER:
+            return self._handle_nsa_handover(request)
         if request.command in {_COMMAND_NR_CALL, _COMMAND_LTE_CALL}:
             self.state.call_connected = True
             return _ok(request)
@@ -233,6 +271,67 @@ class MockLvServer:
             )
             return _ok(request, {"ok": True, "connected": connected})
         return _error(request, "unsupported command")
+
+    def _handle_nsa_handover(self, request: Request) -> Response:
+        """NSA Handover 단일 composite의 REM_DEST별 상태를 재현한다."""
+
+        if set(request.params) != _NSA_HANDOVER_REQUIRED_PARAMS:
+            return _error(request, "invalid NSA Handover Params")
+
+        try:
+            nr_params = {
+                "Band": _required_int(request.params, "Band"),
+                "BandWidth": _required_int(request.params, "BandWidth"),
+                "Center Channel": _required_int(request.params, "Center Channel"),
+                "RB Size": _required_int(request.params, "RB Size"),
+                "RB Offset": _required_int(request.params, "RB Offset"),
+                "Modulation": _required_text(request.params, "Modulation"),
+                "Max Retry Count": _required_int(request.params, "Max Retry Count"),
+                "Waiting Time": _required_int(request.params, "Waiting Time"),
+            }
+            anchor_dl_channel = _required_int(request.params, "Anchor DL Channel")
+        except ValueError as exc:
+            return _error(request, str(exc))
+
+        anchor_channels = _NSA_ANCHOR_CHANNELS_BY_DL.get(anchor_dl_channel)
+        if anchor_channels is None:
+            return _error(
+                request,
+                f"unsupported NSA Anchor DL Channel: {anchor_dl_channel}",
+            )
+
+        self.state.call_connected = False
+        self.state.last_nsa_nr_params = nr_params
+        self.state.call_state_by_rem_dest["8000A"] = 9
+        if self.scenario == "nsa-scg-release-error":
+            return _error(request, "NSA Handover failed at scg_release: equipment error")
+        if self.scenario == "nsa-scg-release-timeout":
+            return _error(request, "NSA Handover failed at scg_release: timeout")
+
+        self.state.call_state_by_rem_dest["8000A"] = 6
+        self.state.call_state_by_rem_dest["8821C"] = 13
+        if self.scenario == "nsa-anchor-handover-error":
+            return _error(request, "NSA Handover failed at anchor_handover: equipment error")
+        if self.scenario == "nsa-anchor-handover-timeout":
+            return _error(request, "NSA Handover failed at anchor_handover: timeout")
+
+        self.state.call_state_by_rem_dest["8821C"] = 6
+        self.state.anchor_dl_channel = anchor_channels.dl_channel
+        self.state.anchor_ul_channel = anchor_channels.ul_channel
+        if self.scenario == "nsa-anchor-profile-mismatch":
+            return _error(request, "NSA Handover failed at anchor_profile: mismatch")
+
+        self.state.call_state_by_rem_dest["8000A"] = 7
+        if self.scenario == "nsa-nr-call-error":
+            return _error(request, "NSA Handover failed at nr_call: equipment error")
+        if self.scenario == "nsa-nr-call-timeout":
+            return _error(request, "NSA Handover failed at nr_call: timeout")
+        if self.scenario == "nsa-final-status-timeout":
+            return _error(request, "NSA Handover failed at final_status: timeout")
+
+        self.state.call_state_by_rem_dest["8000A"] = 8
+        self.state.call_connected = True
+        return _ok(request)
 
     def _handle_fsv40(self, request: Request) -> Response:
         if request.command == _COMMAND_LOAD_SA_LEVEL_SETTING:
@@ -553,6 +652,20 @@ def _error(request: Request, message: str) -> Response:
     return Response(id=request.id, status="error", error={"message": message})
 
 
+def _required_int(params: dict[str, Any], key: str) -> int:
+    value = params.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"NSA Handover Params.{key} must be an integer")
+    return value
+
+
+def _required_text(params: dict[str, Any], key: str) -> str:
+    value = params.get(key)
+    if not isinstance(value, str) or not value:
+        raise ValueError(f"NSA Handover Params.{key} must be a non-empty string")
+    return value
+
+
 def _coerce_float(value: Any, default: float) -> float:
     if isinstance(value, bool):
         return default
@@ -588,6 +701,14 @@ def main(argv: list[str] | None = None) -> int:
             "self-alignment-timeout",
             "set-reference-error",
             "self-alignment-error",
+            "nsa-scg-release-error",
+            "nsa-scg-release-timeout",
+            "nsa-anchor-handover-error",
+            "nsa-anchor-handover-timeout",
+            "nsa-anchor-profile-mismatch",
+            "nsa-nr-call-error",
+            "nsa-nr-call-timeout",
+            "nsa-final-status-timeout",
         ],
         default="normal",
     )

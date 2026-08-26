@@ -37,6 +37,7 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
@@ -158,6 +159,31 @@ def _build_handover_params(
         "RB Size": int(rb_size),
         "RB Offset": int(rb_offset),
         "Modulation": _normalize_modulation(modulation),
+        "Max Retry Count": int(max_retry_count),
+        "Waiting Time": int(waiting_time),
+    }
+
+
+def _build_nsa_handover_params(
+    *,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+    anchor_dl_channel: int,
+    max_retry_count: int,
+    waiting_time: int,
+) -> dict[str, Any]:
+    return {
+        "Band": int(band),
+        "BandWidth": int(bw),
+        "Center Channel": int(channel),
+        "RB Size": int(rb_size),
+        "RB Offset": int(rb_offset),
+        "Modulation": _normalize_modulation(modulation),
+        "Anchor DL Channel": int(anchor_dl_channel),
         "Max Retry Count": int(max_retry_count),
         "Waiting Time": int(waiting_time),
     }
@@ -346,6 +372,40 @@ def call_handover(
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NR_HANDOVER)
+
+
+def nsa_handover(
+    client: Any,
+    *,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+    anchor_dl_channel: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
+) -> bool:
+    """LTE Anchor 변경과 NR SCG 재연결을 단일 composite로 수행한다."""
+
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_NSA_HANDOVER,
+        _build_nsa_handover_params(
+            band=band,
+            bw=bw,
+            modulation=modulation,
+            rb_size=rb_size,
+            rb_offset=rb_offset,
+            channel=channel,
+            anchor_dl_channel=anchor_dl_channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
+    )
+    return _action_ok(response, _TARGET_MT8000A, _COMMAND_NSA_HANDOVER)
 
 
 def lte_call_handover(

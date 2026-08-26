@@ -400,6 +400,108 @@ def test_call_handover_sends_current_center_channel_and_options() -> None:
     assert "Max Retrey Count" not in client.calls[0][2]
 
 
+def test_nsa_handover_sends_exact_default_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.nsa_handover(
+        client,
+        band=78,
+        bw=100,
+        modulation=Modulation.QPSK,
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        anchor_dl_channel=300,
+    ) is True
+    assert client.calls == [
+        (
+            "MT8000A",
+            "NSA Handover",
+            {
+                "Band": 78,
+                "BandWidth": 100,
+                "Center Channel": 636666,
+                "RB Size": 135,
+                "RB Offset": 67,
+                "Modulation": "QPSK",
+                "Anchor DL Channel": 300,
+                "Max Retry Count": 3,
+                "Waiting Time": 5,
+            },
+        )
+    ]
+
+
+def test_nsa_handover_normalizes_modulation_and_sends_explicit_options() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.nsa_handover(
+        client,
+        band=78,
+        bw=100,
+        modulation=Modulation.PI_OVER_2_BPSK,
+        rb_size=135,
+        rb_offset=67,
+        channel=640000,
+        anchor_dl_channel=2525,
+        max_retry_count=7,
+        waiting_time=11,
+    ) is True
+    params = client.calls[0][2]
+    assert params["Modulation"] == "PI/2 BPSK"
+    assert params["Max Retry Count"] == 7
+    assert params["Waiting Time"] == 11
+    assert set(params) == {
+        "Band",
+        "BandWidth",
+        "Center Channel",
+        "RB Size",
+        "RB Offset",
+        "Modulation",
+        "Anchor DL Channel",
+        "Max Retry Count",
+        "Waiting Time",
+    }
+
+
+@pytest.mark.parametrize("result", [None, "ignored", [1, 2], {"unexpected": True}])
+def test_nsa_handover_accepts_any_result_when_status_is_ok(result: Any) -> None:
+    client = _Client(Response(id="response-id", status="ok", result=result))
+
+    assert commands.nsa_handover(
+        client,
+        band=78,
+        bw=100,
+        modulation="QPSK",
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        anchor_dl_channel=300,
+    ) is True
+
+
+def test_nsa_handover_raises_when_status_is_error() -> None:
+    client = _Client(
+        Response(
+            id="response-id",
+            status="error",
+            error={"message": "handover failed"},
+        )
+    )
+
+    with pytest.raises(commands.CommandError, match="MT8000A / NSA Handover failed"):
+        commands.nsa_handover(
+            client,
+            band=78,
+            bw=100,
+            modulation="QPSK",
+            rb_size=135,
+            rb_offset=67,
+            channel=636666,
+            anchor_dl_channel=300,
+        )
+
+
 def test_set_reference_co3000_sends_default_params() -> None:
     client = _Client(_default_ok())
 

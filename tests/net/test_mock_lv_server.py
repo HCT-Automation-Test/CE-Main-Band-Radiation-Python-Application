@@ -658,6 +658,82 @@ def test_mock_lv_server_lte_call_and_handover_flow(
         server.stop()
 
 
+def test_mock_lv_server_nsa_handover_loopback(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.nsa_handover(
+            client,
+            band=78,
+            bw=100,
+            modulation=Modulation.PI_OVER_2_BPSK,
+            rb_size=135,
+            rb_offset=67,
+            channel=636666,
+            anchor_dl_channel=2525,
+        )
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "MT8000A",
+            "NSA Handover",
+            {
+                "Band": 78,
+                "BandWidth": 100,
+                "Center Channel": 636666,
+                "RB Size": 135,
+                "RB Offset": 67,
+                "Modulation": "PI/2 BPSK",
+                "Anchor DL Channel": 2525,
+                "Max Retry Count": 3,
+                "Waiting Time": 5,
+            },
+        )
+        assert server.state.call_state_by_rem_dest == {"8000A": 8, "8821C": 6}
+        assert server.state.anchor_dl_channel == 2525
+        assert server.state.anchor_ul_channel == 20525
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_nsa_handover_error_loopback(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        scenario="nsa-anchor-handover-error",
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        with pytest.raises(
+            commands.CommandError,
+            match="NSA Handover failed at anchor_handover: equipment error",
+        ):
+            commands.nsa_handover(
+                client,
+                band=78,
+                bw=100,
+                modulation=Modulation.QPSK,
+                rb_size=135,
+                rb_offset=67,
+                channel=636666,
+                anchor_dl_channel=300,
+            )
+
+        assert server.state.call_state_by_rem_dest == {"8000A": 6, "8821C": 13}
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_server_call_disconnected_scenario(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path, scenario="call-disconnected")
     server.start()

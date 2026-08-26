@@ -170,6 +170,19 @@ class MockLvClientConsole:
                 max_retry_count=_int_arg(args, "max_retry_count", default=3),
                 waiting_time=_int_arg(args, "waiting_time", default=5),
             )
+        if name == "nsa-handover":
+            return commands.nsa_handover(
+                self._recording_client,
+                band=_int_arg(args, "band"),
+                bw=_int_arg(args, "bw"),
+                modulation=_modulation_arg(args, "modulation"),
+                rb_size=_int_arg(args, "rb_size"),
+                rb_offset=_int_arg(args, "rb_offset"),
+                channel=_int_arg(args, "channel"),
+                anchor_dl_channel=_int_arg(args, "anchor_dl_channel"),
+                max_retry_count=_int_arg(args, "max_retry_count", default=3),
+                waiting_time=_int_arg(args, "waiting_time", default=5),
+            )
         if name == "lte-handover":
             return commands.lte_call_handover(
                 self._recording_client,
@@ -449,6 +462,12 @@ class MockLvClientConsole:
                     (
                         "  handover band=78 bw=100 "
                         "modulation=QPSK rb_size=135 rb_offset=67 channel=640000 "
+                        "[max_retry_count=3] [waiting_time=5]"
+                    ),
+                    (
+                        "  nsa-handover band=78 bw=100 "
+                        "modulation=QPSK rb_size=135 rb_offset=67 channel=640000 "
+                        "anchor_dl_channel=300 "
                         "[max_retry_count=3] [waiting_time=5]"
                     ),
                     (
