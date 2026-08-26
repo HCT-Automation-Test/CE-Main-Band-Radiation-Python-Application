@@ -12,6 +12,7 @@ from app.core.fsm.states.transition import (
     AntPolChangeState,
     DUTAxisChangeState,
     HandoverState,
+    NSAHandoverState,
     RecallChangeState,
     TestTypeChangeState,
 )
@@ -19,6 +20,8 @@ from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
     DUTAxis,
+    Generation,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -51,6 +54,8 @@ class _Commands:
         exception: Exception | None = None,
         handover_configured: bool = True,
         handover_exception: Exception | None = None,
+        nsa_handover_configured: bool = True,
+        nsa_handover_exception: Exception | None = None,
         call_connected: bool = True,
         call_status_exception: Exception | None = None,
     ) -> None:
@@ -60,6 +65,9 @@ class _Commands:
         self.handover_configured = handover_configured
         self.handover_exception = handover_exception
         self.handover_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.nsa_handover_configured = nsa_handover_configured
+        self.nsa_handover_exception = nsa_handover_exception
+        self.nsa_handover_calls: list[tuple[Any, dict[str, Any]]] = []
         self.call_connected = call_connected
         self.call_status_exception = call_status_exception
         self.call_status_calls: list[Any] = []
@@ -76,6 +84,12 @@ class _Commands:
             raise self.handover_exception
         return self.handover_configured
 
+    def nsa_handover(self, client: Any, **params: Any) -> bool:
+        self.nsa_handover_calls.append((client, params))
+        if self.nsa_handover_exception is not None:
+            raise self.nsa_handover_exception
+        return self.nsa_handover_configured
+
     def check_call_status(self, client: Any) -> bool:
         self.call_status_calls.append(client)
         if self.call_status_exception is not None:
@@ -91,8 +105,12 @@ def _make_case(
     test_channel: NRTestChannel = NRTestChannel.MID,
     antenna_pol: AntennaPol = AntennaPol.H,
     dut_axis: DUTAxis = DUTAxis.X,
+    generation: Generation = Generation.NR_SA,
+    anchor_band: LTEBand = LTEBand.B1,
 ) -> TestCase:
     return TestCase(
+        generation=generation,
+        anchor_band=anchor_band if generation is Generation.NR_NSA else None,
         band=band,
         bandwidth=bandwidth,
         test_type=test_type,
@@ -580,6 +598,147 @@ def test_handover_does_not_lookup_previous_mid_channel() -> None:
         )
     ]
     assert events.error.messages == []
+
+
+def test_nsa_handover_calls_composite_with_current_nr_and_anchor_params() -> None:
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B3,
+    )
+    ctx, commands, events, client = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = NSAHandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ApplyTdf"
+    assert commands.nsa_handover_calls == [
+        (
+            client,
+            {
+                "band": 78,
+                "bw": 100,
+                "modulation": Modulation.QPSK,
+                "rb_size": 135,
+                "rb_offset": 67,
+                "channel": 636666,
+                "anchor_dl_channel": 1575,
+                "waiting_time": 5,
+            },
+        )
+    ]
+    assert commands.handover_calls == []
+    assert events.error.messages == []
+
+
+def test_nsa_handover_uses_connection_waiting_time_setting() -> None:
+    class _Settings:
+        connection_waiting_time_sec = 7
+
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B5,
+    )
+    ctx, commands, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+        settings=_Settings(),
+    )
+
+    result = NSAHandoverState().run(ctx)
+
+    assert result is StateResult.OK
+    assert commands.nsa_handover_calls[0][1]["waiting_time"] == 7
+
+
+def test_nsa_handover_continues_to_pending_transition() -> None:
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B3,
+    )
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["AntPolChange"]
+    state = NSAHandoverState()
+
+    assert state.next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert ctx.pending_transition_states == []
+
+
+def test_nsa_handover_failure_routes_to_nr_call_disconnected() -> None:
+    commands = _Commands(nsa_handover_configured=False)
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B3,
+    )
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = NSAHandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == [
+        "NSA Handover 실패: nsa_handover returned false"
+    ]
+
+
+def test_nsa_handover_timeout_routes_to_nr_call_disconnected() -> None:
+    commands = _Commands(
+        nsa_handover_exception=RuntimeError("anchor handover timeout")
+    )
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B3,
+    )
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    state = NSAHandoverState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == [
+        "NSA Handover 실패: anchor handover timeout"
+    ]
 
 
 def test_recall_change_emits_user_action_and_waits_for_completion() -> None:

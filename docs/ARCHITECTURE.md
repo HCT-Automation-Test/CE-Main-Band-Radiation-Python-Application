@@ -127,9 +127,9 @@ claude_test/
 │   │       ├── transition_flow.py # 복합 전환 체이닝(next_transition_or)
 │   │       └── states/
 │   │           ├── session.py   # SessionInit, Idle, CheckNextCase(전환 계획), TestEnd
-│   │           ├── nr_setup.py  # LTECallAnchor, NRCallConnect, NRCallDisconnected
+│   │           ├── nr_setup.py  # NRCallConnect, NRCallDisconnected
 │   │           ├── lte_setup.py # LTECallConnect, LTECallDisconnected
-│   │           ├── transition.py # AntPol/NR·LTE Handover/Recall/DUTAxis/TestType Change
+│   │           ├── transition.py # AntPol/NR·LTE·NSA Handover/Recall/DUTAxis/TestType Change
 │   │           └── measurement/
 │   │               ├── common.py    # 공유 스텝(SwitchBox/SA/Turntable) + test_type 분기 허브
 │   │               ├── harmonic.py  # Fundamental/Harmonics/Precision 측정

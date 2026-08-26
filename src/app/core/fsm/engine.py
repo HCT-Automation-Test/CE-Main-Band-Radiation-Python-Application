@@ -184,7 +184,6 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         LTECallDisconnectedState,
     )
     from app.core.fsm.states.nr_setup import (
-        LTECallAnchorState,
         NRCallConnectState,
         NRCallDisconnectedState,
     )
@@ -200,6 +199,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         DUTAxisChangeState,
         HandoverState,
         LTEHandoverState,
+        NSAHandoverState,
         RecallChangeState,
         TestTypeChangeState,
     )
@@ -213,18 +213,6 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(TestEndState())
 
     # NR 연결 관리 상태
-    engine.register(
-        LTECallAnchorState(
-            name="LTECallAnchorBeforeNRCall",
-            next_state_name="NRCallConnect",
-        )
-    )
-    engine.register(
-        LTECallAnchorState(
-            name="LTECallAnchorBeforeHandover",
-            next_state_name="Handover",
-        )
-    )
     engine.register(NRCallConnectState())
     engine.register(NRCallDisconnectedState())
     engine.register(LTECallConnectState())
@@ -233,6 +221,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     # 시험 간 전환 상태
     engine.register(AntPolChangeState())
     engine.register(HandoverState())
+    engine.register(NSAHandoverState())
     engine.register(LTEHandoverState())
     engine.register(RecallChangeState())
     engine.register(DUTAxisChangeState())

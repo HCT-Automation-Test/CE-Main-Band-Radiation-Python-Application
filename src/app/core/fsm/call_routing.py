@@ -15,8 +15,6 @@ def call_entry_state_for_case(case: "TestCase") -> str:
 
     if case.generation is Generation.LTE:
         return "LTECallConnect"
-    if case.generation is Generation.NR_NSA:
-        return "LTECallAnchorBeforeNRCall"
     return "NRCallConnect"
 
 
@@ -31,8 +29,6 @@ def handover_entry_state_for_case(case: "TestCase") -> str:
 
     if case.generation is Generation.LTE:
         return "LTEHandover"
-    if case.generation is Generation.NR_NSA:
-        return "LTECallAnchorBeforeHandover"
     return "Handover"
 
 

@@ -27,7 +27,7 @@ from app.core.fsm.states.measurement.harmonic import (
     MeasureHarmonicsState,
 )
 from app.core.fsm.states.measurement.inband import MeasureInBandManualState, MeasureInBandState
-from app.core.fsm.states.nr_setup import LTECallAnchorState, NRCallConnectState
+from app.core.fsm.states.nr_setup import NRCallConnectState
 from app.core.fsm.states.session import IdleState
 from app.core.fsm.states.transition import AntPolChangeState
 from app.models.enums import (
@@ -104,24 +104,29 @@ def test_rotate_turntable_branches_on_test_type(
     assert RotateTurntableState().next_state(ctx, StateResult.OK) == expected
 
 
-def test_nr_call_entry_routes_nsa_to_lte_anchor_before_nr_call() -> None:
-    ctx = _make_ctx(TestType.HARMONIC, Generation.NR_NSA)
+@pytest.mark.parametrize(("start_index", "current_index"), [(0, 0), (1, 1)])
+def test_first_nsa_case_routes_directly_to_nr_call(
+    start_index: int,
+    current_index: int,
+) -> None:
+    cases = [
+        _make_case(TestType.HARMONIC, Generation.NR_NSA),
+        _make_case(TestType.HARMONIC, Generation.NR_NSA),
+    ]
+    ctx = SessionContext(
+        queue=cases,
+        commands=None,
+        events=None,  # type: ignore[arg-type]
+        start_index=start_index,
+        current_index=current_index,
+    )
 
     assert (
         PrepareFundamentalSwitchBoxBeforeCallState().next_state(ctx, StateResult.OK)
-        == "LTECallAnchorBeforeNRCall"
+        == "NRCallConnect"
     )
 
 
-def test_lte_anchor_state_routes_to_configured_next_state() -> None:
-    ctx = _make_ctx(TestType.HARMONIC, Generation.NR_NSA)
-    state = LTECallAnchorState(
-        name="LTECallAnchorBeforeNRCall",
-        next_state_name="NRCallConnect",
-    )
-
-    assert state.next_state(ctx, StateResult.OK) == "NRCallConnect"
-    assert state.next_state(ctx, StateResult.FAIL) is None
 def test_measure_fundamental_goes_to_set_switch_box() -> None:
     ctx = _make_ctx(TestType.HARMONIC)
     assert MeasureFundamentalState().next_state(ctx, StateResult.OK) == "SetSwitchBox"
@@ -253,13 +258,12 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "Idle",
         "CheckNextCase",
         "TestEnd",
-        "LTECallAnchorBeforeNRCall",
-        "LTECallAnchorBeforeHandover",
         "NRCallConnect",
         "NRCallDisconnected",
         "ApplyTdf",
         "AntPolChange",
         "Handover",
+        "NSAHandover",
         "RecallChange",
         "DUTAxisChange",
         "TestTypeChange",
@@ -284,4 +288,6 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
     assert expected_state_names <= registered, (
         f"등록 누락: {expected_state_names - registered}"
     )
+    assert "LTECallAnchorBeforeNRCall" not in registered
+    assert "LTECallAnchorBeforeHandover" not in registered
 

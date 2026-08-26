@@ -10,7 +10,7 @@ from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
 )
-from app.models.enums import InputPath
+from app.models.enums import Generation, InputPath
 
 if TYPE_CHECKING:
     from app.core.fsm.context import SessionContext
@@ -74,13 +74,20 @@ def _transition_states_for(
         or prev_case.rb_allocation != current_case.rb_allocation
         or prev_case.modulation != current_case.modulation
     )
-    if call_config_changed:
-        prev_recall = prev_case.mt8000_recall
-        current_recall = current_case.mt8000_recall
-        if band_changed and prev_recall != current_recall:
-            transition_states.append("RecallChange")
-        else:
-            transition_states.append(handover_entry_state_for_case(current_case))
+    recall_changed = (
+        band_changed and prev_case.mt8000_recall != current_case.mt8000_recall
+    )
+    anchor_changed = (
+        prev_case.generation is Generation.NR_NSA
+        and current_case.generation is Generation.NR_NSA
+        and prev_case.anchor_band != current_case.anchor_band
+    )
+    if recall_changed:
+        transition_states.append("RecallChange")
+    elif anchor_changed:
+        transition_states.append("NSAHandover")
+    elif call_config_changed:
+        transition_states.append(handover_entry_state_for_case(current_case))
 
     if prev_case.dut_axis != current_case.dut_axis:
         transition_states.append("DUTAxisChange")

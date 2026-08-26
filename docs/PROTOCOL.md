@@ -73,7 +73,9 @@ LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`
 
 #### NSA Handover Interface Contract (H2026E014-36)
 
-Python은 첫 NSA TC 또는 Anchor 변경 시 `MT8000A / NSA Handover` request 하나만 보낸다.
+Python은 이전에 실행한 NSA TC와 Anchor Band가 달라진 경우에만
+`MT8000A / NSA Handover` request 하나를 보낸다. 첫 NSA TC는 목표 Anchor가 장비에
+미리 준비되어 있다고 간주하고 NR SA와 동일한 `MT8000A / NR Call`을 사용한다.
 SCG Release, Anchor Handover, 내부 NR Call 및 최종 상태 확인은 LV composite의 책임이며,
 Python이 `NR Call`이나 장비 primitive를 추가로 조합하지 않는다.
 

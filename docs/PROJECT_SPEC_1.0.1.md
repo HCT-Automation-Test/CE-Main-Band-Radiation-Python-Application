@@ -490,8 +490,6 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 
 NR 연결:
 
-- `LTECallAnchorBeforeNRCall`
-- `LTECallAnchorBeforeHandover`
 - `NRCallConnect`
 - `NRCallDisconnected`
 
@@ -499,6 +497,7 @@ NR 연결:
 
 - `AntPolChange`
 - `Handover`
+- `NSAHandover`
 - `RecallChange`
 - `DUTAxisChange`
 - `TestTypeChange`

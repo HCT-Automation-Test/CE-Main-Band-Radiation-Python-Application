@@ -87,7 +87,7 @@ EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. �
 | POL-NSA-02 | 한 실행 세션에서 `NR_SA`, `NR_NSA`, `LTE`를 혼용하지 않는다. 두 종류 이상이 섞인 Queue는 LTE 혼용 검증과 같은 시점인 시험 시작 단계에서 차단한다. | 기존 validator가 SA/NSA를 같은 NR family로 허용하는 동작을 변경한다. 세대 간 전환 FSM은 이번 범위에서 만들지 않는다. |
 | POL-NSA-03 | NSA 생성 화면은 NR Band 열 옆에 LTE Anchor Band 선택 열을 둔다. LTE Anchor는 모든 Band에서 Test Channel `MID`, Bandwidth `5 MHz`, RB Size `1`, RB Offset `0`, Modulation `QPSK`로 고정하며 별도로 입력받지 않는다. | Python의 Anchor 파생 책임은 `Anchor Band → UL/DL Channel` lookup뿐이다. 고정 profile은 command Params로 보내지 않으며 LV가 내부 read-back으로 검증한다. |
 | POL-MT-01 | `CALLSTAT?`는 `REM_DEST`별 상태 머신으로 해석한다. SCG Release 완료는 `8000A == 6`, NSA 연결 완료는 `8000A == 8`, Anchor 연결 유지는 `8821C == 6`으로 판정한다. | `7/9/13` 과도 상태 관측을 성공 조건으로 요구하지 않고 각 단계의 최종 상태를 polling한다. `8821C == 6`만으로 SCG Release 완료를 판정하지 않는다. |
-| POL-MT-02 | NSA TC 전환에서 Anchor가 같으면 기존 `NR Handover`를 사용한다. 첫 NSA TC 또는 Anchor가 바뀌면 신규 고수준 `NSA Handover` 단일 composite를 호출한다. LV는 SCG Release → LTE Anchor `DLCHAN` 변경·고정 profile 검증 → 기존 NR Call helper 재사용 → SCG Addition·최종 상태 확인을 수행한다. | Python은 `NSA Handover` 한 번만 호출하며 `NR Call` 또는 `CALLSO`/`CALLSA`/`CALLSTAT?`/`REM_DEST` 순서를 조합하지 않는다. 기존 `NR Call` 외부 request는 현행을 유지한다. |
+| POL-MT-02 | 첫 NSA TC는 목표 Anchor가 장비에 미리 준비되어 있다고 간주하고 기존 `NR Call`을 사용한다. 연속 NSA TC의 Anchor가 같으면 기존 `NR Handover`, Anchor가 바뀌면 신규 고수준 `NSA Handover` 단일 composite를 호출한다. LV는 SCG Release → LTE Anchor `DLCHAN` 변경·고정 profile 검증 → 기존 NR Call helper 재사용 → SCG Addition·최종 상태 확인을 수행한다. | Python은 Anchor 변경 시에만 `NSA Handover` 한 번을 호출하며 `NR Call` 또는 `CALLSO`/`CALLSA`/`CALLSTAT?`/`REM_DEST` 순서를 추가로 조합하지 않는다. 기존 `NR Call` 외부 request는 현행을 유지한다. |
 | POL-MT-03 | `Recall Change`는 NSA Handover와 분리된 고수준 LV workflow다. 첫 실행 TC에는 Recall을 호출하지 않고 그 TC의 ID를 세션 초기값으로 사용하며, 이후 ID가 바뀔 때만 실행하고 성공 후에만 적용 ID를 갱신한다. | `start_index > 0`이면 해당 TC를 첫 실행 TC로 본다. Call 단절 시 Recall은 유지된 것으로 보고 기존 Call만 재실행하며 신뢰 가능한 조회 방법 전에는 현재 Recall 조회를 요구하지 않는다. |
 | POL-MT-04 | 외부 API 경계는 기존 `NR Call`, 신규 `NSA Handover`, 신규 `Recall Change`, 기존 `Check Call Status`의 의미 기반 workflow다. | LV helper는 매 단계 `REM_DEST`를 명시한다. `NSA Handover`는 Default Response를 사용하고 Python은 최종 `status`만 판정한다. |
 | POL-RAW-01 | RawData 결과 파일의 논리 경로는 `{Screenshot 저장 기준 경로}/{EUT Name}/{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx`다. `NR` 파일은 NR SA/NSA에, `LTE` 파일은 LTE에 사용한다. | 예: `.../DUT-A/DUT-A_CE Main_Radiation_NR.xlsx`. EUT Name의 안전한 경로 변환·검증은 resolver 구현 범위다. |
@@ -103,7 +103,7 @@ RawData filename의 `*` 표기는 Markdown 강조 기호로 해석했으며 실�
 
 현재 확정사항으로 NSA/Recall과 RawData의 SRS 및 Jira Issue를 작성할 수 있다. 추가 제품 결정이나 별도 Discovery Issue를 선행 blocker로 두지 않는다.
 
-- 첫 NSA TC는 신규 `NSA Handover` 단일 composite로 선택된 LTE Anchor를 자동 준비하고 내부 NR Call helper로 NR SCG를 연결한 뒤, 측정 전에 `8000A == 8`과 `8821C == 6`을 확인해야 한다.
+- 첫 NSA TC는 목표 LTE Anchor가 장비에 미리 준비되어 있다고 간주하고 NR SA와 동일한 기존 `NR Call`로 NR SCG를 연결해야 한다.
 - Recall ID와 Anchor Band가 함께 바뀌면 목표 Recall과 Anchor를 모두 적용하고 NSA 최종 연결 상태를 복구해야 한다. 세부 단계 순서는 `Recall Change` LV 구현 Issue에서 설계·검증한다.
 - RawData는 기존 결과 파일이 있으면 재사용하고 없으면 확정 source template을 복사한다. 경로 안전성, 파일 열림·손상, resource lookup과 packaging은 RawData 구현 Issue의 예외처리·검증 범위다.
 
@@ -148,7 +148,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 | 항목 | 확인 내용 | PM 처리 |
 |---|---|---|
 | 버전 | `README`, `pyproject.toml`, `app.__version__`은 여전히 `1.0.1`; 사용자는 v3.0 계획을 요청 | Jira `fixVersion`과 배포 버전 체계를 별도로 확인 |
-| NSA 상태 | 기존 개요에는 “NSA 구현 완료” 표현이 있으나 실제로는 수동 Anchor 임시 지원 | v3 명세에서 “정식 지원”의 Delta를 명시 |
+| NSA 상태 | 첫 NSA TC는 기존 `NR Call`, 연속 TC의 Anchor 변경은 `NSA Handover`, 같은 Anchor의 NR 설정 변경은 `NR Handover`로 라우팅 | 첫 Anchor는 외부 절차로 사전 준비하며 수동 확인 state나 런타임 검증을 두지 않음 |
 | LTE 상태 | 과거 UI 문서는 LTE 버튼 미결선으로 설명하지만 현재 코드는 LTE UI를 연결 | 코드 기준으로 완료/재사용 상태 처리 |
 | Recall 식별자 | 현재 NR 코드는 `SA_FDD/SA_TDD`, LTE 코드는 `LTE_FDD/LTE_TDD`; 과거 Spike 목록과 표현이 다름 | 현재 모델 값을 구현 기준선으로 유지하고 LV 전달 표현은 `Recall Change` interface contract에서 매핑한다. |
 | NSA RawData | 현행 문서는 NSA Anchor 셀을 비워 둔다고 설명 | 신규 요구에 따라 명세와 문서 갱신 |
@@ -170,7 +170,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 | PM-NSA-DOM-03 | 모든 NR Band와 지원 Anchor Band의 조합을 허용한다. 조합별 별도 제한은 두지 않는다. |
 | PM-NSA-VAL-01 | 한 실행 Queue에는 `NR_SA`, `NR_NSA`, `LTE` 중 하나의 Generation만 허용하고 혼합 Queue는 시험 시작 단계에서 차단한다. |
 | PM-NSA-FSM-01 | NSA TC 전환 시 LTE Anchor Band가 같으면 기존 SA와 같은 `NR Handover`를 사용한다. |
-| PM-NSA-FSM-02 | 첫 NSA TC 또는 LTE Anchor Band가 바뀌면 신규 고수준 `NSA Handover` 단일 composite로 `NR SCG Release → LTE Anchor DL Channel Handover·검증 → 기존 NR Call helper 재사용 → NR SCG Addition`을 수행한다. |
+| PM-NSA-FSM-02 | 첫 NSA TC는 기존 `NR Call`을 사용한다. 연속 NSA TC의 LTE Anchor Band가 바뀔 때만 신규 고수준 `NSA Handover` 단일 composite로 `NR SCG Release → LTE Anchor DL Channel Handover·검증 → 기존 NR Call helper 재사용 → NR SCG Addition`을 수행한다. |
 | PM-NSA-FSM-03 | 기존 고수준 `NR Call`의 외부 request Params는 유지한다. `NSA Handover` LV workflow는 동일 NR Call helper를 내부 재사용하여 NR 설정, `CALLSA`, 최종 NSA 연결 상태 확인을 수행한다. |
 | PM-NSA-FSM-04 | Handover 이외의 측정 로직은 기존 SA 로직을 재사용한다. |
 | PM-NSA-RPT-01 | NSA RawData에서 NR Band 옆 셀에 Anchor Band를 기록한다. |
@@ -234,7 +234,8 @@ LTE Anchor Band 동일 → 기존 NR Handover
 LTE Anchor Band 변경 → 신규 고수준 NSA Handover 단일 composite
 ```
 
-첫 NSA TC에서도 신규 `NSA Handover` 단일 composite를 사용한다. SCG Release가 필요하지 않은 초기 상태를 허용하고, 선택 Anchor의 `Anchor DL Channel` 적용·고정 profile 검증 후 내부 NR Call helper로 NR SCG를 연결한다. 측정 진입 조건은 `8000A == 8`과 `8821C == 6`이다.
+첫 NSA TC는 선택 Anchor가 장비에 미리 준비되어 있다고 간주하고 기존 `NR Call`을 사용한다.
+`NSA Handover`는 이전에 실행한 NSA TC와 Anchor Band가 달라진 경우에만 사용한다.
 
 #### 4.2.3 고수준 `Recall Change`
 
@@ -400,24 +401,24 @@ NSA 모델에는 요구된 Anchor Band property가 필요하다. LTE Anchor prof
 
 ### 5.3 FSM과 MT8000A
 
-현행 NSA 흐름은 자동 NSA Handover가 아니다.
+NSA Call 전환 흐름은 첫 TC와 연속 TC를 구분한다.
 
 ```text
 첫 NSA TC
-  LTECallAnchorBeforeNRCall(사용자 수동 확인)
-  → NRCallConnect
+  NRCallConnect
   → 기존 측정
 
-다음 NSA Call 설정 변경
-  LTECallAnchorBeforeHandover(사용자 수동 확인)
-  → 일반 NR Handover
+다음 NSA TC
+  Recall ID 변경 → RecallChange
+  Recall 동일 + Anchor 변경 → NSAHandover
+  Anchor 동일 + NR Call 설정 변경 → Handover
   → 기존 측정
 ```
 
-- NSA 라우팅은 수동 Anchor 확인 state를 삽입한다: `src/app/core/fsm/call_routing.py:13`.
-- `LTECallAnchorState`는 TCP 요청 없이 사용자 확인만 기다린다: `src/app/core/fsm/states/nr_setup.py:27`.
-- 일반 `HandoverState`는 단일 `NR Handover` facade를 호출한다: `src/app/core/fsm/states/transition.py:109`.
-- SCG Release와 Anchor Handover를 수행하는 `NSA Handover` command는 없다.
+- 첫 NSA TC는 SA와 동일하게 `NRCallConnectState`에서 기존 `NR Call` facade를 호출한다.
+- `NSAHandoverState`는 이전에 실행한 NSA TC와 비교해 Anchor가 변경된 경우에만 단일 `NSA Handover` facade를 호출한다.
+- Anchor가 같고 NR Call 설정만 변경되면 일반 `HandoverState`가 기존 `NR Handover` facade를 호출한다.
+- 첫 TC의 목표 Anchor는 장비에 사전 준비된 것으로 간주하며 수동 확인 state나 런타임 검증을 두지 않는다.
 - SA↔NSA generation 변경은 현재 TODO/no-op이지만, v3.0에서는 혼합 Queue를 시작 단계에서 차단하므로 세대 간 전환 FSM을 구현하지 않는다. 필요한 변경은 validator와 시작 차단 안내다: `src/app/core/fsm/states/session.py:89`.
 - 기존 `LTE Handover`를 재사용하지 않고 NSA 전용 고수준 `NSA Handover` workflow를 제공해야 한다. NSA Anchor는 BW가 고정이므로 `CHBWDLCHAN` 대신 `DLCHAN`만 변경한다: `src/app/net/commands.py:183`.
 
@@ -426,10 +427,11 @@ NSA 모델에는 요구된 Anchor Band property가 필요하다. LTE Anchor prof
 | 이전 TC 대비 변경 | Python FSM이 호출할 외부 workflow | LV 내부 완료 판정 |
 |---|---|---|
 | LTE Anchor 동일, NR Call 설정 변경 | 기존 `NR Handover` | 기존 NR Handover 완료 조건 |
-| 첫 NSA TC 또는 LTE Anchor 변경 | 신규 `NSA Handover` 단일 composite | 중간=`8000A == 6`, `8821C == 6`, Anchor profile read-back 일치 → 내부 NR Call helper 후 최종=`8000A == 8`, `8821C == 6` |
+| 첫 NSA TC | 기존 `NR Call` | 목표 Anchor가 사전 준비됐다는 전제에서 기존 NR Call 완료 조건 |
+| LTE Anchor 변경 | 신규 `NSA Handover` 단일 composite | 중간=`8000A == 6`, `8821C == 6`, Anchor profile read-back 일치 → 내부 NR Call helper 후 최종=`8000A == 8`, `8821C == 6` |
 | Recall ID 변경 | 신규 `Recall Change` | Generation별 정리·Recall·재연결 후 Generation별 최종 연결 상태 |
 
-`8000A`의 `7/9`와 `8821C`의 `13`은 과도 상태이므로 관측 누락이 실패가 아니다. 각 LV workflow는 매 단계 `REM_DEST`를 다시 설정하고 terminal 상태를 polling한다. 첫 NSA TC 자동 연결과 Recall+Anchor 동시 변경의 내부 순서는 각각 관련 LV 구현 Issue의 설계·벤치 검증에 포함한다.
+`8000A`의 `7/9`와 `8821C`의 `13`은 과도 상태이므로 관측 누락이 실패가 아니다. 각 LV workflow는 매 단계 `REM_DEST`를 다시 설정하고 terminal 상태를 polling한다. 첫 NSA TC는 기존 `NR Call` 계약을 그대로 사용하며, Recall+Anchor 동시 변경의 자동 적용 순서는 후속 Recall 통합 Issue에서 정의한다.
 
 ### 5.4 RawData와 Plot
 
@@ -646,7 +648,7 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 | DEC-NSA-01A | 모든 NR Band × 지원 Anchor Band 조합을 허용한다. | 별도 조합표 작업을 만들지 않고 Anchor allowlist만 검증한다. |
 | DEC-NSA-01B | LTE Anchor는 모든 Band에서 Test Channel `MID`, Bandwidth `5 MHz`, RB Size `1`, RB Offset `0`, Modulation `QPSK`를 사용한다. | Python은 Anchor Band에서 UL/DL Channel만 lookup한다. 고정 profile은 command Params에서 제외하고 LV 내부 read-back 검증 기준으로 사용한다. |
 | DEC-NSA-04A | `NR_SA`/`NR_NSA`/`LTE` 혼합 Queue는 시작 단계에서 차단한다. | SA↔NSA↔LTE 전환 FSM은 만들지 않는다. |
-| DEC-NSA-04B | NSA TC의 Anchor가 같으면 기존 `NR Handover`를 호출한다. 첫 NSA TC 또는 Anchor가 바뀌면 내부에서 NR Call helper를 재사용하는 신규 `NSA Handover` 단일 composite를 호출한다. | Python은 한 번의 고수준 workflow만 호출하며 NR Call/primitive sequencing을 만들지 않는다. |
+| DEC-NSA-04B | 첫 NSA TC는 기존 `NR Call`을 사용한다. 연속 NSA TC의 Anchor가 같으면 기존 `NR Handover`, Anchor가 바뀌면 내부에서 NR Call helper를 재사용하는 신규 `NSA Handover` 단일 composite를 호출한다. | Python은 Anchor 변경 시 한 번의 고수준 workflow만 호출하며 NR Call/primitive sequencing을 추가하지 않는다. |
 | DEC-MT-01 | `CALLSTAT?`의 `REM_DEST`별 상태 의미와 terminal polling 기준은 4.2.1을 따른다. | SCG Release=`8000A==6`, NSA 연결=`8000A==8`, Anchor 유지=`8821C==6`; 과도 상태는 필수 관측하지 않는다. |
 | DEC-MT-02 | 외부 API는 기존 `NR Call`, 신규 `NSA Handover`, 신규 `Recall Change`, 기존 `Check Call Status`의 의미 기반 workflow로 제공한다. | `CALLSO`/`CALLSTAT?`/Anchor HO/Recall은 명시적 `REM_DEST`를 사용하는 LV 내부 helper다. |
 | DEC-MT-03 | `NSA Handover` 응답은 Default Response를 사용한다. | Python은 최종 `status`만 판정하고 `Result`를 무시한다. 실패 시 `Error.message`만 요구한다. |
@@ -666,7 +668,7 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 
 | 기술사항 | 관리 위치 | 요구되는 결과 |
 |---|---|---|
-| 첫 NSA TC 연결 순서 | `NSA-04-LV`, `NSA-05` | 단일 `NSA Handover` 내부에서 Anchor 준비와 NR Call helper를 수행하고 측정 전 `8000A == 8`, `8821C == 6` 확인 |
+| 첫 NSA TC 연결 순서 | `NSA-05` | 목표 Anchor가 사전 준비됐다고 간주하고 기존 `NR Call` 사용 |
 | Recall+Anchor 동시 변경 내부 순서 | `RCL-02-LV` | 목표 Recall·Anchor 적용 후 NSA 최종 연결 상태 복구 |
 | Anchor CSV 필드와 결과 cell mapping | `NSA-01`, `NSA-06` | NSA TC에 Anchor 필수, 결과는 NR Band 옆 셀에 `B*` 형식으로 기록 |
 | RawData path 안전성·열림·손상·runtime lookup | `RAW-01`, `RAW-04`, `RAW-05` | 기존 파일 재사용, 미존재 시 확정 양식 복사, 실패 시 명확한 오류와 Start 차단 |
@@ -703,10 +705,11 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
     ├─ Anchor Band 선택 열 추가, 별도 설정 입력 없음
     ├─ SA/NSA/LTE 혼합 Queue 시작 차단
     ├─ Anchor 동일 → 기존 NR Handover
-    └─ 첫 NSA TC/Anchor 변경 → NR Call helper를 내부 재사용하는 신규 고수준 NSA Handover 단일 composite
+    ├─ 첫 NSA TC → 기존 NR Call
+    └─ Anchor 변경 → NR Call helper를 내부 재사용하는 신규 고수준 NSA Handover 단일 composite
   구현 Issue 내부 설계·검증
     ├─ Anchor CSV field / 결과 cell mapping
-    ├─ 첫 NSA TC 자동 연결과 Recall+Anchor 동시 변경
+    ├─ 첫 NSA TC의 기존 NR Call routing과 Recall+Anchor 동시 변경
     └─ Python/LV wire contract / timeout·poll·retry / terminal polling 벤치 검증
   구현 흐름
     └─ Anchor domain/CSV → SA·NSA UI → 고수준 Python/LV workflow → FSM/결과 → 통합 인수
@@ -758,7 +761,7 @@ Manual Test의 상세 command/API/UX 계약도 지금 별도의 미결정 Issue�
 | NSA-03 | Manager `n5-B1` 표시와 generation별 UI state | NSA-01 | UI |
 | NSA-04-PY | 기존 `NR Call` request Params 호환 유지, Anchor Band→MID 5 MHz UL/DL Channel lookup, 목표 NR 설정과 `Anchor DL Channel`을 전송하는 신규 단일 `NSA Handover` facade, Default Response의 status-only 판정, stateful Mock와 Default Error 처리 | NSA-01 | models, net, mock, protocol docs |
 | NSA-04-LV | `DLCHAN`만 변경하고 MID/5 MHz/RB Size 1/RB Offset 0/QPSK를 read-back 검증한 뒤 기존 NR Call helper로 SCG Addition까지 완료하는 신규 `NSA Handover` 단일 composite, timeout·polling·retry 벤치 검증 | 4.2 확정 workflow | 외부 LV. `CHBWDLCHAN` 사용 금지, 단계별 REM_DEST, terminal polling과 최소 failure 정보 포함 |
-| NSA-05 | 첫 NSA TC/Anchor 변경 시 단일 `NSA Handover`, Anchor 동일 시 기존 `NR Handover`를 호출하는 FSM routing | NSA-01, NSA-04-PY | core/fsm |
+| NSA-05 | 첫 NSA TC는 기존 `NR Call`, Anchor 변경 시 단일 `NSA Handover`, Anchor 동일 시 기존 `NR Handover`를 호출하는 FSM routing | NSA-01, NSA-04-PY | core/fsm |
 | NSA-06 | NR Band 옆 cell에 `B*` 형식으로 Anchor Band 기록 | NSA-01 | report/template map |
 | NSA-07 | 실제 LV를 포함한 NSA 통합 인수와 임시 문서 정식화 | NSA-02~06, NSA-04-LV | tests/docs/release |
 
@@ -826,7 +829,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 6. 첫 실행 TC를 포함한 Recall session lifecycle과 NSA 전환 diagram
 7. Anchor allowlist·고정값(`MID/5 MHz/RB Size 1/RB Offset 0/QPSK`)·Band→UL/DL Channel lookup·CSV/결과 mapping과 Recall 식별자 표
 8. 확정 RawData path/filename, 두 source template mapping과 file lifecycle 예시
-9. 첫 NSA TC 자동 연결, Recall+Anchor 동시 변경, terminal 상태와 Default Response 실패 처리의 관찰 가능한 인수 기준
+9. 첫 NSA TC의 기존 `NR Call`, Anchor 변경 전용 `NSA Handover`, Recall+Anchor 동시 변경, terminal 상태와 Default Response 실패 처리의 관찰 가능한 인수 기준
 10. Manual 기능별 enablement, 확정된 전역 배타 정책, validation, busy/cancel/error 상태
 11. 요구사항→Jira→검증 시나리오 traceability
 
@@ -864,7 +867,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 - Python의 Anchor 매핑은 Band에서 UL/DL Channel만 lookup하며 고정 profile을 파생하거나 Params로 전송하지 않음
 - SA/NSA/LTE 혼합 Queue가 장비 command 전 시험 시작 단계에서 차단됨
 - NSA TestCase 저장·로드 시 `anchor_band`가 보존되고 누락·미지원 값이 차단됨
-- 첫 NSA TC에서 단일 `NSA Handover` 내부의 Anchor 준비와 NR Call helper로 NR SCG를 자동 연결하고 측정 전 `8000A == 8`, `8821C == 6`을 확인함
+- 첫 NSA TC에서 목표 Anchor가 사전 준비됐다고 간주하고 기존 `NR Call`로 NR SCG를 연결함
 - Anchor 동일 변경은 기존 `NR Handover`, Anchor 변경은 단일 `NSA Handover`를 호출함
 - SCG Release 완료는 `REM_DEST 8000A`의 최종 `6`으로 판정하고 `8821C == 6`만으로 완료 처리하지 않음
 - Anchor HO는 `DLCHAN`만 변경하고 `REM_DEST 8821C` 최종 `6` 및 고정 profile read-back으로 판정하며 `CHBWDLCHAN`을 사용하지 않음
@@ -921,7 +924,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 v3.0은 세 Epic으로 관리하되 NSA 정식 지원을 우선한다. 이번 검토로 NR–Anchor 조합과 고정값, Generation 혼합 차단, `REM_DEST`별 상태 의미, 같은/다른 Anchor routing, 고수준 `NSA Handover`·`Recall Change` API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 source asset, Manual 장비 배타 정책, Screenshot 목록 source, Range 7~9 범위가 확정됐다. 후속 Agent는 이 항목을 다시 Discovery 질문으로 되돌리지 않는다.
 
-현재 확정사항으로 NSA/Recall과 RawData SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. 첫 NSA TC와 Recall+Anchor 동시 변경의 내부 순서, 실제 TCP/JSON 표현과 timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
+현재 확정사항으로 NSA/Recall과 RawData SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. 첫 NSA TC에는 별도 NSA 순서가 없고 기존 `NR Call`을 사용한다. Recall+Anchor 동시 변경의 자동 적용 순서와 실제 TCP/JSON 표현, timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
 
 `anchor_band` CSV field와 결과 mapping도 요구사항이 아니라 구현이 남은 상태다. NSA에는 Anchor가 필수이고 결과는 NR Band 옆 cell에 `B*` 형식으로 기록한다는 확정 기준으로 관련 Story를 작성한다.
 
