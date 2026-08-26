@@ -88,6 +88,7 @@ def test_supported_nsa_anchor_band_allowlist_is_exact() -> None:
         LTEBand.B1,
         LTEBand.B3,
         LTEBand.B7,
+        LTEBand.B5,
         LTEBand.B8,
         LTEBand.B20,
         LTEBand.B28,
@@ -362,14 +363,11 @@ def test_test_case_coerces_nr_nsa_anchor_band_case_insensitively() -> None:
     assert case.anchor_band is LTEBand.B1
 
 
-@pytest.mark.parametrize("anchor_band", [LTEBand.B5, LTEBand.B34])
-def test_test_case_rejects_unsupported_nr_nsa_anchor_band(
-    anchor_band: LTEBand,
-) -> None:
+def test_test_case_rejects_unsupported_nr_nsa_anchor_band() -> None:
     with pytest.raises(ValueError, match="Unsupported NSA anchor_band"):
         TestCase(
             generation=Generation.NR_NSA,
-            anchor_band=anchor_band,
+            anchor_band=LTEBand.B34,
             band=NRBand.N78,
             bandwidth=100.0,
             test_type=MeasurementTestType.HARMONIC,

@@ -95,7 +95,7 @@ BILOG/INBAND/HARMONIC 3종)과 Axis(X/Y/Z/X→Y→Z/Z→Y→X)/Pol(H/V/H→V/V�
 선택한다.
 
 NSA 화면에만 NR Band 바로 옆 `LTE Anchor Band` 열이 표시되며 각 NR Band 행에서
-`B1/B3/B7/B8/B20/B28/B38/B40/B41` 중 하나를 고른다. Anchor Profile 입력은 제공하지 않는다.
+`B1/B3/B7/B5/B8/B20/B28/B38/B40/B41` 중 하나를 고른다. Anchor Profile 입력은 제공하지 않는다.
 
 Add 시 **band × 시험타입 × axis 시퀀스 × pol 시퀀스** 중첩 루프로 TestCase 리스트를
 생성한다(중첩 순서 = 실행 순서). NSA는 선택한 Anchor를 각 TestCase에 보존한다.

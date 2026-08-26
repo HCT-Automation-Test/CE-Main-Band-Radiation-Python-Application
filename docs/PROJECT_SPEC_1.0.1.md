@@ -260,7 +260,7 @@ generation,band,anchor_band,bandwidth,test_type,modulation,rb_allocation,test_ch
 ```
 
 `anchor_band`는 `NR_NSA`에서만 필수이며 지원값은
-`B1/B3/B7/B8/B20/B28/B38/B40/B41`이다. `NR_SA`와 `LTE`에서는 빈 값이어야 한다.
+`B1/B3/B7/B5/B8/B20/B28/B38/B40/B41`이다. `NR_SA`와 `LTE`에서는 빈 값이어야 한다.
 기존 10열 `NR_SA`/`LTE` CSV는 읽을 수 있지만 저장 시 11열로 갱신되며, 10열
 `NR_NSA`는 Anchor를 추정하지 않고 차단한다.
 

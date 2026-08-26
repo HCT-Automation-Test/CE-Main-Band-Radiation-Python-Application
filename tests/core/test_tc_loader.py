@@ -199,7 +199,7 @@ def test_load_csv_rejects_legacy_nr_nsa_without_anchor_migration(
     ("anchor_band", "expected_error"),
     [
         ("", "NR_NSA requires anchor_band"),
-        ("B5", "Unsupported NSA anchor_band"),
+        ("B34", "Unsupported NSA anchor_band"),
     ],
 )
 def test_load_csv_rejects_invalid_nr_nsa_anchor_with_row_context(
@@ -246,7 +246,7 @@ def test_save_csv_round_trips_sa_nsa_and_lte_with_current_schema(
         _build_case(band=NRBand.N78),
         TestCase(
             generation=Generation.NR_NSA,
-            anchor_band=LTEBand.B1,
+            anchor_band=LTEBand.B5,
             band=NRBand.N78,
             bandwidth=100.0,
             test_type=MeasurementTestType.HARMONIC,
@@ -277,7 +277,7 @@ def test_save_csv_round_trips_sa_nsa_and_lte_with_current_schema(
     assert [case.to_csv_row() for case in loaded] == [
         case.to_csv_row() for case in cases
     ]
-    assert loaded[1].anchor_band is LTEBand.B1
+    assert loaded[1].anchor_band is LTEBand.B5
 
 
 def test_save_csv_rejects_mutated_invalid_anchor_before_creating_file(

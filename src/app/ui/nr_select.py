@@ -111,7 +111,7 @@ _SA_PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
 )
 _NSA_PARAMETER_COLUMN_WIDTHS: tuple[int, ...] = (
     *_SA_PARAMETER_COLUMN_WIDTHS[:3],
-    98,
+    130,
     *_SA_PARAMETER_COLUMN_WIDTHS[3:],
 )
 _RB_ALLOCATION_OPTIONS: tuple[RBAllocation, ...] = (

@@ -33,7 +33,7 @@ generation, band, anchor_band, bandwidth, test_type, modulation, rb_allocation,
 test_channel, antenna_pol, dut_axis, dut_ant_position
 ```
 
-`anchor_band`는 `NR_NSA`에서만 필수이며 `B1/B3/B7/B8/B20/B28/B38/B40/B41`만
+`anchor_band`는 `NR_NSA`에서만 필수이며 `B1/B3/B7/B5/B8/B20/B28/B38/B40/B41`만
 허용한다. `NR_SA`와 `LTE`에서는 비어 있어야 한다. Anchor의 BW/RB/Modulation이나
 Anchor Channel lookup은 이 모델에 포함하지 않는다.
 

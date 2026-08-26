@@ -8,6 +8,7 @@ SUPPORTED_NSA_ANCHOR_BANDS: tuple[LTEBand, ...] = (
     LTEBand.B1,
     LTEBand.B3,
     LTEBand.B7,
+    LTEBand.B5,
     LTEBand.B8,
     LTEBand.B20,
     LTEBand.B28,

@@ -1601,7 +1601,7 @@ class TestManagerPanel(QWidget):
 
         try:
             save_csv(path, self._test_cases)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             self._show_warning(f"CSV 저장에 실패했습니다.\n{exc}")
             return
 

@@ -152,7 +152,7 @@ def test_nr_sa_dialog_exposes_integrated_table_shape(qtbot) -> None:
 
 
 def test_nr_nsa_dialog_exposes_anchor_column_with_exact_allowlist(qtbot) -> None:
-    """NSA 화면만 NR Band 바로 옆에 9개 Anchor 선택 열을 제공한다."""
+    """NSA 화면만 NR Band 바로 옆에 10개 Anchor 선택 열을 제공한다."""
 
     dialog = NRSelectDialog(generation=Generation.NR_NSA)
     qtbot.addWidget(dialog)
@@ -163,7 +163,13 @@ def test_nr_nsa_dialog_exposes_anchor_column_with_exact_allowlist(qtbot) -> None
     assert table is not None
     assert table.columnCount() == 16
     assert table.horizontalHeaderItem(2).text() == "NR Band"
-    assert table.horizontalHeaderItem(3).text() == "LTE Anchor Band"
+    anchor_header = table.horizontalHeaderItem(3).text()
+    assert anchor_header == "LTE Anchor Band"
+    assert table.columnWidth(3) == 130
+    assert (
+        table.horizontalHeader().fontMetrics().horizontalAdvance(anchor_header) + 12
+        <= table.columnWidth(3)
+    )
     assert anchor_combo is not None
     assert [anchor_combo.itemData(index) for index in range(anchor_combo.count())] == list(
         SUPPORTED_NSA_ANCHOR_BANDS
@@ -173,7 +179,7 @@ def test_nr_nsa_dialog_exposes_anchor_column_with_exact_allowlist(qtbot) -> None
 
 
 def test_nr_nsa_dialog_builds_every_nr_anchor_combination(qtbot) -> None:
-    """지원 NR Band와 9개 Anchor의 모든 조합을 별도 제한 없이 생성한다."""
+    """지원 NR Band와 10개 Anchor의 모든 조합을 별도 제한 없이 생성한다."""
 
     dialog = NRSelectDialog(generation=Generation.NR_NSA)
     qtbot.addWidget(dialog)
@@ -795,6 +801,44 @@ def test_test_manager_save_button_writes_current_cases_with_csv_suffix(
     assert [case.to_csv_row() for case in load_csv(saved_path)] == [
         case.to_csv_row() for case in cases
     ]
+
+
+def test_test_manager_save_button_warns_for_invalid_test_case(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """저장 전 검증 실패는 예외 대신 사용자 경고로 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_case()
+    panel.add_test_cases([case])
+    case.anchor_band = LTEBand.B1
+    selected_path = tmp_path / "invalid_cases.csv"
+    warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(selected_path), "CSV Files (*.csv)"),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda parent, title, message: warnings.append((title, message)),
+    )
+
+    panel.findChild(QPushButton, "saveItemButton").click()
+
+    assert warnings == [
+        (
+            "Test Manager",
+            "CSV 저장에 실패했습니다.\n"
+            "Invalid CSV row 2: NR_SA must not define anchor_band",
+        ),
+    ]
+    assert not selected_path.exists()
 
 
 def test_test_manager_nr_sa_button_opens_dialog_and_appends_cases(
