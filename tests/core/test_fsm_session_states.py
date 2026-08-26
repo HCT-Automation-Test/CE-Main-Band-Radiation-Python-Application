@@ -85,10 +85,11 @@ def _make_case(
     antenna_pol: AntennaPol = AntennaPol.H,
     dut_axis: DUTAxis = DUTAxis.X,
     generation: Generation = Generation.NR_SA,
+    anchor_band: LTEBand = LTEBand.B1,
 ) -> TestCase:
     return TestCase(
         generation=generation,
-        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
+        anchor_band=anchor_band if generation is Generation.NR_NSA else None,
         band=band,
         bandwidth=bandwidth,
         test_type=test_type,
@@ -504,7 +505,7 @@ def test_check_next_case_routes_same_band_call_config_change_to_handover(
     assert state.next_state(ctx, result) == "Handover"
 
 
-def test_check_next_case_routes_same_band_nr_nsa_config_change_via_anchor() -> None:
+def test_check_next_case_routes_same_anchor_nr_nsa_config_change_to_handover() -> None:
     events = _Events()
     ctx = SessionContext(
         queue=[
@@ -519,7 +520,63 @@ def test_check_next_case_routes_same_band_nr_nsa_config_change_via_anchor() -> N
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert state.next_state(ctx, result) == "LTECallAnchorBeforeHandover"
+    assert state.next_state(ctx, result) == "Handover"
+
+
+@pytest.mark.parametrize(
+    "current_changes",
+    [
+        {"anchor_band": LTEBand.B3},
+        {"anchor_band": LTEBand.B3, "bandwidth": 90.0},
+    ],
+    ids=["anchor-only", "anchor-and-nr-config"],
+)
+def test_check_next_case_routes_nsa_anchor_change_to_nsa_handover(
+    current_changes: dict[str, Any],
+) -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(generation=Generation.NR_NSA, anchor_band=LTEBand.B1),
+            _make_case(generation=Generation.NR_NSA, **current_changes),
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "NSAHandover"
+
+
+def test_check_next_case_keeps_recall_change_priority_over_anchor_change() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(
+                generation=Generation.NR_NSA,
+                band=NRBand.N7,
+                bandwidth=20.0,
+                anchor_band=LTEBand.B1,
+            ),
+            _make_case(
+                generation=Generation.NR_NSA,
+                band=NRBand.N38,
+                bandwidth=20.0,
+                anchor_band=LTEBand.B3,
+            ),
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
 
 
 def test_check_next_case_skips_handover_when_call_config_is_unchanged() -> None:

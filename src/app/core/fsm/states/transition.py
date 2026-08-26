@@ -13,6 +13,7 @@ from app.core.fsm.equipment import is_equipment_connected
 from app.core.fsm.transition_flow import next_transition_or
 from app.models.enums import AntennaPol, Generation, InputPath
 from app.models.lte_channel_lookup import resolve_dl_channel
+from app.models.nsa_anchor import resolve_nsa_anchor_channels
 from app.models.nr_channel_lookup import resolve_call_channel
 from app.models.switch_box import parse_band_number
 
@@ -156,6 +157,77 @@ class HandoverState(State):
             return StateResult.OK
 
         _emit_error(ctx, "NR Handover 실패: call_handover returned false")
+        return StateResult.FAIL
+
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is StateResult.OK:
+            return next_transition_or(ctx, "ApplyTdf")
+        if result is StateResult.FAIL:
+            return "NRCallDisconnected"
+        return None
+
+
+class NSAHandoverState(State):
+    """LTE Anchor Band 변경과 목표 NR 설정을 단일 composite로 적용한다."""
+
+    name = "NSAHandover"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "NSA Handover 스킵: MT8000A가 연결되어 있지 않습니다.")
+            return StateResult.FAIL
+
+        test_case = ctx.current_case
+        prev_case = ctx.prev_case
+        if prev_case is None:
+            _emit_error(ctx, "NSA Handover 실패: previous test case is not set")
+            return StateResult.FAIL
+        if (
+            prev_case.generation is not Generation.NR_NSA
+            or test_case.generation is not Generation.NR_NSA
+        ):
+            _emit_error(ctx, "NSA Handover 실패: NR_NSA test cases are required")
+            return StateResult.FAIL
+        if prev_case.anchor_band == test_case.anchor_band:
+            _emit_error(ctx, "NSA Handover 실패: anchor_band is unchanged")
+            return StateResult.FAIL
+
+        waiting_time = 5
+        if ctx.settings is not None:
+            waiting_time = ctx.settings.connection_waiting_time_sec
+
+        try:
+            band = parse_band_number(test_case.band.value)
+            bw = int(test_case.bandwidth)
+            channel = resolve_call_channel(
+                test_case.band,
+                test_case.bandwidth,
+                test_case.test_channel,
+            )
+            if test_case.anchor_band is None:
+                raise ValueError("NR_NSA requires anchor_band")
+            anchor_channels = resolve_nsa_anchor_channels(test_case.anchor_band)
+            handed_over = ctx.commands.nsa_handover(
+                ctx.client,
+                band=band,
+                bw=bw,
+                modulation=test_case.modulation,
+                rb_size=test_case.rb_size,
+                rb_offset=test_case.rb_offset,
+                channel=channel,
+                anchor_dl_channel=anchor_channels.dl_channel,
+                waiting_time=waiting_time,
+            )
+        except Exception as exc:
+            _emit_error(ctx, f"NSA Handover 실패: {exc}")
+            return StateResult.FAIL
+
+        if handed_over:
+            return StateResult.OK
+
+        _emit_error(ctx, "NSA Handover 실패: nsa_handover returned false")
         return StateResult.FAIL
 
     def next_state(

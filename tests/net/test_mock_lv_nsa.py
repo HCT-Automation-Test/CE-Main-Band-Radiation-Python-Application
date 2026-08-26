@@ -41,17 +41,14 @@ def _state_snapshot(server: MockLvServer) -> tuple[Any, ...]:
     )
 
 
-@pytest.mark.parametrize("has_existing_nsa", [False, True])
-def test_mock_nsa_handover_completes_from_first_or_existing_nsa_state(
+def test_mock_nsa_handover_completes_anchor_change_from_existing_nsa_state(
     tmp_path,
-    has_existing_nsa: bool,
 ) -> None:
     server = MockLvServer(temp_dir=tmp_path)
-    if has_existing_nsa:
-        server.state.call_connected = True
-        server.state.call_state_by_rem_dest = {"8000A": 8, "8821C": 6}
-        server.state.anchor_dl_channel = 1575
-        server.state.anchor_ul_channel = 19575
+    server.state.call_connected = True
+    server.state.call_state_by_rem_dest = {"8000A": 8, "8821C": 6}
+    server.state.anchor_dl_channel = 1575
+    server.state.anchor_ul_channel = 19575
 
     response = server._handle_request(_nsa_request())
 

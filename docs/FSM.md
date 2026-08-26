@@ -54,9 +54,7 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 - **예외**: Switch Box 복원 후 그대로 재전파 → Runner가 `session_failed` 처리.
 - **FAIL + next None**: FSM 종료 경로에서도 Switch Box 복원.
 
-모든 상태는 `build_session_engine()`에서 싱글턴으로 등록된다. 예외적으로
-`LTECallAnchorState`만 name과 다음 상태를 생성자 주입받는 **멀티 인스턴스** 상태다
-(`LTECallAnchorBeforeNRCall` → NRCallConnect, `LTECallAnchorBeforeHandover` → Handover).
+모든 상태는 `build_session_engine()`에서 싱글턴으로 등록된다.
 
 ## 2. 상태 카탈로그
 
@@ -73,15 +71,15 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 
 | 상태 | 역할 | next |
 | --- | --- | --- |
-| `LTECallAnchorBefore*` | (NSA 전용) "LTE Anchor Call 연결 후 확인" 사용자 확인 대기 | 주입된 다음 상태 |
 | `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (SA=NRCallConnect, NSA=LTE Anchor부터) |
+| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (NR SA/NSA=`NRCallConnect`) |
 | `LTECallConnect` | 현재 TC의 BW/ARFCN/RB Offset으로 `commands.setup_lte_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `LTECallDisconnected` | NR과 같은 "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`LTECallConnect` |
 
 Generation 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다.
-LTE는 LTE Call/Handover 상태로 진입하고, NR NSA는 Call/Handover 앞에 LTE Anchor 수동
-확인 상태를 삽입하며, NR SA는 기존 NR 상태로 바로 진입한다.
+LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결은 동일한 NR Call을
+사용하고, 같은 Anchor의 NR 설정 변경도 기존 NR Handover를 사용한다. 첫 NSA TC의 Anchor는
+장비에 미리 준비되어 있다고 간주한다.
 
 ### 시험 간 전환 — [states/transition.py](../src/app/core/fsm/states/transition.py)
 
@@ -89,6 +87,7 @@ LTE는 LTE Call/Handover 상태로 진입하고, NR NSA는 Call/Handover 앞에 
 | --- | --- | --- | --- |
 | `RecallChange` | Band가 다르고 TC의 `mt8000_recall`이 다름 | "MT8000A Recall 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `Handover` | NR Call 설정(Band/BW/Channel/RB/Modulation) 다름. 단, Band와 Recall이 모두 다르면 `RecallChange` 우선 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `NSAHandover` | Recall이 같고 연속 NSA TC의 `anchor_band`가 다름 | 현재 TC의 NR 목적지 파라미터와 Anchor DL Channel로 `commands.nsa_handover` 한 번 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `LTEHandover` | LTE Call 설정(Band/BW/Channel/RB) 다름. 단, Band와 Recall이 모두 다르면 `RecallChange` 우선 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
@@ -100,6 +99,18 @@ TestTypeChange는 MT8000A 미연결 시 FAIL이다.
 
 Recall 변경은 임시 정책에 따라 자동 Call Stop/Recall을 호출하지 않고 기존 수동 확인을
 유지한다. 시험원이 Recall 변경을 완료하면 현재 TC의 Generation에 맞는 Call을 새로 시작한다.
+Recall ID와 Anchor Band가 동시에 바뀌면 38번에서는 기존 `RecallChange`를 우선하며,
+자동 Anchor 변경 통합은 후속 Recall 이슈에서 처리한다.
+
+NSA Call 전환 결정표는 다음과 같다.
+
+```text
+첫 실행 TC (start_index 포함)  → NR Call
+Recall ID 변경                 → RecallChange
+Recall 동일 + Anchor 변경      → NSA Handover
+Anchor 동일 + NR 설정 변경     → NR Handover
+그 외                          → Call 전환 없음
+```
 
 ### Factor 적용 — [states/tdf.py](../src/app/core/fsm/states/tdf.py)
 
