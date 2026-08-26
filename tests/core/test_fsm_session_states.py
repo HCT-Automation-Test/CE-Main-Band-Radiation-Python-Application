@@ -18,6 +18,7 @@ from app.models.enums import (
     DUTAxis,
     Generation,
     InputPath,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -87,6 +88,7 @@ def _make_case(
 ) -> TestCase:
     return TestCase(
         generation=generation,
+        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
         band=band,
         bandwidth=bandwidth,
         test_type=test_type,

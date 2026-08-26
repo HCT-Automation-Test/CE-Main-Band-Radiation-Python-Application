@@ -189,6 +189,22 @@ def _make_lte_case() -> TestCase:
     )
 
 
+def _make_nsa_case() -> TestCase:
+    return TestCase(
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+        band=NRBand.N78,
+        bandwidth=100.0,
+        test_type=TestType.HARMONIC,
+        modulation=Modulation.QPSK,
+        rb_allocation=RBAllocation.INNER_FULL,
+        test_channel=TestChannel.MID,
+        antenna_pol=AntennaPol.H,
+        dut_axis=DUTAxis.X,
+        dut_ant_position="Upper",
+    )
+
+
 def test_initialize_starts_worker_at_session_init(qtbot: Any, tmp_path: Path) -> None:
     engines: list[_FakeEngine] = []
 
@@ -483,9 +499,18 @@ def test_start_populates_context_and_sets_start_request(
     qtbot.waitUntil(lambda: not runner.is_running)
 
 
-def test_start_rejects_mixed_nr_lte_queue_before_report_setup(
+@pytest.mark.parametrize(
+    ("mixed_case_factory", "expected_generations"),
+    [
+        (_make_lte_case, "LTE, NR_SA"),
+        (_make_nsa_case, "NR_NSA, NR_SA"),
+    ],
+)
+def test_start_rejects_mixed_generation_queue_before_report_setup(
     qtbot: Any,
     tmp_path: Path,
+    mixed_case_factory: Any,
+    expected_generations: str,
 ) -> None:
     engines: list[_FakeEngine] = []
     report_writers: list[_ReportWriter] = []
@@ -514,13 +539,16 @@ def test_start_rejects_mixed_nr_lte_queue_before_report_setup(
     engines[0].current_state_name = "Idle"
 
     runner.start(
-        [_make_case(), _make_lte_case()],
+        [_make_case(), mixed_case_factory()],
         settings=_make_settings(tmp_path),
     )
 
     ctx = runner.context
     assert ctx is not None
-    assert messages == ["시험 시작 실패: NR/LTE 혼합 Queue는 실행할 수 없습니다"]
+    assert messages == [
+        "시험 시작 실패: Generation 혼합 Queue는 실행할 수 없습니다: "
+        + expected_generations
+    ]
     assert report_writers == []
     assert ctx.queue == []
     assert not ctx.test_start_requested.is_set()

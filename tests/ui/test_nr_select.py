@@ -19,6 +19,7 @@ from app.models.enums import (
     DUTAntPosition,
     DUTAxis,
     Generation,
+    LTEBand,
     Modulation,
     NRBand,
     RBAllocation,
@@ -26,19 +27,28 @@ from app.models.enums import (
     TestType as NRTestType,
 )
 from app.models.test_case import TestCase
+from app.models.nsa_anchor import SUPPORTED_NSA_ANCHOR_BANDS
 from app.ui.nr_select import (
-    NRCaseParameters,
     NRGroupSettings,
-    NRParameterDialog,
     NRSelectDialog,
+    NRSelectState,
 )
 from app.ui.test_manager_panel import TestManagerPanel as ManagerPanel
 
 
-def _make_case(*, test_type: NRTestType = NRTestType.HARMONIC) -> TestCase:
+def _make_case(
+    *,
+    test_type: NRTestType = NRTestType.HARMONIC,
+    generation: Generation = Generation.NR_SA,
+    band: NRBand = NRBand.N78,
+    anchor_band: LTEBand | None = None,
+    bandwidth: float = 100.0,
+) -> TestCase:
     return TestCase(
-        band=NRBand.N78,
-        bandwidth=100.0,
+        generation=generation,
+        band=band,
+        anchor_band=anchor_band,
+        bandwidth=bandwidth,
         test_type=test_type,
         modulation=Modulation.QPSK,
         rb_allocation=RBAllocation.INNER_FULL,
@@ -51,16 +61,13 @@ def _make_case(*, test_type: NRTestType = NRTestType.HARMONIC) -> TestCase:
 
 def _make_dialog_with_position() -> NRSelectDialog:
     dialog = NRSelectDialog()
-    dialog._group_settings["lb"] = NRGroupSettings(
-        selected_test_types=(NRTestType.INBAND, NRTestType.HARMONIC),
-        axis_sequence=(DUTAxis.X, DUTAxis.Y, DUTAxis.Z),
-        antenna_pol_sequence=(AntennaPol.V, AntennaPol.H),
-    )
+    dialog.findChild(QCheckBox, "nrAxisCheck_lb_X_to_Y_to_Z").click()
+    dialog.findChild(QCheckBox, "nrPolCheck_lb_V_to_H").click()
     return dialog
 
 
 def test_nr_select_dialog_renders_band_groups_and_actions(qtbot) -> None:
-    """초안의 Band 그룹, Table, Add 컨트롤을 생성한다."""
+    """SA 통합 화면이 Band 선택과 Parameter Table을 함께 제공한다."""
 
     dialog = NRSelectDialog()
     qtbot.addWidget(dialog)
@@ -78,75 +85,48 @@ def test_nr_select_dialog_renders_band_groups_and_actions(qtbot) -> None:
         assert checkbox is not None
         assert not checkbox.isChecked()
 
-    assert dialog.findChild(QPushButton, "nrTableButton").text() == "Table"
+    table = dialog.findChild(QTableWidget, "nrParameterTable")
+    assert table is not None
+    assert table.rowCount() == 15
+    assert table.columnCount() == 15
+    assert dialog.findChild(QPushButton, "nrTableButton") is None
+    assert dialog.findChild(QPushButton, "nrCancelButton").text() == "Cancel"
     assert dialog.findChild(QPushButton, "nrAddButton").text() == "Add"
 
 
-def test_nr_select_generation_toggle_shows_selected_mode(qtbot) -> None:
-    """SA/NSA 토글은 현재 선택된 generation을 checked 상태로 표시한다."""
+def test_nr_select_group_checkbox_toggles_group_bands(qtbot) -> None:
+    """그룹 체크박스가 해당 그룹의 Band 선택을 토글한다."""
 
     dialog = NRSelectDialog()
     qtbot.addWidget(dialog)
 
-    sa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_SA")
-    nsa_button = dialog.findChild(QPushButton, "nrGenerationButton_NR_NSA")
-
-    assert sa_button is not None
-    assert nsa_button is not None
-    assert sa_button.minimumWidth() == nsa_button.minimumWidth()
-    assert sa_button.isChecked()
-    assert not nsa_button.isChecked()
-    assert dialog.generation is Generation.NR_SA
-
-    nsa_button.click()
-
-    assert not sa_button.isChecked()
-    assert nsa_button.isChecked()
-    assert dialog.generation is Generation.NR_NSA
-
-    sa_button.click()
-
-    assert sa_button.isChecked()
-    assert not nsa_button.isChecked()
-    assert dialog.generation is Generation.NR_SA
-
-
-def test_nr_select_all_reset_toggles_group_checkboxes(qtbot) -> None:
-    """ALL/RESET 버튼이 해당 그룹의 Band 체크 상태를 토글한다."""
-
-    dialog = NRSelectDialog()
-    qtbot.addWidget(dialog)
-
-    toggle_button = dialog.findChild(QPushButton, "nrBandToggle_lb")
-    assert toggle_button is not None
+    group_check = dialog.findChild(QCheckBox, "nrBandGroupCheck_lb")
+    assert group_check is not None
     lb_checks = [
         dialog.findChild(QCheckBox, f"nrBandCheck_{band}")
         for band in ("n5", "n8", "n20", "n26", "n28", "n71")
     ]
 
-    toggle_button.click()
+    group_check.click()
     assert all(checkbox.isChecked() for checkbox in lb_checks)
 
-    toggle_button.click()
+    group_check.click()
     assert not any(checkbox.isChecked() for checkbox in lb_checks)
 
 
-def test_nr_parameter_dialog_exposes_planned_table_shape(qtbot) -> None:
-    """Table 팝업이 첨부 화면 형태의 전체 Band 표를 제공한다."""
+def test_nr_sa_dialog_exposes_integrated_table_shape(qtbot) -> None:
+    """SA 화면은 Anchor 열 없이 전체 Band 통합 표를 제공한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
-    qtbot.addWidget(parameter_dialog)
+    dialog = NRSelectDialog(generation=Generation.NR_SA)
+    qtbot.addWidget(dialog)
 
-    table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
+    table = dialog.findChild(QTableWidget, "nrParameterTable")
 
     assert table is not None
     assert table.rowCount() == 15
-    assert table.columnCount() == 14
-    assert [table.horizontalHeaderItem(index).text() for index in range(14)] == [
+    assert table.columnCount() == 15
+    assert [table.horizontalHeaderItem(index).text() for index in range(15)] == [
+        "",
         "",
         "NR Band",
         "SCS",
@@ -162,13 +142,119 @@ def test_nr_parameter_dialog_exposes_planned_table_shape(qtbot) -> None:
         "Test 대역",
         "Position",
     ]
-    assert table.item(0, 0).text() == "LB"
-    assert table.item(0, 1).text() == "N5"
+    assert table.cellWidget(0, 0).objectName() == "nrBandGroup_lb"
+    assert table.item(0, 2).text() == "N5"
     assert table.rowSpan(0, 0) == 6
-    assert table.rowSpan(0, 12) == 6
     assert table.rowSpan(0, 13) == 6
-    assert table.item(6, 0).text() == "MHB_FDD"
-    assert table.item(12, 0).text() == "UHB_TDD"
+    assert table.rowSpan(0, 14) == 6
+    assert table.cellWidget(6, 0).objectName() == "nrBandGroup_mhb_fdd"
+    assert table.cellWidget(12, 0).objectName() == "nrBandGroup_uhb_tdd"
+
+
+def test_nr_nsa_dialog_exposes_anchor_column_with_exact_allowlist(qtbot) -> None:
+    """NSA 화면만 NR Band 바로 옆에 10개 Anchor 선택 열을 제공한다."""
+
+    dialog = NRSelectDialog(generation=Generation.NR_NSA)
+    qtbot.addWidget(dialog)
+
+    table = dialog.findChild(QTableWidget, "nrParameterTable")
+    anchor_combo = dialog.findChild(QComboBox, "nrAnchorBand_n5")
+
+    assert table is not None
+    assert table.columnCount() == 16
+    assert table.horizontalHeaderItem(2).text() == "NR Band"
+    anchor_header = table.horizontalHeaderItem(3).text()
+    assert anchor_header == "LTE Anchor Band"
+    assert table.columnWidth(3) == 130
+    assert (
+        table.horizontalHeader().fontMetrics().horizontalAdvance(anchor_header) + 12
+        <= table.columnWidth(3)
+    )
+    assert anchor_combo is not None
+    assert [anchor_combo.itemData(index) for index in range(anchor_combo.count())] == list(
+        SUPPORTED_NSA_ANCHOR_BANDS
+    )
+    assert anchor_combo.currentData() is LTEBand.B1
+    assert dialog.findChild(QPushButton, "nrGenerationButton_NR_NSA") is None
+
+
+def test_nr_nsa_dialog_builds_every_nr_anchor_combination(qtbot) -> None:
+    """지원 NR Band와 10개 Anchor의 모든 조합을 별도 제한 없이 생성한다."""
+
+    dialog = NRSelectDialog(generation=Generation.NR_NSA)
+    qtbot.addWidget(dialog)
+    for group_key in ("lb", "mhb_fdd", "mhb_tdd", "uhb_tdd"):
+        dialog.findChild(QCheckBox, f"nrAxisCheck_{group_key}_X").click()
+        dialog.findChild(QCheckBox, f"nrPolCheck_{group_key}_H").click()
+
+    generated: set[tuple[NRBand, LTEBand]] = set()
+    for band in NRBand:
+        anchor_combo = dialog.findChild(QComboBox, f"nrAnchorBand_{band.value}")
+        assert anchor_combo is not None
+        for anchor_band in SUPPORTED_NSA_ANCHOR_BANDS:
+            anchor_combo.setCurrentIndex(anchor_combo.findData(anchor_band))
+            cases = dialog._build_test_cases([band])
+            assert len(cases) == 1
+            case = cases[0]
+            assert case.generation is Generation.NR_NSA
+            assert case.anchor_band is anchor_band
+            generated.add((case.band, case.anchor_band))
+
+    assert len(generated) == len(NRBand) * len(SUPPORTED_NSA_ANCHOR_BANDS)
+
+
+def test_nr_nsa_dialog_rebuilds_same_band_with_changed_anchor(qtbot) -> None:
+    """같은 NR Band도 Anchor를 바꿔 다시 Add할 수 있다."""
+
+    dialog = NRSelectDialog(generation=Generation.NR_NSA)
+    qtbot.addWidget(dialog)
+    dialog.findChild(QCheckBox, "nrAxisCheck_lb_X").click()
+    dialog.findChild(QCheckBox, "nrPolCheck_lb_H").click()
+    anchor_combo = dialog.findChild(QComboBox, "nrAnchorBand_n5")
+
+    anchor_combo.setCurrentIndex(anchor_combo.findData(LTEBand.B1))
+    b1_cases = dialog._build_test_cases([NRBand.N5])
+    anchor_combo.setCurrentIndex(anchor_combo.findData(LTEBand.B3))
+    b3_cases = dialog._build_test_cases([NRBand.N5])
+
+    assert {case.band for case in (*b1_cases, *b3_cases)} == {NRBand.N5}
+    assert {case.anchor_band for case in b1_cases} == {LTEBand.B1}
+    assert {case.anchor_band for case in b3_cases} == {LTEBand.B3}
+
+
+def test_nr_select_state_restores_nsa_selection_and_anchor(qtbot) -> None:
+    """NSA 화면 상태가 선택 Band, 파라미터, 그룹 설정, Anchor를 복원한다."""
+
+    first_dialog = NRSelectDialog(generation=Generation.NR_NSA)
+    qtbot.addWidget(first_dialog)
+    first_dialog.findChild(QCheckBox, "nrBandCheck_n5").setChecked(True)
+    anchor_combo = first_dialog.findChild(QComboBox, "nrAnchorBand_n5")
+    anchor_combo.setCurrentIndex(anchor_combo.findData(LTEBand.B41))
+    first_dialog.findChild(QComboBox, "nrParamModulation_n5").setCurrentText(
+        "pi/2 BPSK",
+    )
+    first_dialog.findChild(QCheckBox, "nrRangeCheck_lb_inband").setChecked(False)
+    first_dialog.findChild(QCheckBox, "nrAxisCheck_lb_Z").click()
+    first_dialog.findChild(QCheckBox, "nrPolCheck_lb_V").click()
+
+    restored_dialog = NRSelectDialog(
+        generation=Generation.NR_NSA,
+        state=first_dialog.state,
+    )
+    qtbot.addWidget(restored_dialog)
+
+    assert restored_dialog.state.generation is Generation.NR_NSA
+    assert restored_dialog.selected_bands() == [NRBand.N5]
+    assert restored_dialog.findChild(QComboBox, "nrAnchorBand_n5").currentData() is LTEBand.B41
+    assert (
+        restored_dialog.parameters_by_band[NRBand.N5].modulation
+        is Modulation.PI_OVER_2_BPSK
+    )
+    assert restored_dialog.group_settings["lb"] == NRGroupSettings(
+        selected_test_types=(NRTestType.HARMONIC,),
+        axis_sequence=(DUTAxis.Z,),
+        antenna_pol_sequence=(AntennaPol.V,),
+    )
 
 
 def test_nr_parameter_dialog_distributes_spanned_widget_height_by_group(
@@ -176,11 +262,7 @@ def test_nr_parameter_dialog_distributes_spanned_widget_height_by_group(
 ) -> None:
     """span 위젯 높이가 각 그룹 첫 Band 행에만 몰리지 않는다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
@@ -195,11 +277,7 @@ def test_nr_parameter_dialog_distributes_spanned_widget_height_by_group(
 def test_nr_parameter_dialog_uses_compact_column_widths(qtbot) -> None:
     """Table 컬럼 폭을 첨부표처럼 조밀한 기본값으로 맞춘다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
@@ -208,9 +286,9 @@ def test_nr_parameter_dialog_uses_compact_column_widths(qtbot) -> None:
     assert parameter_dialog.width() < 1360
     assert parameter_dialog.height() < 780
     assert table.columnWidth(0) == 76
-    assert table.columnWidth(5) == 120
-    assert table.columnWidth(12) == 105
-    assert table.columnWidth(13) == 210
+    assert table.columnWidth(6) == 120
+    assert table.columnWidth(13) == 105
+    assert table.columnWidth(14) == 210
 
     axis_sequence = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X_to_Y_to_Z")
     pol_sequence = parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_V_to_H")
@@ -241,11 +319,7 @@ def test_nr_parameter_dialog_defaults_ranges_checked_and_positions_unchecked(
 ) -> None:
     """Test 대역은 전체 체크, Position은 미체크로 시작한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     for object_name in (
@@ -276,11 +350,7 @@ def test_nr_parameter_dialog_defaults_ranges_checked_and_positions_unchecked(
 def test_nr_parameter_dialog_keeps_position_choices_exclusive(qtbot) -> None:
     """Axis/Pol Position은 그룹 안에서 각각 1개만 선택한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     axis_x = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X")
@@ -306,11 +376,7 @@ def test_nr_parameter_dialog_keeps_position_choices_exclusive(qtbot) -> None:
 def test_nr_parameter_dialog_updates_preview_when_bandwidth_changes(qtbot) -> None:
     """BW 변경 시 NARFCN/Frequency/RB 미리보기를 갱신한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     table = parameter_dialog.findChild(QTableWidget, "nrParameterTable")
@@ -323,20 +389,16 @@ def test_nr_parameter_dialog_updates_preview_when_bandwidth_changes(qtbot) -> No
     bandwidth_combo.setCurrentText("100")
     channel_combo.setCurrentText("mid")
 
-    assert table.item(13, 8).text() == "636666"
-    assert table.item(13, 9).text() == "3549.99"
-    assert table.item(13, 10).text() == "1"
+    assert table.item(13, 9).text() == "636666"
+    assert table.item(13, 10).text() == "3549.99"
     assert table.item(13, 11).text() == "1"
+    assert table.item(13, 12).text() == "1"
 
 
 def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
     """Table 팝업에서 변경한 band별 주요 조건을 수집한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     bandwidth_combo = parameter_dialog.findChild(QComboBox, "nrParamBandwidth_n78")
@@ -347,7 +409,7 @@ def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
     bandwidth_combo.setCurrentText("100")
     eut_ant_combo.setCurrentText("Lower")
 
-    parameters = parameter_dialog.parameters_by_band()[NRBand.N78]
+    parameters = parameter_dialog.parameters_by_band[NRBand.N78]
 
     assert parameters.bandwidth == 100.0
     assert parameters.dut_ant_position is DUTAntPosition.LOWER
@@ -356,11 +418,7 @@ def test_nr_parameter_dialog_collects_changed_band_parameters(qtbot) -> None:
 def test_nr_parameter_dialog_uses_requested_rb_and_eut_ant_defaults(qtbot) -> None:
     """NR Table은 요청된 RB Allocation/EUT ANT 기본값과 표시 순서를 사용한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     rb_combo = parameter_dialog.findChild(QComboBox, "nrParamRbAllocation_n78")
@@ -384,18 +442,14 @@ def test_nr_parameter_dialog_uses_requested_rb_and_eut_ant_defaults(qtbot) -> No
 def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
     """Table 팝업에서 선택한 Test 대역과 Position 설정을 수집한다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     parameter_dialog.findChild(QCheckBox, "nrRangeCheck_lb_inband").setChecked(False)
     parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_X_to_Y_to_Z").click()
     parameter_dialog.findChild(QCheckBox, "nrPolCheck_lb_V_to_H").click()
 
-    settings = parameter_dialog.group_settings()["lb"]
+    settings = parameter_dialog.group_settings["lb"]
 
     assert settings.selected_test_types == (NRTestType.HARMONIC,)
     assert settings.axis_sequence == (DUTAxis.X, DUTAxis.Y, DUTAxis.Z)
@@ -405,11 +459,7 @@ def test_nr_parameter_dialog_collects_group_settings(qtbot) -> None:
 def test_nr_parameter_dialog_uses_correct_reverse_axis_sequence(qtbot) -> None:
     """Axis 역방향 선택지는 Z->Y->X 순서로 수집된다."""
 
-    select_dialog = NRSelectDialog()
-    parameter_dialog = NRParameterDialog(
-        select_dialog.parameters_by_band,
-        select_dialog.group_settings,
-    )
+    parameter_dialog = NRSelectDialog()
     qtbot.addWidget(parameter_dialog)
 
     axis_sequence = parameter_dialog.findChild(QCheckBox, "nrAxisCheck_lb_Z_to_Y_to_X")
@@ -423,7 +473,7 @@ def test_nr_parameter_dialog_uses_correct_reverse_axis_sequence(qtbot) -> None:
 
     axis_sequence.click()
 
-    settings = parameter_dialog.group_settings()["lb"]
+    settings = parameter_dialog.group_settings["lb"]
 
     assert settings.axis_sequence == (DUTAxis.Z, DUTAxis.Y, DUTAxis.X)
 
@@ -446,6 +496,8 @@ def test_nr_select_add_expands_ranges_axis_and_pol_sequences(qtbot) -> None:
     cases = signal.args[0]
 
     assert len(cases) == 12
+    assert {case.generation for case in cases} == {Generation.NR_SA}
+    assert {case.anchor_band for case in cases} == {None}
     assert {case.band for case in cases} == {NRBand.N5}
     assert {case.test_type for case in cases} == {
         NRTestType.INBAND,
@@ -501,6 +553,60 @@ def test_test_manager_panel_adds_nr_test_cases_to_table(qtbot) -> None:
     assert table.item(0, 0).foreground().color().name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.Text).name() == "#111111"
     assert table.palette().color(QPalette.ColorRole.HighlightedText).name() == "#111111"
+
+
+def test_test_manager_panel_displays_nsa_band_with_anchor(qtbot) -> None:
+    """NSA TestCase는 Generation과 NR-Anchor 조합을 함께 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N5,
+        anchor_band=LTEBand.B1,
+        bandwidth=20.0,
+    )
+
+    panel.add_test_cases([case])
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table is not None
+    assert table.item(0, 1).text() == "NR_NSA"
+    assert table.item(0, 2).text() == "n5-B1"
+
+
+def test_test_manager_load_displays_nsa_band_with_anchor(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """CSV에서 읽은 NSA TestCase에도 동일한 NR-Anchor 표시 규칙을 적용한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    csv_path = tmp_path / "nsa_cases.csv"
+    save_csv(
+        csv_path,
+        [
+            _make_case(
+                generation=Generation.NR_NSA,
+                band=NRBand.N5,
+                anchor_band=LTEBand.B1,
+                bandwidth=20.0,
+            ),
+        ],
+    )
+    monkeypatch.setattr(
+        QFileDialog,
+        "getOpenFileName",
+        lambda *args: (str(csv_path), "CSV Files (*.csv)"),
+    )
+
+    panel.findChild(QPushButton, "loadItemButton").click()
+
+    table = panel.findChild(QTableWidget, "testCaseTable")
+    assert table.item(0, 1).text() == "NR_NSA"
+    assert table.item(0, 2).text() == "n5-B1"
 
 
 def test_test_manager_delete_button_removes_selected_single_case(qtbot) -> None:
@@ -697,11 +803,49 @@ def test_test_manager_save_button_writes_current_cases_with_csv_suffix(
     ]
 
 
-def test_test_manager_nr_button_opens_dialog_and_appends_cases(
+def test_test_manager_save_button_warns_for_invalid_test_case(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    """저장 전 검증 실패는 예외 대신 사용자 경고로 표시한다."""
+
+    panel = ManagerPanel()
+    qtbot.addWidget(panel)
+    case = _make_case()
+    panel.add_test_cases([case])
+    case.anchor_band = LTEBand.B1
+    selected_path = tmp_path / "invalid_cases.csv"
+    warnings: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(selected_path), "CSV Files (*.csv)"),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda parent, title, message: warnings.append((title, message)),
+    )
+
+    panel.findChild(QPushButton, "saveItemButton").click()
+
+    assert warnings == [
+        (
+            "Test Manager",
+            "CSV 저장에 실패했습니다.\n"
+            "Invalid CSV row 2: NR_SA must not define anchor_band",
+        ),
+    ]
+    assert not selected_path.exists()
+
+
+def test_test_manager_nr_sa_button_opens_dialog_and_appends_cases(
     qtbot,
     monkeypatch,
 ) -> None:
-    """NR 버튼이 선택 팝업의 생성 결과를 Test Manager 표에 연결한다."""
+    """NR SA 버튼이 고정 Generation 팝업의 결과를 표에 연결한다."""
 
     case = _make_case()
     created: dict[str, object] = {}
@@ -713,27 +857,17 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
             self,
             parent: QWidget | None = None,
             *,
-            parameters_by_band=None,
-            group_settings=None,
             generation=Generation.NR_SA,
+            state=None,
         ) -> None:
             super().__init__(parent)
             created["parent"] = parent
-            created["parameters_by_band"] = parameters_by_band
-            created["group_settings"] = group_settings
             created["generation"] = generation
+            created["state"] = state
 
         @property
-        def parameters_by_band(self) -> dict:
-            return {}
-
-        @property
-        def group_settings(self) -> dict:
-            return {}
-
-        @property
-        def generation(self) -> Generation:
-            return Generation.NR_SA
+        def state(self) -> NRSelectState:
+            return NRSelectState(Generation.NR_SA, (), {}, {}, {})
 
         def exec(self) -> int:
             self.test_cases_created.emit([case])
@@ -744,38 +878,29 @@ def test_test_manager_nr_button_opens_dialog_and_appends_cases(
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
-    panel.findChild(QPushButton, "nrButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
 
     assert created["parent"] is panel
-    assert created["parameters_by_band"] is None
-    assert created["group_settings"] is None
     assert created["generation"] is Generation.NR_SA
+    assert created["state"] is None
     assert panel.test_cases == (case,)
 
 
-def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
+def test_test_manager_keeps_sa_and_nsa_states_independent(
     qtbot,
     monkeypatch,
 ) -> None:
-    """Test Manager가 NR Table 설정을 다음 NR 팝업에 다시 전달한다."""
+    """SA와 NSA 화면 상태는 각 진입점에서만 다시 사용한다."""
 
-    saved_parameters = {
-        NRBand.N78: NRCaseParameters(
-            bandwidth=100.0,
-            modulation=Modulation.QPSK,
-            rb_allocation=RBAllocation.INNER_FULL,
-            test_channel=NRTestChannel.MID,
-            dut_ant_position=DUTAntPosition.UPPER,
-        ),
-    }
-    saved_group_settings = {
-        "lb": NRGroupSettings(
-            selected_test_types=(NRTestType.HARMONIC,),
-            axis_sequence=(DUTAxis.X,),
-            antenna_pol_sequence=(AntennaPol.H,),
-        ),
-    }
-    calls: list[tuple[object, object, Generation]] = []
+    sa_state = NRSelectState(Generation.NR_SA, (NRBand.N78,), {}, {}, {})
+    nsa_state = NRSelectState(
+        Generation.NR_NSA,
+        (NRBand.N5,),
+        {},
+        {},
+        {NRBand.N5: LTEBand.B41},
+    )
+    calls: list[tuple[Generation, object]] = []
 
     class FakeDialog(QObject):
         test_cases_created = Signal(list)
@@ -784,24 +909,16 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
             self,
             parent: QWidget | None = None,
             *,
-            parameters_by_band=None,
-            group_settings=None,
             generation=Generation.NR_SA,
+            state=None,
         ) -> None:
             super().__init__(parent)
-            calls.append((parameters_by_band, group_settings, generation))
+            self._generation = generation
+            calls.append((generation, state))
 
         @property
-        def parameters_by_band(self) -> dict:
-            return saved_parameters
-
-        @property
-        def group_settings(self) -> dict:
-            return saved_group_settings
-
-        @property
-        def generation(self) -> Generation:
-            return Generation.NR_NSA
+        def state(self) -> NRSelectState:
+            return sa_state if self._generation is Generation.NR_SA else nsa_state
 
         def exec(self) -> int:
             return 0
@@ -811,10 +928,12 @@ def test_test_manager_reuses_nr_table_settings_during_program_lifetime(
     panel = ManagerPanel()
     qtbot.addWidget(panel)
 
-    panel.findChild(QPushButton, "nrButton").click()
-    panel.findChild(QPushButton, "nrButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
+    panel.findChild(QPushButton, "nrNsaButton").click()
+    panel.findChild(QPushButton, "nrSaButton").click()
 
     assert calls == [
-        (None, None, Generation.NR_SA),
-        (saved_parameters, saved_group_settings, Generation.NR_NSA),
+        (Generation.NR_SA, None),
+        (Generation.NR_NSA, None),
+        (Generation.NR_SA, sa_state),
     ]

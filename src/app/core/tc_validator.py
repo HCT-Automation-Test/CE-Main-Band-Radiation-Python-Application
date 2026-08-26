@@ -5,6 +5,7 @@ from collections.abc import Iterable
 
 from app.models.enums import Generation
 from app.models.lte_supported_bandwidths import validate_lte_supported_bandwidth
+from app.models.nsa_anchor import validate_anchor_band_for_generation
 from app.models.supported_bandwidths import validate_supported_bandwidth
 from app.models.test_case import TestCase
 
@@ -13,6 +14,7 @@ def validate(case: TestCase) -> list[str]:
     """검증 에러 메시지 리스트를 반환한다. 빈 리스트면 OK."""
 
     try:
+        validate_anchor_band_for_generation(case.generation, case.anchor_band)
         if case.generation is Generation.LTE:
             validate_lte_supported_bandwidth(case.band, case.bandwidth)
         else:
@@ -23,11 +25,19 @@ def validate(case: TestCase) -> list[str]:
 
 
 def validate_queue(cases: Iterable[TestCase]) -> list[str]:
-    """NR 계열과 LTE가 섞인 실행 Queue를 거부한다."""
+    """개별 TestCase와 단일 Generation 실행 Queue 규칙을 검증한다."""
 
-    generation_families = {
-        "LTE" if case.generation is Generation.LTE else "NR" for case in cases
-    }
-    if len(generation_families) > 1:
-        return ["NR/LTE 혼합 Queue는 실행할 수 없습니다"]
-    return []
+    case_list = list(cases)
+    errors: list[str] = []
+    generations = {case.generation for case in case_list}
+    if len(generations) > 1:
+        detected = ", ".join(sorted(generation.value for generation in generations))
+        errors.append(
+            f"Generation 혼합 Queue는 실행할 수 없습니다: {detected}"
+        )
+
+    for index, case in enumerate(case_list, start=1):
+        errors.extend(
+            f"Test Case {index}: {message}" for message in validate(case)
+        )
+    return errors

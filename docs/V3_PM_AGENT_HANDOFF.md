@@ -83,7 +83,7 @@ EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. �
 
 | 정책 ID | 확정 내용 | 명세·백로그 반영 |
 |---|---|---|
-| POL-NSA-01 | 모든 NR Band는 지원 Anchor Band `B1/B3/B7/B8/B20/B28/B38/B40/B41`과 모두 조합할 수 있다. 별도 NR–Anchor 허용 조합표를 두지 않는다. | Anchor allowlist만 검증하고 NR–Anchor 조합 제한은 두지 않는다. |
+| POL-NSA-01 | 모든 NR Band는 지원 Anchor Band `B1/B3/B7/B5/B8/B20/B28/B38/B40/B41`과 모두 조합할 수 있다. 별도 NR–Anchor 허용 조합표를 두지 않는다. | Anchor allowlist만 검증하고 NR–Anchor 조합 제한은 두지 않는다. |
 | POL-NSA-02 | 한 실행 세션에서 `NR_SA`, `NR_NSA`, `LTE`를 혼용하지 않는다. 두 종류 이상이 섞인 Queue는 LTE 혼용 검증과 같은 시점인 시험 시작 단계에서 차단한다. | 기존 validator가 SA/NSA를 같은 NR family로 허용하는 동작을 변경한다. 세대 간 전환 FSM은 이번 범위에서 만들지 않는다. |
 | POL-NSA-03 | NSA 생성 화면은 NR Band 열 옆에 LTE Anchor Band 선택 열을 둔다. LTE Anchor는 모든 Band에서 Test Channel `MID`, Bandwidth `5 MHz`, RB Size `1`, RB Offset `0`, Modulation `QPSK`로 고정하며 별도로 입력받지 않는다. | Python의 Anchor 파생 책임은 `Anchor Band → UL/DL Channel` lookup뿐이다. 고정 profile은 command Params로 보내지 않고 LV 설정 유지 여부를 read-back으로 검증한다. |
 | POL-MT-01 | `CALLSTAT?`는 `REM_DEST`별 상태 머신으로 해석한다. SCG Release 완료는 `8000A == 6`, NSA 연결 완료는 `8000A == 8`, Anchor 연결 유지는 `8821C == 6`으로 판정한다. | `7/9/13` 과도 상태 관측을 성공 조건으로 요구하지 않고 각 단계의 최종 상태를 polling한다. `8821C == 6`만으로 SCG Release 완료를 판정하지 않는다. |
@@ -164,7 +164,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 | PM-NSA-UI-01 | Test Manager의 `Case 확인` 버튼을 삭제한다. |
 | PM-NSA-UI-02 | RAT 버튼을 `NR SA → NR NSA → LTE → WCDMA → GSM` 순서로 배치한다. |
 | PM-NSA-UI-03 | SA와 NSA Test Case 생성 화면을 각각 LTE 화면과 같은 통합형 구조로 개발한다. SA 데이터는 현재 NR Table을 기준으로 한다. |
-| PM-NSA-UI-04 | NSA 화면은 NR Band 옆에 LTE Anchor Band 선택 열을 둔다. 지원값은 `B1/B3/B7/B8/B20/B28/B38/B40/B41`이다. |
+| PM-NSA-UI-04 | NSA 화면은 NR Band 옆에 LTE Anchor Band 선택 열을 둔다. 지원값은 `B1/B3/B7/B5/B8/B20/B28/B38/B40/B41`이다. |
 | PM-NSA-DOM-01 | LTE Anchor는 모든 Band에서 Test Channel `MID`, Bandwidth `5 MHz`, RB Size `1`, RB Offset `0`, Modulation `QPSK`로 고정하며 사용자에게 별도로 입력받지 않는다. Anchor Band에 따라 달라지는 값은 UL/DL Channel뿐이다. |
 | PM-NSA-DOM-02 | Test Manager는 예: Generation `NR_NSA`, Band `n5-B1`로 표시한다. |
 | PM-NSA-DOM-03 | 모든 NR Band와 지원 Anchor Band의 조합을 허용한다. 조합별 별도 제한은 두지 않는다. |
@@ -372,7 +372,7 @@ Range 7~9는 v3.0 필수 개발 범위에서 제외한다. 기존에 제시된 W
 | 요청 | 현행 | Gap 및 영향 | 근거 |
 |---|---|---|---|
 | NSA Generation | `Generation.NR_NSA` 존재 | 재사용 | `src/app/models/enums.py:43` |
-| Anchor Band | `LTEBand`에는 요구된 9개와 B5/B34도 존재 | NSA용 9개 allowlist 또는 전용 타입 필요 | `src/app/models/enums.py:27` |
+| Anchor Band | `LTEBand`에는 요구된 10개와 B34도 존재 | NSA용 10개 allowlist 또는 전용 타입 필요 | `src/app/models/enums.py:27` |
 | Anchor property | `TestCase`에 없음 | `anchor_band`, generation별 필수/금지 검증 필요 | `src/app/models/test_case.py:103` |
 | CSV 저장/로드 | 10개 열을 순서까지 엄격히 검사 | Anchor field 추가와 NSA 필수값 검증 필요. schema migration 처리는 `NSA-01` 구현 범위 | `src/app/models/test_case.py:32`, `src/app/core/tc_loader.py:11` |
 | SA/NSA/LTE Queue | SA/NSA는 같은 NR family로 취급하여 혼합 허용 | Generation 혼합을 시험 시작 단계에서 차단하도록 validator 변경 | `src/app/core/tc_validator.py:25` |
@@ -859,7 +859,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 - SA와 NSA 생성 진입점 및 화면 상태가 서로 섞이지 않음
 - NSA만 Anchor가 필수이고 SA/LTE에는 허용되지 않음
-- 모든 지원 NR Band와 9개 Anchor 조합이 허용됨
+- 모든 지원 NR Band와 10개 Anchor 조합이 허용됨
 - NSA Anchor 설정은 모든 Band에서 Test Channel `MID`, Bandwidth `5 MHz`, RB Size `1`, RB Offset `0`, Modulation `QPSK`이고 별도 UI 입력이 없음
 - Python의 Anchor 매핑은 Band에서 UL/DL Channel만 lookup하며 고정 profile을 파생하거나 Params로 전송하지 않음
 - SA/NSA/LTE 혼합 Queue가 장비 command 전 시험 시작 단계에서 차단됨
