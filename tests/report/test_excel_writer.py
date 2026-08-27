@@ -4,6 +4,7 @@ import sys
 import types
 from dataclasses import replace
 from pathlib import Path
+from shutil import copy2
 from typing import Any
 
 import pytest
@@ -48,6 +49,7 @@ def _make_case(
     dut_ant_position: DUTAntPosition = DUTAntPosition.UPPER,
     generation: Generation = Generation.NR_SA,
     test_channel: ChannelEnum = ChannelEnum.MID,
+    anchor_band: LTEBand = LTEBand.B1,
 ) -> TestCase:
     return TestCase(
         band=band,
@@ -60,7 +62,7 @@ def _make_case(
         dut_axis=dut_axis,
         dut_ant_position=dut_ant_position,
         generation=generation,
-        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
+        anchor_band=anchor_band if generation is Generation.NR_NSA else None,
     )
 
 
@@ -562,7 +564,7 @@ def test_write_nsa_default_cells_use_shifted_rows(tmp_path: Path) -> None:
 
     worksheet = load_workbook(path)["Sub6 n78"]
     assert worksheet["A7"].value == "n78"
-    assert worksheet["B7"].value is None
+    assert worksheet["B7"].value == "B1"
     assert worksheet["C7"].value == 636666
     assert worksheet["H7"].value == 30
     assert worksheet["J7"].value == 3550.25
@@ -603,7 +605,7 @@ def test_write_nsa_lb_cells_use_shifted_rows(tmp_path: Path) -> None:
 
     worksheet = load_workbook(path)["Sub6 n5"]
     assert worksheet["A7"].value == "n5"
-    assert worksheet["B7"].value is None
+    assert worksheet["B7"].value == "B1"
     assert worksheet["C7"].value == 167300
     assert worksheet["H7"].value == 15
     assert worksheet["J7"].value == 836.5
@@ -716,6 +718,148 @@ def test_band_info_is_written_once_per_band_and_generation(tmp_path: Path) -> No
 
     assert _cell(path, "Sub6 n78", "D49") == 100
     assert _cell(path, "Sub6 n78", "D7") == 90
+
+
+def test_nsa_band_info_keeps_first_anchor_for_writer_lifetime(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    first_case = _make_case(
+        test_type=MeasurementTestType.INBAND,
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B1,
+    )
+    second_case = _make_case(
+        bandwidth=90.0,
+        test_type=MeasurementTestType.INBAND,
+        antenna_pol=AntennaPol.H,
+        generation=Generation.NR_NSA,
+        anchor_band=LTEBand.B3,
+    )
+
+    writer.write_inband(first_case, InbandResult(inband_peak_level_dbm=-45.0))
+    writer.write_inband(second_case, InbandResult(inband_peak_level_dbm=-44.0))
+
+    worksheet = load_workbook(path)["Sub6 n78"]
+    assert worksheet["B7"].value == "B1"
+    assert worksheet["D7"].value == 100
+
+
+def test_new_writer_can_record_new_first_nsa_anchor(tmp_path: Path) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    first_writer = ExcelReportWriter(path)
+    first_writer.write_inband(
+        _make_case(
+            test_type=MeasurementTestType.INBAND,
+            generation=Generation.NR_NSA,
+            anchor_band=LTEBand.B1,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.0),
+    )
+
+    second_writer = ExcelReportWriter(path)
+    second_writer.write_inband(
+        _make_case(
+            bandwidth=90.0,
+            test_type=MeasurementTestType.INBAND,
+            generation=Generation.NR_NSA,
+            anchor_band=LTEBand.B3,
+        ),
+        InbandResult(inband_peak_level_dbm=-44.0),
+    )
+
+    worksheet = load_workbook(path)["Sub6 n78"]
+    assert worksheet["B7"].value == "B3"
+    assert worksheet["D7"].value == 90
+
+
+@pytest.mark.parametrize(
+    ("anchor_band", "error"),
+    [
+        (None, "NR_NSA requires anchor_band"),
+        (LTEBand.B34, "Unsupported NSA anchor_band"),
+    ],
+)
+def test_nsa_anchor_validation_fails_before_writing_band_info(
+    tmp_path: Path,
+    anchor_band: LTEBand | None,
+    error: str,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    case = _make_case(
+        test_type=MeasurementTestType.INBAND,
+        generation=Generation.NR_NSA,
+    )
+    case.anchor_band = anchor_band
+
+    with pytest.raises(ValueError, match=error):
+        writer.write_inband(case, InbandResult(inband_peak_level_dbm=-45.0))
+
+    worksheet = writer.workbook["Sub6 n78"]
+    assert worksheet["A7"].value is None
+    assert worksheet["B7"].value is None
+
+
+def test_nsa_anchor_mapping_is_required_before_writing_band_info(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _make_workbook(tmp_path / "report.xlsx", NRBand.N78)
+    writer = ExcelReportWriter(path)
+    layout = template_map.LAYOUTS["default"]
+    monkeypatch.setitem(
+        template_map.LAYOUTS,
+        "default",
+        replace(
+            layout,
+            band_info_cells=replace(layout.band_info_cells, anchor_band=None),
+        ),
+    )
+
+    with pytest.raises(ValueError, match="has no anchor_band cell"):
+        writer.write_inband(
+            _make_case(
+                test_type=MeasurementTestType.INBAND,
+                generation=Generation.NR_NSA,
+            ),
+            InbandResult(inband_peak_level_dbm=-45.0),
+        )
+
+    worksheet = writer.workbook["Sub6 n78"]
+    assert worksheet["A7"].value is None
+    assert worksheet["B7"].value is None
+
+
+def test_write_nsa_anchor_to_actual_template_copy_preserves_sa_band_info(
+    tmp_path: Path,
+) -> None:
+    source = Path(__file__).resolve().parents[2] / "resources/templates/NR_Rawdata_.xlsx"
+    path = tmp_path / source.name
+    copy2(source, path)
+    source_worksheet = load_workbook(source)["Sub6 n7"]
+    expected_sa_values = [
+        source_worksheet.cell(row=49, column=column).value for column in range(1, 10)
+    ]
+    writer = ExcelReportWriter(path)
+
+    writer.write_inband(
+        _make_case(
+            band=NRBand.N7,
+            bandwidth=20.0,
+            test_type=MeasurementTestType.INBAND,
+            generation=Generation.NR_NSA,
+            anchor_band=LTEBand.B1,
+        ),
+        InbandResult(inband_peak_level_dbm=-45.0),
+    )
+
+    worksheet = load_workbook(path)["Sub6 n7"]
+    actual_sa_values = [
+        worksheet.cell(row=49, column=column).value for column in range(1, 10)
+    ]
+    assert worksheet["A7"].value == "n7"
+    assert worksheet["B7"].value == "B1"
+    assert actual_sa_values == expected_sa_values
 
 
 def test_write_falls_back_to_open_excel_workbook_when_file_is_locked(

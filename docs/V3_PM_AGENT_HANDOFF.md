@@ -10,10 +10,11 @@
 | 계획 대상 | v3.0(사용자 지정 작업명) |
 | 검토 기준일 | 2026-08-24 (Asia/Seoul) |
 | Anchor/Command 계약 정정 | 2026-08-24 — MID/5 MHz/RB Size 1/RB Offset 0/QPSK, Band→UL/DL lookup, `DLCHAN` 전용 HO, LV 내부 NR Call helper 재사용 단일 composite 반영 |
-| 저장소 기준 | `main` / `7a80d3cdead2b46ac7f7f1fc4055a0ed1b8d31ca` |
+| 구현 상태 동기화 | 2026-08-26 — `H2026E014-39` 기준, NSA TestCase/UI/Python Handover routing과 RawData 최초 Anchor 기록 반영 |
+| 초기 저장소 기준 | `main` / `7a80d3cdead2b46ac7f7f1fc4055a0ed1b8d31ca` |
 | 작업 트리 | 검토 시작 시 clean |
 | 검토 방식 | 코드, 문서, 테스트 코드, Git 이력의 정적 검토 |
-| 실행 검증 | 수행하지 않음 |
+| 실행 검증 | 초기 PM 검토에서는 미수행. 2026-08-26 H2026E014-39 동기화 시 report `96 passed`, 기본 전체 `837 passed, 384 skipped` 확인 |
 | 실제 LabVIEW 검증 | 소스와 승인된 장비 환경이 없어 수행하지 않음 |
 
 ### 1.1 이 문서에서 구분하는 정보
@@ -41,7 +42,8 @@
 
 ### 1.3 테스트 실행 제약
 
-- 이 PM 검토에서는 `pytest`를 포함한 테스트를 실행하지 않았다.
+- 초기 PM 검토에서는 `pytest`를 포함한 테스트를 실행하지 않았다.
+- H2026E014-39 구현 상태 동기화에서는 report 테스트와 기본 전체 테스트를 실행했으며, 실제 LabVIEW/실장비 검증은 수행하지 않았다.
 - 요구사항 정리와 Jira 백로그 생성 작업도 테스트 실행을 필요로 하지 않는다.
 - 후속 구현 검증은 사용자와 실행 환경을 확인한 뒤 관련 범위만 대상으로 진행한다.
 - 다른 작업 창 종료 문제가 있으므로 전체 `pytest`를 기본 검증으로 무조건 실행하지 않는다.
@@ -69,7 +71,7 @@ EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. �
 | 영역 | 현재 상태 | v3.0 핵심 Delta |
 |---|---|---|
 | NR SA | Harmonic/In-band/Bilog 자동시험 경로 구현 | 생성 화면을 LTE형 통합 화면으로 개선 |
-| NR NSA | Generation 구분, 수동 LTE Anchor 확인, NSA Excel 영역, SA/NSA 스크린샷 분리까지 구현 | Anchor-aware TestCase, 자동 SCG 전환, Anchor 결과 기록 |
+| NR NSA | Anchor-aware TestCase/CSV, SA·NSA 분리 UI, 첫 TC `NR Call`, Anchor 변경 전용 `NSA Handover` Python routing, RawData 최초 Anchor 기록 구현 | 실제 LV·승인 장비 통합 인수와 Recall+Anchor 동시 변경 자동화 |
 | LTE | 모델, 생성 UI, Call/Handover, 결과 기록이 현재 코드에 존재 | 직접 개발 대상 아님. NSA UI와 Anchor 데이터의 참고 기반 |
 | TDF | Band Group 기반 자동 적용 구현 | 기존 동작 유지 |
 | MT8000A Recall | 식별자 파생과 TC 간 변경 감지는 존재하나 실제 변경은 수동 팝업 | 첫 실행 TC의 Recall ID를 세션 초기값으로 간주하고 이후 ID 변경 시에만 고수준 Recall Change 수행 |
@@ -151,7 +153,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 | NSA 상태 | 첫 NSA TC는 기존 `NR Call`, 연속 TC의 Anchor 변경은 `NSA Handover`, 같은 Anchor의 NR 설정 변경은 `NR Handover`로 라우팅 | 첫 Anchor는 외부 절차로 사전 준비하며 수동 확인 state나 런타임 검증을 두지 않음 |
 | LTE 상태 | 과거 UI 문서는 LTE 버튼 미결선으로 설명하지만 현재 코드는 LTE UI를 연결 | 코드 기준으로 완료/재사용 상태 처리 |
 | Recall 식별자 | 현재 NR 코드는 `SA_FDD/SA_TDD`, LTE 코드는 `LTE_FDD/LTE_TDD`; 과거 Spike 목록과 표현이 다름 | 현재 모델 값을 구현 기준선으로 유지하고 LV 전달 표현은 `Recall Change` interface contract에서 매핑한다. |
-| NSA RawData | 현행 문서는 NSA Anchor 셀을 비워 둔다고 설명 | 신규 요구에 따라 명세와 문서 갱신 |
+| NSA RawData | H2026E014-39에서 `A7=NR Band`, `B7=최초 Anchor Band` 기록과 writer 실행 단위 최초 값 유지 구현 | SRS v5와 report 문서 동기화 완료, 실제 LV 통합 인수에서 회귀 확인 |
 
 ## 4. 요청 범위 정상화
 
@@ -438,12 +440,12 @@ NSA Call 전환 흐름은 첫 TC와 연속 TC를 구분한다.
 | 요청 | 현행 | Gap 및 영향 | 근거 |
 |---|---|---|---|
 | NSA 전용 결과 영역 | NR SA layout을 LB `-37`, 그 외 `-42`행 이동해 사용 | 재사용 | `src/app/report/template_map.py:14`, `src/app/report/template_map.py:165` |
-| Anchor 기록 | BandInfo에 Anchor cell이 없고 B열은 비어 있음 | 승인된 cell 좌표와 writer 필드 추가 | `src/app/report/template_map.py:44`, `src/app/report/excel_writer.py:219` |
+| Anchor 기록 | NR default `B49`, NR LB `B44` 상대 좌표가 NSA offset 후 `B7`로 매핑되고 writer가 최초 Anchor를 기록함 | H2026E014-39 구현 및 실제 template 복사본 단위 테스트 완료 | `src/app/report/template_map.py:44`, `src/app/report/excel_writer.py:220` |
 | Plot 유지 | SA/NSA 디렉터리와 filename prefix 구분 구현 | 기존 로직 회귀 확인만 수행 | `src/app/report/screenshot_store.py:50` |
 
 현재 NSA layout에서 NR Band가 A7이므로 요구사항의 “Band 옆 셀”은 B7에 `B1` 형식으로 기록한다. 다른 layout도 같은 상대 위치 규칙을 template map에 적용한다.
 
-또한 Band info는 `sheet + layout`당 한 번만 기록된다. 모든 NR–Anchor 조합을 지원해야 하므로 같은 NR Band의 서로 다른 Anchor 결과가 한 NR workbook에서 서로 덮어쓰지 않도록 결과 mapping을 구성해야 한다. 현재 `resources/templates/NR_Rawdata_.xlsx`에서 조합별 sheet/row block을 확인하고 필요한 writer mapping을 적용하는 것은 report 설계 과제이며, “NR Band당 Anchor를 하나만 허용”하는 제품 제약으로 바꾸지 않는다.
+Band info와 Anchor는 `ExcelReportWriter` 실행 중 `sheet + layout`당 최초 한 번만 기록한다. 예를 들어 `B1`이 먼저 기록된 뒤 같은 writer에서 `B3` TC를 처리해도 `B7`과 최초 Band info는 바꾸지 않으며, 새 writer 실행에서는 그 실행의 최초 값으로 다시 기록할 수 있다. Anchor별 sheet/row block이나 별도 결과 영역은 추가하지 않는다. 서로 다른 Anchor가 같은 NSA 측정 좌표를 사용하는 상황은 운영자가 Queue를 관리해 방지하고, 코드는 혼합 Anchor Queue를 자동 차단하거나 경고하지 않는다. NR source template은 변경하지 않는다.
 
 ## 6. 시험 운영 편의 개선: 현행과 Gap
 
@@ -876,8 +878,10 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 - 모든 단계가 이전 destination에 의존하지 않고 `REM_DEST`를 명시적으로 재설정함
 - `NSA Handover` 성공은 Default OK의 `status`만으로 판정하고 Result 유무·형식을 무시함
 - `NSA Handover` 실패는 Default Error의 `status`와 `Error.message`로 처리하며 별도 failure envelope를 요구하지 않음
-- 같은 NR Band의 여러 Anchor 결과가 한 NR workbook에서 서로 덮어쓰지 않음
-- Anchor cell 기록과 기존 Plot naming 불변
+- NSA 최초 Band 정보 기록 시 `A7=NR Band`, `B7=Anchor Band`가 기록되고, 같은 writer에서 Anchor가 바뀌어도 최초 Anchor와 Band info가 유지됨
+- 새 writer 실행에서는 다른 Band info와 동일하게 그 실행의 최초 Anchor를 다시 기록할 수 있음
+- Anchor별 별도 결과 영역 없이 동일 측정 좌표를 사용하며 운영자가 Queue를 관리하고, 코드가 혼합 Anchor를 자동 차단·경고하지 않음
+- SA/LTE 셀 계약과 기존 Plot naming 불변
 
 ### RawData와 Recall
 
@@ -926,7 +930,7 @@ v3.0은 세 Epic으로 관리하되 NSA 정식 지원을 우선한다. 이번 �
 
 현재 확정사항으로 NSA/Recall과 RawData SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. 첫 NSA TC에는 별도 NSA 순서가 없고 기존 `NR Call`을 사용한다. Recall+Anchor 동시 변경의 자동 적용 순서와 실제 TCP/JSON 표현, timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
 
-`anchor_band` CSV field와 결과 mapping도 요구사항이 아니라 구현이 남은 상태다. NSA에는 Anchor가 필수이고 결과는 NR Band 옆 cell에 `B*` 형식으로 기록한다는 확정 기준으로 관련 Story를 작성한다.
+`anchor_band` CSV field와 Generation별 검증은 H2026E014-33에서, NR Band 옆 `B*` 형식의 최초 Anchor 결과 mapping은 H2026E014-39에서 구현·검증됐다. 남은 NSA report 작업은 H2026E014-40의 실제 LV·승인 장비 통합 인수와 기존 SA/LTE/Plot 회귀 증빙이다.
 
 RawData source는 이미 `resources/templates`에 있다. NR SA/NSA는 `NR_Rawdata_.xlsx`, LTE는 `_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`를 사용한다. 남은 일은 asset을 추적하고 runtime resolver, 기존 파일 reuse와 오류 처리, dev/frozen 동작을 구현·검증하는 것이다.
 

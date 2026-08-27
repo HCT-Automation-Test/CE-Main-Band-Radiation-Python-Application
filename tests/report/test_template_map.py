@@ -48,6 +48,8 @@ def test_layout_cells_are_valid_single_cells(layout_key: str) -> None:
         layout.fundamental_frequency_cell,
         inband_level_cell(layout, DUTAxis.X, AntennaPol.V),
     ]
+    if layout.band_info_cells.anchor_band is not None:
+        cells.append(layout.band_info_cells.anchor_band)
 
     for order in (2, 3, 4, 5):
         cells.append(harmonic_level_cell(layout, order, DUTAxis.X, AntennaPol.V))
@@ -67,8 +69,10 @@ def test_lb_layout_is_independent_from_default_layout() -> None:
 
     assert default is not lb
     assert default.band_info_cells.band == "A49"
+    assert default.band_info_cells.anchor_band == "B49"
     assert default.band_info_cells.scs == "H49"
     assert lb.band_info_cells.band == "A44"
+    assert lb.band_info_cells.anchor_band == "B44"
     assert lb.band_info_cells.scs == "H44"
     assert default.band_info_cells.channel == "C49"
     assert lb.band_info_cells.channel == "C44"
@@ -83,6 +87,7 @@ def test_nsa_default_layout_offsets_rows_only() -> None:
 
     assert layout.key == "default_nsa"
     assert layout.band_info_cells.band == "A7"
+    assert layout.band_info_cells.anchor_band == "B7"
     assert layout.band_info_cells.scs == "H7"
     assert layout.band_info_cells.channel == "C7"
     assert layout.fundamental_frequency_cell == "J7"
@@ -99,6 +104,7 @@ def test_nsa_lb_layout_offsets_rows_only_and_keeps_bilog_unsupported() -> None:
 
     assert layout.key == "lb_nsa"
     assert layout.band_info_cells.band == "A7"
+    assert layout.band_info_cells.anchor_band == "B7"
     assert layout.band_info_cells.scs == "H7"
     assert layout.band_info_cells.channel == "C7"
     assert layout.fundamental_frequency_cell == "J7"
@@ -123,6 +129,7 @@ def test_lte_b34_uses_mhb_layout() -> None:
 
     assert layout.key == LTE_DEFAULT_LAYOUT_KEY
     assert layout.band_info_cells.band == "A7"
+    assert layout.band_info_cells.anchor_band is None
     assert layout.band_info_cells.scs == "G7"
     assert layout.band_info_cells.channel == "B7"
     assert layout.band_info_cells.bandwidth == "C7"
@@ -143,6 +150,7 @@ def test_lte_lb_layout_uses_shifted_rows_and_keeps_bilog_unsupported() -> None:
 
     assert layout.key == LTE_LB_LAYOUT_KEY
     assert layout.band_info_cells.band == "A7"
+    assert layout.band_info_cells.anchor_band is None
     assert layout.band_info_cells.scs == "G7"
     assert layout.band_info_cells.channel == "B7"
     assert layout.band_info_cells.bandwidth == "C7"

@@ -33,6 +33,7 @@
 | 항목 | default | lb |
 | --- | --- | --- |
 | band info 셀 (Band/channel/BW/RB size/RB offset/Mod/SCS/Ant position) | A49, C49~I49 | A44, C44~I44 |
+| NR Anchor 상대 셀 | B49 (NSA offset 적용 시 B7) | B44 (NSA offset 적용 시 B7) |
 | fundamental 주파수 셀 | J49 | J44 |
 | harmonic base row | 66 | 56 |
 | inband base row | 61 | 51 |
@@ -43,11 +44,18 @@
 - **셀 좌표 계산**: DUT축이 열(X→B, Y→C, Z→D), 편파가 행 오프셋(V→+0, H→+1),
   하모닉 차수가 행 오프셋(2차+0, 3차+2, 4차+4, 5차+6).
   예: default SA, 3차, Z축, H편파 → `D69`. 하모닉 주파수(기본파×차수)는 A열 고정.
-- band info 8셀은 "시트+레이아웃키당 1회"만 기록된다(인스턴스 내 가드 —
-  Runner 재시작 시 새 인스턴스가 다시 덮어씀).
+- Band info는 `ExcelReportWriter` 인스턴스에서 "시트+레이아웃키당 1회"만 기록된다.
+  NSA의 최초 Anchor가 `B1`이면 같은 writer에서 이후 `B3` TC를 기록해도 Anchor와 다른
+  Band info는 갱신하지 않고 `B7=B1`을 유지한다. Runner 재시작 등으로 새 writer가 생성되면
+  그 실행의 최초 Band info와 Anchor를 다시 기록할 수 있다.
 - Band/SCS는 다른 band info와 함께 최초 결과 작성 시 기록된다. NR은 SA default
   `A49/H49`, SA LB `A44/H44`, NSA `A7/H7`을 사용하고, LTE는 `A7/G7`을 사용한다.
-  NR B열 Anchor Band는 기록하지 않는다.
+  Anchor 좌표는 NR default `B49`, NR LB `B44`이고 NSA 행 offset 적용 후 모두 `B7`이다.
+  `NR_NSA`만 `B7`에 `B*` 형식의 Anchor를 기록하며 SA의 `B49/B44`는 비워 둔다.
+  LTE layout에는 Anchor 좌표가 없고 기존 `B7=Channel` 계약을 유지한다.
+- 서로 다른 Anchor가 같은 NSA 측정 좌표를 사용하는 상황은 운영자가 Queue를 관리해
+  방지한다. 코드는 Anchor별 결과 영역을 만들거나 혼합 Anchor Queue를 자동 차단·경고하지
+  않으며, NR source template도 변경하지 않는다.
 - peak level이 None(=limit−10dB 미만)이면 셀에 문자열 **"-"** 가 들어간다.
 
 ## 3. 저장 경로와 라이브 모니터링 — excel_writer.py

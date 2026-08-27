@@ -17,6 +17,7 @@ from app.models.measurement_result import (
     InbandResult,
     MeasurementResult,
 )
+from app.models.nsa_anchor import validate_anchor_band_for_generation
 from app.models.test_case import TestCase
 from app.report.template_map import (
     ReportLayout,
@@ -227,12 +228,29 @@ class ExcelReportWriter:
             return
 
         cells = layout.band_info_cells
+        anchor_cell: str | None = None
+        anchor_value: str | None = None
+        if test_case.generation is Generation.NR_NSA:
+            validate_anchor_band_for_generation(
+                test_case.generation,
+                test_case.anchor_band,
+            )
+            if cells.anchor_band is None:
+                raise ValueError(
+                    f"NR_NSA report layout has no anchor_band cell: {layout.key}"
+                )
+            anchor_cell = validate_single_cell(cells.anchor_band)
+            if test_case.anchor_band is None:
+                raise ValueError("NR_NSA requires anchor_band")
+            anchor_value = test_case.anchor_band.value
 
         self._set_cell(
             worksheet,
             validate_single_cell(cells.band),
             test_case.band.value,
         )
+        if anchor_cell is not None:
+            self._set_cell(worksheet, anchor_cell, anchor_value)
         self._set_cell(
             worksheet,
             validate_single_cell(cells.channel),
