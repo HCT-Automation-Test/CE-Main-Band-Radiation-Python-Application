@@ -36,7 +36,10 @@ class TestRunSettings:
     manual_marker_enabled: bool = False
 
     def __post_init__(self) -> None:
-        eut_name = self.eut_name.strip()
+        if not isinstance(self.eut_name, str):
+            raise ValueError("eut_name must be a string")
+        eut_name = self.eut_name
+        stripped_eut_name = eut_name.strip()
         template_path = Path(self.template_path)
         screenshot_root_dir = Path(self.screenshot_root_dir)
         saturation_time_sec = float(self.saturation_time_sec)
@@ -53,8 +56,10 @@ class TestRunSettings:
                 field_name="custom_turntable_speed",
             )
 
-        if not eut_name:
+        if not stripped_eut_name:
             raise ValueError("eut_name is required")
+        if eut_name != stripped_eut_name:
+            raise ValueError("eut_name must not have leading or trailing whitespace")
         if not template_path.is_file():
             raise ValueError("template_path must be an existing file")
         if screenshot_root_dir.exists() and not screenshot_root_dir.is_dir():

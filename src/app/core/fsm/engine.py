@@ -190,6 +190,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     from app.core.fsm.states.session import (
         CheckNextCaseState,
         IdleState,
+        PrepareReportState,
         SessionInitState,
         TestEndState,
     )
@@ -209,6 +210,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     # 세션 제어 상태
     engine.register(SessionInitState())
     engine.register(IdleState())
+    engine.register(PrepareReportState())
     engine.register(CheckNextCaseState())
     engine.register(TestEndState())
 

@@ -153,10 +153,10 @@ def test_fundamental_switch_box_prepare_routes_to_expected_next_state() -> None:
     )
 
 
-def test_idle_starts_with_turntable_zero_before_ant_pol_change() -> None:
+def test_idle_routes_through_report_preparation_before_turntable_zero() -> None:
     ctx = _make_ctx(TestType.HARMONIC)
 
-    assert IdleState().next_state(ctx, StateResult.OK) == "InitialTurntableZero"
+    assert IdleState().next_state(ctx, StateResult.OK) == "PrepareReport"
     assert (
         InitialTurntableZeroState().next_state(ctx, StateResult.OK)
         == "AntPolChange"
@@ -256,6 +256,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
     expected_state_names = {
         "SessionInit",
         "Idle",
+        "PrepareReport",
         "CheckNextCase",
         "TestEnd",
         "NRCallConnect",

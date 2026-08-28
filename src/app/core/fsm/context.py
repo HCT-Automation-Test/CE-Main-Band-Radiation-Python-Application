@@ -11,6 +11,7 @@ from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
 
 if TYPE_CHECKING:
+    from app.core.run_preparer import RunPreparer, RunPreparationRequest
     from app.models.measurement_result import HarmonicPrecisionCandidate
     from app.report.report_writer import ReportWriter
 
@@ -27,6 +28,9 @@ class SessionContext:
     events: RunnerEvents
     client: Any | None = None
     report_writer: ReportWriter | None = None
+    run_preparer: RunPreparer | None = None
+    pending_run_request: RunPreparationRequest | None = None
+    result_workbook_path: Path | None = None
     tcp_host: str = "127.0.0.1"
     tcp_port: int = 5025
     current_index: int = 0

@@ -22,6 +22,7 @@ class RunnerEvents(QObject):
     session_finished = Signal()             # all test cases finished normally
     session_stopped = Signal()              # session stopped by user request
     session_failed = Signal()               # session ended by failure
+    start_rejected = Signal()               # start preparation failed; back to Idle
     error = Signal(str)                     # message
     user_action_required = Signal(str)      # reason
     manual_marker_edit_required = Signal(object)  # dict
