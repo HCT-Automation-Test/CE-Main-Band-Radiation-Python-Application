@@ -32,11 +32,11 @@ from app.report.template_map import (
 
 
 class ExcelReportWriter:
-    """Excel 템플릿 파일에 측정 결과를 즉시 기록한다."""
+    """Canonical 결과 workbook에 측정 결과를 즉시 기록한다."""
 
-    def __init__(self, template_path: Path) -> None:
-        self.template_path = Path(template_path)
-        self.workbook = load_workbook(self.template_path)
+    def __init__(self, workbook_path: Path) -> None:
+        self.workbook_path = Path(workbook_path)
+        self.workbook = load_workbook(self.workbook_path)
         self._written_band_info: set[str] = set()
         self._pending_cells: list[tuple[str, str, Any]] = []
         self._live_monitoring_enabled = False
@@ -59,7 +59,7 @@ class ExcelReportWriter:
         pythoncom.CoInitialize()
         try:
             workbook = _get_or_open_excel_workbook(
-                self.template_path,
+                self.workbook_path,
                 pythoncom,
                 win32com.client,
             )
@@ -67,7 +67,7 @@ class ExcelReportWriter:
         except Exception as exc:
             raise RuntimeError(
                 f"Excel report file could not be opened for live monitoring: "
-                f"{self.template_path}"
+                f"{self.workbook_path}"
             ) from exc
         finally:
             pythoncom.CoUninitialize()
@@ -294,7 +294,7 @@ class ExcelReportWriter:
             return
 
         try:
-            self.workbook.save(self.template_path)
+            self.workbook.save(self.workbook_path)
         except PermissionError:
             self._save_open_workbook_with_excel()
         else:
@@ -309,20 +309,20 @@ class ExcelReportWriter:
             import win32com.client
         except ImportError as exc:
             raise PermissionError(
-                f"Excel report file is open and cannot be saved: {self.template_path}"
+                f"Excel report file is open and cannot be saved: {self.workbook_path}"
             ) from exc
 
         pythoncom.CoInitialize()
         try:
             workbook = (
                 _get_or_open_excel_workbook(
-                    self.template_path,
+                    self.workbook_path,
                     pythoncom,
                     win32com.client,
                 )
                 if open_if_missing
                 else _find_open_excel_workbook(
-                    self.template_path,
+                    self.workbook_path,
                     pythoncom,
                     win32com.client,
                 )
@@ -330,7 +330,7 @@ class ExcelReportWriter:
             if workbook is None:
                 raise PermissionError(
                     f"Excel report file is locked but no open Excel workbook was found: "
-                    f"{self.template_path}"
+                    f"{self.workbook_path}"
                 )
 
             try:
@@ -348,7 +348,7 @@ class ExcelReportWriter:
             except Exception as exc:
                 raise PermissionError(
                     f"Excel report file is open but could not be updated through Excel: "
-                    f"{self.template_path}"
+                    f"{self.workbook_path}"
                 ) from exc
             self._pending_cells.clear()
         finally:
@@ -356,27 +356,27 @@ class ExcelReportWriter:
 
 
 def _find_open_excel_workbook(
-    template_path: Path,
+    workbook_path: Path,
     pythoncom_module: Any,
     win32_client: Any,
 ) -> Any | None:
     workbook = _find_workbook_from_running_object_table(
-        template_path,
+        workbook_path,
         pythoncom_module,
         win32_client,
     )
     if workbook is not None:
         return workbook
-    return _find_workbook_from_active_excel(template_path, win32_client)
+    return _find_workbook_from_active_excel(workbook_path, win32_client)
 
 
 def _get_or_open_excel_workbook(
-    template_path: Path,
+    workbook_path: Path,
     pythoncom_module: Any,
     win32_client: Any,
 ) -> Any:
     workbook = _find_open_excel_workbook(
-        template_path,
+        workbook_path,
         pythoncom_module,
         win32_client,
     )
@@ -386,9 +386,9 @@ def _get_or_open_excel_workbook(
     excel = _get_excel_application(win32_client)
     try:
         excel.Visible = True
-        return excel.Workbooks.Open(str(template_path.resolve()))
+        return excel.Workbooks.Open(str(workbook_path.resolve()))
     except Exception as exc:
-        raise RuntimeError(f"Could not open Excel workbook: {template_path}") from exc
+        raise RuntimeError(f"Could not open Excel workbook: {workbook_path}") from exc
 
 
 def _get_excel_application(win32_client: Any) -> Any:
@@ -428,11 +428,11 @@ def _select_excel_range(target_range: Any) -> None:
 
 
 def _find_workbook_from_running_object_table(
-    template_path: Path,
+    workbook_path: Path,
     pythoncom_module: Any,
     win32_client: Any,
 ) -> Any | None:
-    target = _normalized_path(template_path)
+    target = _normalized_path(workbook_path)
     try:
         bind_context = pythoncom_module.CreateBindCtx(0)
         running_objects = pythoncom_module.GetRunningObjectTable()
@@ -463,13 +463,13 @@ def _find_workbook_from_running_object_table(
             return workbook
 
 
-def _find_workbook_from_active_excel(template_path: Path, win32_client: Any) -> Any | None:
+def _find_workbook_from_active_excel(workbook_path: Path, win32_client: Any) -> Any | None:
     try:
         excel = win32_client.GetActiveObject("Excel.Application")
     except Exception:
         return None
 
-    target = _normalized_path(template_path)
+    target = _normalized_path(workbook_path)
     try:
         workbooks = excel.Workbooks
     except Exception:

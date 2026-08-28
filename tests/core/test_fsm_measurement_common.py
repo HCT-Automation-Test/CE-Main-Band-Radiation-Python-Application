@@ -110,13 +110,10 @@ def _make_settings(
     atten_level_db: float = 1.5,
     next_peak_search_level_db: float = 6.0,
 ) -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir(exist_ok=True)
     return TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=saturation_time_sec,
         connection_waiting_time_sec=5,

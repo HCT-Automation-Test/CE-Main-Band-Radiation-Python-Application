@@ -55,11 +55,8 @@ def _make_case(*, antenna_pol: AntennaPol = AntennaPol.H) -> TestCase:
 
 
 def _make_settings(tmp_path: Path) -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
-    template_path.write_bytes(b"template")
     return TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=tmp_path / "screenshots",
         saturation_time_sec=5,
         connection_waiting_time_sec=5,

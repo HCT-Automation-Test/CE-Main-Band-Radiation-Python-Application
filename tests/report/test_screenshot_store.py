@@ -189,6 +189,7 @@ def test_build_sa_screenshot_path_uses_lookup_and_range_values(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / case.band.value
@@ -217,6 +218,7 @@ def test_build_nsa_screenshot_path_uses_nsa_dir_and_filename(tmp_path: Path) -> 
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / "n78"
@@ -274,6 +276,7 @@ def test_build_harmonic_precision_screenshot_path_uses_precision_filename(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / "n79"
@@ -306,6 +309,7 @@ def test_build_nsa_harmonic_precision_screenshot_path_uses_nsa_dir_and_filename(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / "n79"
@@ -368,6 +372,7 @@ def test_build_fundamental_screenshot_path_uses_lookup_and_fixed_suffix(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / "n78"
@@ -398,6 +403,7 @@ def test_build_nsa_fundamental_screenshot_path_uses_nsa_dir_and_filename(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "5G"
         / "n78"
@@ -677,6 +683,7 @@ def test_build_lte_sa_screenshot_path_matches_required_example(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "4G"
         / "B1"
@@ -699,6 +706,7 @@ def test_build_lte_fundamental_screenshot_path_uses_target_frequency(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "4G"
         / "B1"
@@ -723,6 +731,7 @@ def test_build_lte_precision_screenshot_path_uses_measured_peak(
     assert path == (
         tmp_path
         / "SM-000"
+        / "screenshots"
         / "Traffic"
         / "4G"
         / "B1"

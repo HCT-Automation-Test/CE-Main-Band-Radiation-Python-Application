@@ -32,7 +32,7 @@ class State(ABC):
 | 실행 대상 | `queue`, `current_index`, `start_index`, `stop_index` | TC 큐와 진행 위치. `stop_index` 도달 시 종료(단일 실행에 사용) |
 | 외부 통신 | `commands`, `client`, `tcp_host`, `tcp_port` | `commands`는 net.commands 모듈 또는 테스트용 mock facade |
 | UI 통지 | `events` | `RunnerEvents` Qt 시그널 묶음 (FSM→UI 유일 통로) |
-| 리포트 | `report_writer`, `temp_dir`, `template_path`, `screenshot_root_dir`, `model_name` | temp_dir는 LV가 스크린샷 PNG를 떨어뜨리는 위치 |
+| 리포트 | `run_preparer`, `pending_run_request`, `result_workbook_path`, `report_writer`, `temp_dir`, `screenshot_root_dir`, `model_name` | `screenshot_root_dir`는 호환성을 위해 유지한 이름으로 EUT 결과 기준 root이고, temp_dir는 LV가 스크린샷 PNG를 떨어뜨리는 위치 |
 | 제어 플래그 | `paused`, `stopped`, `current_case_stop_requested` | UI 스레드가 쓰고 FSM이 폴링 |
 | 측정 진행 | `current_angle`, `fundamental_frequency_mhz`, `harmonic_precision_candidates`, `settings` | 각도는 세션 전체에서 이어짐(0↔360 토글) |
 | TDF 적용 | `last_applied_factor_keyword` | 마지막 적용 성공 Factor. Test Start/TestEnd에서 초기화하며 연속 중복 적용을 생략하는 데 사용 |
@@ -63,9 +63,14 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `SessionInit` | `equipment_connect_requested` 대기 → client/equipment_state/`is_selected_equipment_ready` 검증 (실패 시 RETRY로 재대기) | OK→`Idle` |
-| `Idle` | `test_start_requested` 대기 → 사전조건 검사(queue/report_writer/temp_dir/settings/model_name/template_path/screenshot_root_dir, 누락 시 RETRY) → 인덱스와 TDF 적용 기록 초기화, `tc_started` emit | OK→`InitialTurntableZero` |
+| `Idle` | `test_start_requested` 대기 → pending Start 요청 확인 | OK→`PrepareReport` |
+| `PrepareReport` | RawData 결과 workbook 확보 → writer 생성 → Excel live monitoring 준비. 성공할 때만 queue/settings/result path/writer 확정 및 `tc_started` emit. 실패 시 `start_rejected` emit 후 실행 잠금 해제 | OK→`InitialTurntableZero`, 실패/Stop→`Idle` |
 | `CheckNextCase` | `tc_finished` emit → 큐 끝/stop_index면 종료 플래그 → 아니면 index 증가, prev/current diff로 **전환 계획** 수립 | 아래 §4 참조 |
 | `TestEnd` | `session_finished` emit, 큐/인덱스/TDF 적용 기록 리셋 | OK→`Idle` (FSM 상주) |
+
+`PrepareReport`는 기존 FSM QThread에서 실행된다. 준비 중 Stop은 UI 호출을 막지 않지만 이미
+진행 중인 openpyxl/COM 호출을 강제 중단하지 않는다. 해당 호출이 반환된 직후 Stop을 관찰해
+장비 command와 측정 상태에 진입하지 않고 `Idle`로 복귀한다.
 
 ### NR/LTE 연결 — [states/nr_setup.py](../src/app/core/fsm/states/nr_setup.py), [states/lte_setup.py](../src/app/core/fsm/states/lte_setup.py)
 
@@ -179,7 +184,7 @@ test_type별 분기 허브는 `measurement_start_state_for(test_type, after_rota
 ## 3. 전체 흐름도
 
 ```text
-SessionInit ──OK──► Idle ──Start──► InitialTurntableZero ──► AntPolChange(초기 셋업)
+SessionInit ──OK──► Idle ──Start──► PrepareReport ──OK──► InitialTurntableZero ──► AntPolChange(초기 셋업)
                                                                     │
                      ┌──────────────────────────────────────────────┘
                      ▼

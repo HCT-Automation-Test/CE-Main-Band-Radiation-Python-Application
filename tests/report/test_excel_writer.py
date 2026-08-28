@@ -1033,11 +1033,11 @@ def test_save_open_workbook_with_excel_writes_cells_to_found_workbook(
     pythoncom, win32_client = _install_fake_com_modules(monkeypatch)
 
     def find_workbook(
-        template_path: Path,
+        workbook_path: Path,
         pythoncom_module: object,
         win32_client_module: object,
     ) -> object:
-        assert template_path == path
+        assert workbook_path == path
         assert pythoncom_module is pythoncom
         assert win32_client_module is win32_client
         return workbook

@@ -36,7 +36,7 @@ Python 앱은 LabVIEW 프로그램과 **TCP 기반 자체 JSON 프로토콜**로
 2. 코드 상수 기반 도메인 모델(TestRange, Band Group, 채널/RB lookup)
 3. **통합 세션 FSM** 실행 (QThread 워커에서 동기 구동, 시험 간 전환 포함)
 4. LabVIEW와 TCP/JSON 명령 송신·비동기 Event 수신
-5. Excel 템플릿에 결과 기록(라이브 모니터링 포함) + SA 스크린샷 정리 저장
+5. EUT별 RawData 결과 workbook 기록(라이브 모니터링 포함) + SA 스크린샷 정리 저장
 6. UI: 장비 연결/Set, TC 관리, 실행 모니터링, RF Switch Box 수동 제어, 스크린샷 뷰어, 로그
 
 예외적으로 **로컬 VISA Resource 주소 목록 조회**(`pyvisa list_resources()`)만 Python에서 수행하고,
@@ -53,14 +53,14 @@ Python 앱은 LabVIEW 프로그램과 **TCP 기반 자체 JSON 프로토콜**로
         └───────┬────────────────────────────────────────┘
                 │ Runner 생성·소유, RunnerEvents 구독
         ┌───────▼────────────── core ────────────────────┐
-        │ Runner(QThread) / FSM(engine+states) /          │
+        │ Runner(QThread) / RunPreparer / FSM(states) /   │
         │ InstrumentConnectionService / TdfService /      │
         │ tc_loader / tc_validator / events(RunnerEvents) │
         └──────┬──────────────────────────────┬──────────┘
                │ ctx.commands facade          │ ctx.report_writer
         ┌──────▼───── net ─────────┐   ┌──────▼──── report ────────┐
-        │ protocol / tcp_client /  │   │ report_writer /           │
-        │ commands / lv_server /   │   │ excel_writer /            │
+        │ protocol / tcp_client /  │   │ rawdata_source/workbook / │
+        │ commands / lv_server /   │   │ excel_writer/report_writer│
         │ mock 서버들               │   │ template_map /            │
         └──────────────────────────┘   │ screenshot_store          │
                                        └───────────────────────────┘
@@ -86,6 +86,7 @@ claude_test/
 ├── resources/
 │   ├── main_window.ui           # 최소 골격만 (실제 화면 구조는 main_window.py 코드가 조립)
 │   ├── icons/app_icon.{ico,png}
+│   ├── templates/               # NR/LTE read-only RawData 원본 workbook
 │   └── images/rf_switch_box_bd.png   # RF Switch Box 패널 배경 회로도
 ├── testcases/samples/harmonic_sample.csv
 ├── config/
@@ -111,8 +112,9 @@ claude_test/
 │   │   ├── measurement_result.py # Fundamental/Harmonic/Inband/Bilog 결과 dataclass
 │   │   └── test_run_settings.py  # Start 시점 사용자 입력 검증 (frozen)
 │   ├── core/
-│   │   ├── events.py            # RunnerEvents — FSM/서비스→UI Qt 시그널 16종
+│   │   ├── events.py            # RunnerEvents — FSM/서비스→UI Qt 시그널 묶음
 │   │   ├── runner.py            # 세션 컨트롤러: QThread 워커 + 시작 가드 + 수명주기
+│   │   ├── run_preparer.py      # FSM worker에서 RawData 결과와 writer 준비
 │   │   ├── tc_loader.py         # CSV 로드/저장 (헤더 완전 일치 검증)
 │   │   ├── tc_validator.py      # TC 검증 (현재 band/BW 조합 1규칙)
 │   │   ├── tdf_service.py       # TDF(FSV Factor) 목록/설정 비동기 서비스
@@ -126,7 +128,7 @@ claude_test/
 │   │       ├── equipment.py     # 장비 연결 여부 판정 헬퍼
 │   │       ├── transition_flow.py # 복합 전환 체이닝(next_transition_or)
 │   │       └── states/
-│   │           ├── session.py   # SessionInit, Idle, CheckNextCase(전환 계획), TestEnd
+│   │           ├── session.py   # SessionInit, Idle, PrepareReport, CheckNextCase, TestEnd
 │   │           ├── nr_setup.py  # NRCallConnect, NRCallDisconnected
 │   │           ├── lte_setup.py # LTECallConnect, LTECallDisconnected
 │   │           ├── transition.py # AntPol/NR·LTE·NSA Handover/Recall/DUTAxis/TestType Change
@@ -148,6 +150,8 @@ claude_test/
 │   ├── report/                  # Excel + 스크린샷 — PROJECT_SPEC_1.0.1.md §15
 │   │   ├── report_writer.py     # FSM이 부르는 facade (Excel 기록 + 스크린샷 finalize)
 │   │   ├── excel_writer.py      # openpyxl + win32com COM 이중 경로
+│   │   ├── rawdata_source.py    # dev/frozen 원본 조회와 관리 시트 검증
+│   │   ├── rawdata_workbook.py  # EUT별 결과 생성·검증·재사용
 │   │   ├── template_map.py      # 시트/셀 좌표 규칙 (코드 상수)
 │   │   └── screenshot_store.py  # 스크린샷 파일명/경로 규칙과 복사
 │   └── ui/                      # PROJECT_SPEC_1.0.1.md §16
@@ -195,9 +199,10 @@ claude_test/
    (패키징 실행이면 `LvServerManager`가 LV Inst Manager.exe 자동 기동) → LV에 장비별 `Connect`
    명령 → 성공 시 `Runner.mark_equipment_ready()`가 FSM gate 해제 → FSM이 `Idle` 진입.
 3. **TC 준비** — Test Manager에서 NR/LTE 다이얼로그로 TestCase 생성(또는 CSV 불러오기),
-   EUT 이름/Excel 템플릿/TDF 활성화 설정.
-4. **시험 실행** — 시작 버튼 → `Runner.start()`가 가드 통과 후 `ReportWriter` 생성(Excel 라이브
-   모니터링 오픈) → FSM이 TC 큐를 순회: Generation별 Call 연결 → SwitchBox/SA 설정 → 턴테이블 회전 →
+   EUT 이름과 실행 옵션 설정.
+4. **시험 실행** — 시작 버튼 → `Runner.start()`가 저비용 가드 통과 후 요청 저장 → FSM의
+   `PrepareReport`가 EUT별 RawData 결과 확보, `ReportWriter` 생성과 Excel 라이브 모니터링 준비 →
+   FSM이 TC 큐를 순회: Generation별 Call 연결 → SwitchBox/SA 설정 → 턴테이블 회전 →
    측정 → Excel 기록 + 스크린샷 저장 → `CheckNextCase`가 TC 간 차이를 보고 전환 상태
    (Handover/AntPol/축/Recall/타입) 스케줄 → 반복.
 5. **종료** — 큐 소진 시 `TestEnd` → `session_finished` → FSM은 `Idle`로 복귀해 다음 Start 대기.
@@ -209,7 +214,8 @@ claude_test/
 | --- | --- | --- |
 | `config/instrument_connection.json` | [instrument_connection_settings.py](../src/app/config/instrument_connection_settings.py) (fail-soft 로드/저장) | Instrument Check 입력값(VISA 주소 4종, Switch Box IP/포트). **상대 경로**라 실행 디렉터리에 따라 위치가 달라진다 |
 | `config/app_config.json` | 없음 (**휴면**) | `AppConfig` 로더는 존재하나 어떤 코드도 호출하지 않는다. TCP 주소는 `SessionContext` 기본값(127.0.0.1:5025) + UI 입력에서 온다 |
-| Excel 템플릿 `.xlsx` | [excel_writer.py](../src/app/report/excel_writer.py) | **출력 파일 = 템플릿 파일** (in-place 저장). 원본 보존이 필요하면 복사본을 지정할 것 |
+| RawData 원본 `.xlsx` | [rawdata_source.py](../src/app/report/rawdata_source.py) | 개발은 저장소 `resources/templates`, frozen은 `sys._MEIPASS/resources/templates`; read-only source로 사용 |
+| EUT 결과 `.xlsx`와 스크린샷 | [rawdata_workbook.py](../src/app/report/rawdata_workbook.py), [screenshot_store.py](../src/app/report/screenshot_store.py) | 개발은 `~/Desktop/<EUT>`, frozen은 `<EXE 폴더>/<EUT>` 아래에 함께 저장 |
 
 로깅은 [logging_setup.py](../src/app/logging_setup.py)가 루트 로거에 콘솔 핸들러를 부착하고,
 UI에는 [log_panel.py](../src/app/ui/log_panel.py)의 `LogPanel`이 자체 logging 핸들러를 붙여

@@ -12,25 +12,48 @@
 | --- | --- |
 | [report_writer.py](../src/app/report/report_writer.py) `ReportWriter` | FSM이 호출하는 단일 facade — Excel 기록 + 스크린샷 finalize를 묶음 |
 | [excel_writer.py](../src/app/report/excel_writer.py) `ExcelReportWriter` | openpyxl + win32com(COM) 이중 경로로 셀 기록·저장 |
+| [rawdata_source.py](../src/app/report/rawdata_source.py) | Generation별 패키징 RawData 원본 해석, 관리 시트 검증과 SHA-256 산출 |
+| [rawdata_workbook.py](../src/app/report/rawdata_workbook.py) | EUT별 canonical 결과 workbook 생성·검증·재사용 |
 | [template_map.py](../src/app/report/template_map.py) | "어느 시트의 어느 셀에 쓸지" — **코드 상수** (JSON 아님) |
 | [screenshot_store.py](../src/app/report/screenshot_store.py) | 스크린샷 최종 파일명/디렉터리 규칙과 복사 |
 
 `config/excel_template_map.example.json`은 어떤 코드도 읽지 않는 레거시 자리표시자다.
 셀 좌표를 바꾸려면 template_map.py 코드를 수정해야 한다.
 
-생성 경로: `Runner.start()`가 `report_writer_factory`로 `ExcelReportWriter(template_path)` +
+생성 경로: `Runner.start()`가 Start 요청을 컨텍스트에 저장하면 `PrepareReport` 상태가
+Generation별 RawData 원본에서 EUT별 canonical 결과 workbook을 확보한다. 이어서
+`ExcelReportWriter(workbook_path)` +
 `ReportWriter(excel_writer, screenshot_root_dir, model_name=EUT이름, events)`를 조립하고
-`prepare_for_run(첫 TC)`를 호출한 뒤 `ctx.report_writer`로 FSM에 전달한다.
+`prepare_for_run(첫 TC)`를 호출한 뒤 성공한 writer만 컨텍스트에 확정한다.
+
+`screenshot_root_dir`는 호환성을 위해 유지한 필드명이며 실제 의미는 **EUT 결과 기준
+root**다. 개발 실행에서는 `~/Desktop`, PyInstaller frozen 실행에서는 EXE 폴더를 사용한다.
+RawData 원본과 결과 파일의 위치는 서로 다르다:
+
+| 구분 | 개발 실행 | frozen 실행 |
+| --- | --- | --- |
+| RawData 원본 | `<repository>/resources/templates/<source>.xlsx` | `<sys._MEIPASS>/resources/templates/<source>.xlsx` |
+| 결과 기준 root | `~/Desktop` | EXE 폴더 |
+
+NR 원본은 `NR_Rawdata_.xlsx`, LTE 원본은
+`_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. 런타임 resolver는 원본의 SHA-256을
+정보로 산출하지만 고정값 불일치로 실행을 차단하지 않는다. 고정 checksum 비교는 테스트와
+PyInstaller 산출물 검증에서 수행한다.
 
 ## 2. Excel 기록 규칙 — template_map.py
 
-- **출력 파일 = 템플릿 파일**: 별도 산출물 없이 사용자가 고른 `.xlsx`에 in-place 저장한다.
-  원본 템플릿을 보존하려면 복사본을 지정해야 한다.
-- **시트**: Band당 1장, 시트명 `Sub6 {band}` (예: `Sub6 n78`). NRBand enum에서 자동 파생
-  — 새 band를 추가하면 템플릿에 해당 시트만 준비하면 된다.
-- **레이아웃 2종**: `default`(mhb/uhb)와 `lb`. band group key로 선택한다.
+- **출력 파일**: `<result_root>/<EUT>/<EUT>_CE Main_Radiation_<NR|LTE>.xlsx`.
+  NR SA/NSA는 같은 NR 결과 파일을 공유하고 LTE는 별도 LTE 결과 파일을 사용한다.
+- **lifecycle**: 결과가 없으면 target을 exclusive-create한 뒤 패키징 원본을 복사·검증한다.
+  검증된 기존 결과는 덮어쓰지 않고 재사용하고, 손상되었거나 읽을 수 없는 기존 결과는
+  Start를 실패시킨다. 복사 실패 시 해당 시도가 만든 부분 파일만 제거하며 원본 workbook은
+  수정하지 않는다.
+- **관리 시트**: NR은 현재 지원 Band 15개의 `Sub6 {band}`(예: `Sub6 n78`), LTE는
+  현재 지원 Band 11개의 `LTE_BAND {band number}`(예: `LTE_BAND 1`)를 요구한다.
+  LTE 원본의 WCDMA 등 관리 prefix가 다른 시트는 허용한다.
+- **레이아웃**: NR과 LTE 각각 `default`(mhb/uhb)와 `lb` 레이아웃을 사용한다.
 
-| 항목 | default | lb |
+| NR 항목 | default | lb |
 | --- | --- | --- |
 | band info 셀 (Band/channel/BW/RB size/RB offset/Mod/SCS/Ant position) | A49, C49~I49 | A44, C44~I44 |
 | NR Anchor 상대 셀 | B49 (NSA offset 적용 시 B7) | B44 (NSA offset 적용 시 B7) |
@@ -38,6 +61,14 @@
 | harmonic base row | 66 | 56 |
 | inband base row | 61 | 51 |
 | bilog base row | 56 | **None (LB는 Bilog 미지원 — write_bilog 시 ValueError)** |
+
+| LTE 항목 | default | lb |
+| --- | --- | --- |
+| band info 셀 (Band/channel/BW/RB size/RB offset/Mod/SCS/Ant position) | A7~H7 | A7~H7 |
+| fundamental 주파수 셀 | I7 | I7 |
+| harmonic base row | 24 | 19 |
+| inband base row | 19 | 14 |
+| bilog base row | 14 | **None (LB는 Bilog 미지원)** |
 
 - **NSA는 별도 시트가 아니라 행 오프셋**: `Generation.NR_NSA`면 전체 행을 위로 이동
   (default −42행, lb −37행) — 같은 시트의 위쪽 블록에 기록된다.
@@ -67,7 +98,7 @@
    Table)/활성 Excel에서 찾고, 없으면 새 Excel(Visible)로 파일을 연다. 대기 중이던
    `_pending_cells`를 순서대로 쓰고 **마지막 기록 셀을 Select**해 오퍼레이터가 진행 상황을
    실시간으로 보게 한 뒤 `workbook.Save()`. 사용자가 실행 중 Excel을 닫으면 재오픈한다.
-2. **비모니터링 모드**: `openpyxl workbook.save(template_path)`. 파일이 Excel에서 열려
+2. **비모니터링 모드**: `openpyxl workbook.save(workbook_path)`. 파일이 Excel에서 열려
    `PermissionError`가 나면 COM 폴백을 시도한다.
 
 `prepare_live_monitoring`은 pywin32가 필요하며, **실패하면 시험 시작 자체가 거부된다**
@@ -96,11 +127,20 @@ Harmonic **정밀측정 스크린샷은 예외**: ReportWriter를 거치지 않�
 
 ## 5. 스크린샷 저장 규칙 — screenshot_store.py
 
-디렉터리 구조 (root = `TestRunSettings.screenshot_root_dir`):
+디렉터리 구조 (root = `TestRunSettings.screenshot_root_dir`, 패키징 실행은 exe 폴더,
+개발 실행은 `~/Desktop`):
 
 ```text
-{root}/{model}/Traffic/5G/{band}/{Upper|Lower}/{SA|NSA}/{파일명}.png
+{root}/{model}/
+├─ screenshots/Traffic/
+│  ├─ 5G/{band}/{Upper|Lower}/{SA|NSA}/{파일명}.png
+│  └─ 4G/{band}/{Lower|Upper}/{파일명}.png
+├─ {model}_CE Main_Radiation_NR.xlsx
+└─ {model}_CE Main_Radiation_LTE.xlsx
 ```
+
+기존 잘못된 구조인 `{root}/screenshots/{model}`은 조회·이동·재사용하지 않는다. Excel 결과와
+스크린샷은 항상 같은 `{root}/{model}` 아래에 새 규칙대로 배치한다.
 
 파일명 3종:
 

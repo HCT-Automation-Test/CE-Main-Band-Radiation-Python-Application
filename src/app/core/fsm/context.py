@@ -45,7 +45,6 @@ class SessionContext:
     temp_dir: Path | None = None
     settings: TestRunSettings | None = None
     model_name: str = ""
-    template_path: Path | None = None
     screenshot_root_dir: Path | None = None
     equipment_state: dict[str, Any] = field(default_factory=dict)
     harmonic_precision_candidates: list["HarmonicPrecisionCandidate"] = field(

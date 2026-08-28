@@ -42,7 +42,7 @@ def test_new_result_is_copied_to_canonical_path(
     source_hash = _sha256(source_path)
 
     result = ensure_rawdata_result_workbook(
-        screenshot_root_dir=tmp_path / "screenshots",
+        screenshot_root_dir=tmp_path,
         eut_name="EUT-A",
         generation=generation,
         resource_root=_RESOURCE_ROOT,
@@ -51,7 +51,7 @@ def test_new_result_is_copied_to_canonical_path(
     assert result.kind is kind
     assert result.created
     assert result.path == (
-        tmp_path / "screenshots" / "EUT-A" / f"EUT-A_CE Main_Radiation_{suffix}"
+        tmp_path / "EUT-A" / f"EUT-A_CE Main_Radiation_{suffix}"
     ).resolve()
     assert _sha256(result.path) == source_hash
     assert _sha256(source_path) == source_hash

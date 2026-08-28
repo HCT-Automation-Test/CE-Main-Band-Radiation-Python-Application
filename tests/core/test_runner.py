@@ -194,13 +194,10 @@ def _connection_config():
 
 
 def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir(exist_ok=True)
     return TestRunSettings(
         eut_name=eut_name,
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1439,13 +1436,10 @@ def test_test_run_settings_rejects_invalid_values(
     field: str,
     value: Any,
 ) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir()
     kwargs = {
         "eut_name": "SM-000",
-        "template_path": template_path,
         "screenshot_root_dir": screenshot_root_dir,
         "saturation_time_sec": 5,
         "connection_waiting_time_sec": 5,
@@ -1465,7 +1459,7 @@ def test_default_screenshot_root_dir_uses_desktop_for_source_runtime(
     monkeypatch.delattr(test_run_settings.sys, "frozen", raising=False)
     monkeypatch.setattr(test_run_settings.Path, "home", lambda: tmp_path)
 
-    assert default_screenshot_root_dir() == tmp_path / "Desktop" / "screenshots"
+    assert default_screenshot_root_dir() == tmp_path / "Desktop"
 
 
 def test_default_screenshot_root_dir_uses_executable_dir_for_frozen_runtime(
@@ -1476,20 +1470,17 @@ def test_default_screenshot_root_dir_uses_executable_dir_for_frozen_runtime(
     monkeypatch.setattr(test_run_settings.sys, "frozen", True, raising=False)
     monkeypatch.setattr(test_run_settings.sys, "executable", str(executable))
 
-    assert default_screenshot_root_dir() == tmp_path.resolve() / "screenshots"
+    assert default_screenshot_root_dir() == tmp_path.resolve()
 
 
 def test_test_run_settings_accepts_optional_custom_turntable_speed(
     tmp_path: Path,
 ) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir()
 
     default_settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1498,7 +1489,6 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
     )
     custom_settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1511,27 +1501,11 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
     assert custom_settings.custom_turntable_speed == 8
 
 
-def test_test_run_settings_rejects_missing_template_path(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="template_path"):
-        TestRunSettings(
-            eut_name="SM-000",
-            template_path=tmp_path / "missing.xlsx",
-            screenshot_root_dir=tmp_path / "screenshots",
-            saturation_time_sec=5,
-            connection_waiting_time_sec=5,
-            atten_level_db=0,
-            next_peak_search_level_db=6,
-        )
-
-
 def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "missing-screenshots"
-    template_path.write_bytes(b"template")
 
     settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1543,15 +1517,12 @@ def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -
 
 
 def test_test_run_settings_rejects_screenshot_path_that_is_file(tmp_path: Path) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshot-file"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.write_bytes(b"not a directory")
 
     with pytest.raises(ValueError, match="screenshot_root_dir"):
         TestRunSettings(
             eut_name="SM-000",
-            template_path=template_path,
             screenshot_root_dir=screenshot_root_dir,
             saturation_time_sec=5,
             connection_waiting_time_sec=5,
@@ -1573,12 +1544,12 @@ def test_runner_connection_service_guard_blocks_when_measurement_active(
         return engine
 
     def report_writer_factory(
-        template_path: Path,
+        workbook_path: Path,
         screenshot_root_dir: Path,
         model_name: str,
         events: Any,
     ) -> _ReportWriter:
-        _ = template_path, screenshot_root_dir, model_name, events
+        _ = workbook_path, screenshot_root_dir, model_name, events
         return _ReportWriter()
 
     runner = Runner(
@@ -1624,7 +1595,7 @@ def test_start_rejects_when_runner_is_not_idle(
         return engine
 
     def report_writer_factory(
-        template_path: Path,
+        workbook_path: Path,
         screenshot_root_dir: Path,
         model_name: str,
         events: Any,
