@@ -56,6 +56,8 @@ class _Commands:
         handover_exception: Exception | None = None,
         nsa_handover_configured: bool = True,
         nsa_handover_exception: Exception | None = None,
+        recall_configured: bool = True,
+        recall_exception: Exception | None = None,
         call_connected: bool = True,
         call_status_exception: Exception | None = None,
     ) -> None:
@@ -68,9 +70,13 @@ class _Commands:
         self.nsa_handover_configured = nsa_handover_configured
         self.nsa_handover_exception = nsa_handover_exception
         self.nsa_handover_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.recall_configured = recall_configured
+        self.recall_exception = recall_exception
+        self.recall_calls: list[tuple[Any, dict[str, Any]]] = []
         self.call_connected = call_connected
         self.call_status_exception = call_status_exception
         self.call_status_calls: list[Any] = []
+        self.call_sequence: list[str] = []
 
     def set_antenna_pol(self, client: Any, **params: Any) -> bool:
         self.calls.append((client, params))
@@ -86,12 +92,21 @@ class _Commands:
 
     def nsa_handover(self, client: Any, **params: Any) -> bool:
         self.nsa_handover_calls.append((client, params))
+        self.call_sequence.append("nsa_handover")
         if self.nsa_handover_exception is not None:
             raise self.nsa_handover_exception
         return self.nsa_handover_configured
 
+    def recall_param(self, client: Any, **params: Any) -> bool:
+        self.recall_calls.append((client, params))
+        self.call_sequence.append("recall_param")
+        if self.recall_exception is not None:
+            raise self.recall_exception
+        return self.recall_configured
+
     def check_call_status(self, client: Any) -> bool:
         self.call_status_calls.append(client)
+        self.call_sequence.append("check_call_status")
         if self.call_status_exception is not None:
             raise self.call_status_exception
         return self.call_connected
@@ -741,55 +756,140 @@ def test_nsa_handover_timeout_routes_to_nr_call_disconnected() -> None:
     ]
 
 
-def test_recall_change_emits_user_action_and_waits_for_completion() -> None:
+def test_recall_change_applies_recall_then_checks_call_once() -> None:
     prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
     current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
-    ctx, _, events, _ = _make_ctx(
+    ctx, commands, events, client = _make_ctx(
         current_case,
         queue=[prev_case, current_case],
         current_index=1,
     )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = ["NRCallConnect"]
     state = RecallChangeState()
-
-    def complete_action() -> None:
-        time.sleep(0.02)
-        ctx.user_action_completed.set()
-
-    threading.Thread(target=complete_action, daemon=True).start()
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
-    assert events.user_action_required.messages == [
-        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
+    assert commands.recall_calls == [
+        (client, {"recall_name": current_case.mt8000_recall})
     ]
+    assert commands.call_status_calls == [client]
+    assert commands.call_sequence == ["recall_param", "check_call_status"]
+    assert ctx.last_applied_recall_id == current_case.mt8000_recall
+    assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) == "NRCallConnect"
+    assert ctx.pending_transition_states == []
 
 
-def test_recall_change_returns_fail_when_stopped_while_waiting() -> None:
-    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
-    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
-    ctx, _, events, _ = _make_ctx(
+def test_recall_and_anchor_change_runs_nsa_handover_after_call_check() -> None:
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N7,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N38,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B3,
+    )
+    ctx, commands, _, _ = _make_ctx(
         current_case,
         queue=[prev_case, current_case],
         current_index=1,
     )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = ["NSAHandover"]
+
+    recall_result = RecallChangeState().run(ctx)
+
+    assert recall_result is StateResult.OK
+    assert RecallChangeState().next_state(ctx, recall_result) == "NSAHandover"
+    assert NSAHandoverState().run(ctx) is StateResult.OK
+    assert commands.call_sequence == [
+        "recall_param",
+        "check_call_status",
+        "nsa_handover",
+    ]
+
+
+@pytest.mark.parametrize(
+    ("commands", "error_message"),
+    [
+        (
+            _Commands(recall_configured=False),
+            "Recall 변경 실패: recall_param returned false",
+        ),
+        (
+            _Commands(recall_exception=RuntimeError("recall timeout")),
+            "Recall 변경 실패: recall timeout",
+        ),
+        (
+            _Commands(call_connected=False),
+            "Recall 후 Call 상태 확인 실패: check_call_status returned disconnected",
+        ),
+        (
+            _Commands(call_status_exception=RuntimeError("status timeout")),
+            "Recall 후 Call 상태 확인 실패: status timeout",
+        ),
+    ],
+    ids=["recall-false", "recall-error", "call-disconnected", "call-check-error"],
+)
+def test_recall_change_failure_keeps_applied_id_and_blocks_next_state(
+    commands: _Commands,
+    error_message: str,
+) -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = ["NRCallConnect", "AntPolChange"]
     state = RecallChangeState()
-
-    def request_stop() -> None:
-        time.sleep(0.02)
-        ctx.stopped = True
-        ctx.user_action_completed.set()
-
-    threading.Thread(target=request_stop, daemon=True).start()
 
     result = state.run(ctx)
 
     assert result is StateResult.FAIL
-    assert events.user_action_required.messages == [
-        "MT8000A Recall 변경: SA_FDD -> SA_TDD"
-    ]
+    assert ctx.last_applied_recall_id == prev_case.mt8000_recall
+    assert events.error.messages == [error_message]
+    assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) is None
+    assert ctx.pending_transition_states == ["NRCallConnect", "AntPolChange"]
+
+    expected_check_count = (
+        0
+        if commands.recall_configured is False or commands.recall_exception
+        else 1
+    )
+    assert len(commands.call_status_calls) == expected_check_count
+
+
+def test_recall_change_fails_before_commands_when_mt8000a_is_disconnected() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    ctx, commands, events, _ = _make_ctx(
+        current_case,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.equipment_state = {"MT8000A": False}
+
+    result = RecallChangeState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert commands.recall_calls == []
+    assert commands.call_status_calls == []
+    assert ctx.last_applied_recall_id == prev_case.mt8000_recall
+    assert events.error.messages == [
+        "Recall 변경 실패: MT8000A가 연결되어 있지 않습니다."
+    ]
 
 
 @pytest.mark.parametrize(

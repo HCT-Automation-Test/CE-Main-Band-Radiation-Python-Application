@@ -42,6 +42,7 @@ class SessionContext:
     current_angle: float = 0.0
     fundamental_frequency_mhz: float | None = None
     last_applied_factor_keyword: str | None = None
+    last_applied_recall_id: str | None = None
     temp_dir: Path | None = None
     settings: TestRunSettings | None = None
     model_name: str = ""
