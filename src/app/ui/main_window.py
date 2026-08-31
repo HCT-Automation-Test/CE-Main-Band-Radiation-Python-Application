@@ -22,9 +22,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config.file_dialog_directory_settings import (
-    FileDialogDirectorySettingsStore,
-)
 from app.config.instrument_connection_settings import (
     InstrumentConnectionSettingsStore,
 )
@@ -316,10 +313,7 @@ class MainWindow(QMainWindow):
             service=self._runner.instrument_connection_service,
             settings_store=InstrumentConnectionSettingsStore(),
         )
-        self._test_manager_panel = TestManagerPanel(
-            self._page_stack,
-            file_dialog_settings_store=FileDialogDirectorySettingsStore(),
-        )
+        self._test_manager_panel = TestManagerPanel(self._page_stack)
         self._test_plot_screenshot_panel = TestPlotScreenshotPanel(self._page_stack)
         self._rf_switch_box_window = RFSwitchBoxWindow(
             service=self._rf_switch_box_service,

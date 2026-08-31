@@ -10,6 +10,7 @@ from app.core.fsm.engine import build_session_engine
 from app.core.fsm.states.measurement import common as common_module
 from app.core.fsm.states import nr_setup as nr_setup_module
 from app.core.fsm.states import transition as transition_module
+from app.core.run_preparer import RunPreparer, RunPreparationRequest
 from app.models.enums import (
     AntennaPol,
     DUTAntPosition,
@@ -31,6 +32,8 @@ from app.models.measurement_result import (
 )
 from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
+from app.report.rawdata_source import RawDataWorkbookKind
+from app.report.rawdata_workbook import RawDataResultWorkbook
 
 
 class _Signal:
@@ -67,6 +70,7 @@ class _Events:
         self.progress = _Signal()
         self.screenshot_saved = _Signal()
         self.session_finished = _Signal()
+        self.start_rejected = _Signal()
         self.error = _Signal()
 
 
@@ -228,6 +232,9 @@ class _ReportWriter:
     def __init__(self) -> None:
         self.calls: list[tuple[str, Any]] = []
 
+    def prepare_for_run(self, first_case: TestCase) -> None:
+        _ = first_case
+
     def read_fundamental_frequency(self, test_case: TestCase) -> float | None:
         self.calls.append(("read_fundamental_frequency", test_case))
         return None
@@ -288,13 +295,10 @@ def _make_case(
 
 
 def _make_settings(tmp_path: Path) -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir(exist_ok=True)
     return TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=0,
         connection_waiting_time_sec=1,
@@ -314,17 +318,30 @@ def _make_ctx(
     command_facade = commands or _Commands()
     command_facade.temp_dir = tmp_path
     writer = report_writer or _ReportWriter()
+    settings = _make_settings(tmp_path)
+    request = RunPreparationRequest(
+        cases=tuple(queue),
+        settings=settings,
+        start_index=0,
+        stop_index=None,
+    )
+    result_workbook = RawDataResultWorkbook(
+        kind=RawDataWorkbookKind.NR,
+        path=tmp_path / "result.xlsx",
+        created=True,
+    )
+    run_preparer = RunPreparer(
+        result_resolver=lambda **kwargs: result_workbook,  # type: ignore[arg-type]
+        report_writer_factory=lambda *args: writer,  # type: ignore[arg-type]
+    )
     ctx = SessionContext(
-        queue=list(queue),
+        queue=[],
         commands=command_facade,
         events=events,  # type: ignore[arg-type]
         client=_FakeClient(),
-        report_writer=writer,  # type: ignore[arg-type]
+        run_preparer=run_preparer,
+        pending_run_request=request,
         temp_dir=tmp_path,
-        settings=_make_settings(tmp_path),
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
         equipment_state={
             "FSV40": True,
             "MT8000A": True,
@@ -395,6 +412,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
     assert events.state_changed.values == [
         "SessionInit",
         "Idle",
+        "PrepareReport",
         "InitialTurntableZero",
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",
@@ -485,9 +503,10 @@ def test_nr_call_disconnected_recovery(tmp_path: Path) -> None:
 
     _run_session(ctx)
 
-    assert events.state_changed.values[:9] == [
+    assert events.state_changed.values[:10] == [
         "SessionInit",
         "Idle",
+        "PrepareReport",
         "InitialTurntableZero",
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",

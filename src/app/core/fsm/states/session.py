@@ -10,6 +10,7 @@ from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
 )
+from app.core.run_preparer import RunPreparationError, RunPreparationStopped
 from app.models.enums import Generation, InputPath
 
 if TYPE_CHECKING:
@@ -146,34 +147,68 @@ class IdleState(State):
         if not _wait_for_event(ctx, "test_start_requested"):
             return StateResult.FAIL
 
-        if not ctx.queue:
-            _emit_error(ctx, "시험 시작 실패: TestCase queue is empty")
+        if ctx.pending_run_request is None:
+            _reject_start(ctx, "시험 시작 실패: pending run request is required")
             return StateResult.RETRY
-        if ctx.report_writer is None:
-            _emit_error(ctx, "시험 시작 실패: report_writer is not set")
+        if ctx.run_preparer is None:
+            _reject_start(ctx, "시험 시작 실패: run_preparer is required")
             return StateResult.RETRY
-        if ctx.temp_dir is None:
-            _emit_error(ctx, "시험 시작 실패: temp_dir is not set")
-            return StateResult.RETRY
-        if ctx.settings is None:
-            _emit_error(ctx, "시험 시작 실패: settings is required")
-            return StateResult.RETRY
-        if not ctx.model_name:
-            _emit_error(ctx, "시험 시작 실패: model_name is required")
-            return StateResult.RETRY
-        if ctx.template_path is None:
-            _emit_error(ctx, "시험 시작 실패: template_path is required")
-            return StateResult.RETRY
-        if ctx.screenshot_root_dir is None:
-            _emit_error(ctx, "시험 시작 실패: screenshot_root_dir is required")
-            return StateResult.RETRY
+        return StateResult.OK
 
-        ctx.current_index = ctx.start_index
+    def next_state(
+        self, ctx: "SessionContext", result: StateResult
+    ) -> str | None:
+        if result is not StateResult.OK:
+            return None
+        return "PrepareReport"
+
+
+class PrepareReportState(State):
+    """기존 FSM worker에서 RawData result와 report writer를 준비한다."""
+
+    name = "PrepareReport"
+
+    def run(self, ctx: "SessionContext") -> StateResult:
+        request = ctx.pending_run_request
+        preparer = ctx.run_preparer
+        if request is None or preparer is None:
+            _reject_start(ctx, "시험 시작 실패: run preparation is not configured")
+            return StateResult.FAIL
+
+        try:
+            prepared = preparer.prepare(
+                request,
+                events=ctx.events,
+                should_stop=lambda: ctx.stopped or ctx.current_case_stop_requested,
+            )
+        except RunPreparationStopped:
+            ctx.pending_run_request = None
+            return StateResult.FAIL
+        except RunPreparationError as exc:
+            _reject_start(ctx, f"시험 시작 실패: {exc}")
+            return StateResult.FAIL
+
+        # Stop/shutdown은 blocking I/O 반환 직후 기존 Runner 종료 흐름이 처리한다.
+        if ctx.stopped or ctx.current_case_stop_requested:
+            return StateResult.FAIL
+
+        ctx.queue = list(request.cases)
+        ctx.report_writer = prepared.report_writer
+        ctx.result_workbook_path = prepared.result_workbook.path
+        ctx.start_index = request.start_index
+        ctx.stop_index = request.stop_index
+        ctx.current_index = request.start_index
+        ctx.paused = False
+        ctx.stopped = False
+        ctx.current_case_stop_requested = False
+        ctx.current_angle = 0.0
         ctx.fundamental_frequency_mhz = None
         ctx.last_applied_factor_keyword = None
         ctx.pending_transition_states.clear()
-        ctx.stopped = False
-        ctx.current_case_stop_requested = False
+        ctx.settings = request.settings
+        ctx.model_name = request.settings.eut_name
+        ctx.screenshot_root_dir = request.settings.screenshot_root_dir
+        ctx.pending_run_request = None
         if ctx.events is not None:
             ctx.events.current_case_changed.emit(ctx.current_case)
             ctx.events.tc_started.emit(ctx.current_index)
@@ -182,9 +217,20 @@ class IdleState(State):
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
-        if result is not StateResult.OK:
-            return None
-        return "InitialTurntableZero"
+        _ = ctx
+        if result is StateResult.OK:
+            return "InitialTurntableZero"
+        return "Idle"
+
+
+def _reject_start(ctx: "SessionContext", message: str) -> None:
+    ctx.pending_run_request = None
+    ctx.test_start_requested.clear()
+    _emit_error(ctx, message)
+    if ctx.events is not None:
+        start_rejected = getattr(ctx.events, "start_rejected", None)
+        if start_rejected is not None:
+            start_rejected.emit()
 
 
 class CheckNextCaseState(State):

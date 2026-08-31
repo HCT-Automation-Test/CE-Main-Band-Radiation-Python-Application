@@ -137,8 +137,8 @@ Test Manager의 시작 시점 사용자 입력을 담는 frozen dataclass. 생�
 
 | 필드 | 검증 |
 | --- | --- |
-| `eut_name` | 공백 제거 후 비어 있으면 오류 |
-| `template_path` | **실존 파일이어야 함** (생성 시 파일시스템 접근 — 테스트에서도 실파일 필요) |
+| `eut_name` | 비어 있거나 leading/trailing whitespace가 있으면 오류 |
+| `screenshot_root_dir` | 호환성을 위해 유지한 이름. 기존 경로이면 디렉터리여야 하며, EUT별 RawData workbook과 `screenshots` 폴더를 두는 **EUT 결과 기준 root** |
 | `saturation_time_sec` ≥ 0, `connection_waiting_time_sec` > 0 (int) | |
 | `atten_level_db` ≥ 0, `next_peak_search_level_db` ∈ (0, 80] | |
 | `custom_turntable_speed` | None 또는 1~10 (설정 시 BandGroup 속도보다 우선) |
@@ -150,14 +150,14 @@ Test Manager의 시작 시점 사용자 입력을 담는 frozen dataclass. 생�
 중단한다. 같은 세션에서 직전 적용에 성공한 Factor가 연속되면 목록 조회와 적용을
 생략한다.
 
-`default_screenshot_root_dir()`: 패키징 실행이면 exe 폴더/screenshots, 개발 환경이면
-`~/Desktop/screenshots`.
+`default_screenshot_root_dir()`: 패키징 실행이면 exe 폴더, 개발 환경이면 `~/Desktop`.
+실제 결과는 `<root>/<EUT>/` 아래에 모이며 기존 `<root>/screenshots/<EUT>` 경로는 사용하지 않는다.
 
 ## 9. 새 항목 추가 체크리스트
 
 **새 NR band**: `NRBand` 멤버 → `BAND_GROUPS`(해당 그룹 bands) + `RANGE_BY_BAND_TEST`
 3종 매핑 → `_SUPPORTED_BANDWIDTHS_BY_BAND` → `_CHANNEL_LOOKUP_BY_BAND`(BW별 low/mid/high)
-→ `_BRF_FILTER_PATH_BY_BAND` 포트 순서 → Excel 템플릿에 `Sub6 {band}` 시트 준비
+→ `_BRF_FILTER_PATH_BY_BAND` 포트 순서 → NR RawData 원본에 `Sub6 {band}` 시트 준비
 → tests/models 파라미터라이즈에 대표 조합 추가.
 
 **새 bandwidth 조합**: supported_bandwidths + nr_channel_lookup + rb_parameters

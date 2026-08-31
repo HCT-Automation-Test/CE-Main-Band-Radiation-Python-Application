@@ -1,6 +1,5 @@
 {
   "tcp_host": "127.0.0.1",
   "tcp_port": 5025,
-  "tcp_timeout_s": 5.0,
-  "excel_template_path": "resources/report_template.xlsx"
+  "tcp_timeout_s": 5.0
 }

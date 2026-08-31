@@ -18,7 +18,7 @@ Python 애플리케이션은 다음 책임을 가진다.
 - 장비 Set 작업 요청
 - FSM 기반 측정 시퀀스 실행
 - 외부 LabVIEW 프로그램과 TCP/JSON 명령 송수신
-- Excel 템플릿에 결과 기록
+- EUT별 RawData 결과 workbook에 결과 기록
 - Spectrum Analyzer 스크린샷 최종 저장
 - 오퍼레이터용 UI 제공
 
@@ -80,10 +80,10 @@ claude_test/
 | `src/app/core` | Test Case loader/validator, Runner, 장비 연결 서비스 |
 | `src/app/core/fsm` | 측정 시퀀스 FSM 엔진과 상태 구현 |
 | `src/app/net` | TCP client, protocol, LabVIEW command facade, mock server/client |
-| `src/app/report` | Excel writer, report writer, screenshot store |
+| `src/app/report` | RawData 원본·결과 lifecycle, Excel writer, report writer, screenshot store |
 | `src/app/ui` | PySide6 UI 패널과 메인 윈도우 |
 | `src/app/ui/generated` | `pyside6-uic` 생성 UI 파일 |
-| `resources` | Qt Designer `.ui`, 아이콘, RF Switch Box 이미지 |
+| `resources` | Qt Designer `.ui`, 아이콘, RF Switch Box 이미지, NR/LTE RawData 원본 |
 | `config` | 설정 예시 파일 |
 | `testcases` | 샘플 Test Case CSV |
 | `tests` | models/core/net/report/ui 테스트 |
@@ -166,7 +166,7 @@ PyInstaller 빌드 설정은 `CE_NR_Radiated.spec`에 있다.
 3. Connect 실행
 4. 연결된 장비 상태 확인
 5. 필요 장비 Set 실행
-6. Test Manager 화면에서 EUT 이름, Excel template, screenshot 저장 경로 입력
+6. Test Manager 화면에서 EUT 이름과 실행 옵션 입력
 7. NR Test Case 생성 또는 CSV load
 8. 필요 시 TDF list 조회 / TDF all off / TDF set
 9. Start 또는 Single Start 실행
@@ -176,7 +176,7 @@ PyInstaller 빌드 설정은 `CE_NR_Radiated.spec`에 있다.
 13. TcpClient가 LabVIEW 서버에 command 전송
 14. LabVIEW가 장비 제어 후 response/event 반환
 15. FSM이 측정 결과를 ReportWriter에 전달
-16. Excel template에 결과 기록
+16. EUT별 RawData 결과 workbook에 결과 기록
 17. SA screenshot을 최종 경로에 저장
 18. UI에 진행 상태, 로그, 최신 screenshot 표시
 ```
@@ -463,7 +463,9 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 - `temp_dir`
 - `settings`
 - `model_name`
-- `template_path`
+- `run_preparer`
+- `pending_run_request`
+- `result_workbook_path`
 - `screenshot_root_dir`
 - `equipment_state`
 - `harmonic_precision_candidates`
@@ -471,6 +473,9 @@ FSM은 QThread worker 안에서 동기적으로 실행된다. UI와의 통신은
 - `test_start_requested`
 - `user_action_completed`
 - `pending_transition_states`
+
+`screenshot_root_dir`는 기존 호출부 호환성을 위해 유지한 이름이며 실제 의미는 EUT 결과
+기준 root다. 기본값은 개발 실행에서 `~/Desktop`, frozen 실행에서 EXE 폴더다.
 
 `last_applied_factor_keyword`는 마지막 Set TDF 성공 Factor를 보관한다. `Idle`에서 Test Start를
 수락할 때와 `TestEnd`에서 초기화하고, 같은 Factor가 연속되면 TDF 목록 조회와 적용을 생략한다.
@@ -790,6 +795,8 @@ Report 계층은 Excel 결과 기록과 SA screenshot 최종 저장을 담당한
 
 | 파일 | 역할 |
 | --- | --- |
+| `rawdata_source.py` | Generation별 패키징 원본 조회, 관리 시트 검증, SHA-256 산출 |
+| `rawdata_workbook.py` | EUT별 canonical 결과 workbook 생성·검증·재사용 |
 | `excel_writer.py` | Excel workbook 작성 및 live monitoring |
 | `report_writer.py` | Excel write와 screenshot finalize 묶음 |
 | `screenshot_store.py` | Screenshot 최종 경로 생성 및 복사 |
@@ -797,7 +804,17 @@ Report 계층은 Excel 결과 기록과 SA screenshot 최종 저장을 담당한
 
 ### 15.2 ExcelReportWriter
 
-`ExcelReportWriter`는 Excel 템플릿 파일을 열고 측정 결과를 즉시 기록한다.
+`PrepareReport`는 Start 요청의 Generation에 따라 패키징 RawData 원본에서 EUT별 결과
+workbook을 생성하거나 검증된 기존 결과를 재사용한 뒤 `ExcelReportWriter`를 생성한다.
+`ExcelReportWriter`는 이 canonical 결과 파일만 열어 측정 결과를 즉시 기록한다.
+
+원본 위치는 개발 실행에서 `<repository>/resources/templates`, frozen 실행에서
+`<sys._MEIPASS>/resources/templates`다. NR SA/NSA는 `NR_Rawdata_.xlsx`를 공유하고 LTE는
+`_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`를 사용한다. 런타임은 원본 SHA-256을
+산출하지만 고정 checksum 비교는 테스트와 PyInstaller 검증에서 수행한다.
+
+관리 시트는 NR 15개의 `Sub6 n*`, LTE 11개의 `LTE_BAND *`다. LTE 원본의 WCDMA 등
+비관리 시트는 허용하며 NSA는 별도 시트 대신 NR 시트의 전용 행 offset을 사용한다.
 
 주요 기능:
 
@@ -840,13 +857,23 @@ Screenshot 저장 구조:
 ```text
 <root_dir>/
   <model_name>/
-    Traffic/
-      5G/
-        <band>/
-          <dut_ant_position>/
-            <SA or NSA>/
+    screenshots/
+      Traffic/
+        5G/
+          <band>/
+            <dut_ant_position>/
+              <SA or NSA>/
+                <filename>.png
+        4G/
+          <band>/
+            <dut_ant_position>/
               <filename>.png
+    <model_name>_CE Main_Radiation_NR.xlsx
+    <model_name>_CE Main_Radiation_LTE.xlsx
 ```
+
+여기서 `<root_dir>`는 개발 실행에서 `~/Desktop`, frozen 실행에서 EXE 폴더다. 기존
+`<root_dir>/screenshots/<model_name>` 배치는 조회·이동·재사용하지 않는다.
 
 일반 SA screenshot filename 구성:
 
@@ -940,8 +967,7 @@ src/app/ui/test_manager_panel.py
 주요 기능:
 
 - EUT 이름 입력
-- Excel template path 선택
-- Screenshot root path 선택
+- EUT 이름과 Generation 기반 RawData 결과 workbook 자동 준비
 - Saturation Time 입력
 - Connection Waiting Time 입력
 - Atten Level 입력
@@ -1083,8 +1109,7 @@ Dialog에서 발생한 요청은 Runner의 marker command method로 연결된다
 {
   "tcp_host": "127.0.0.1",
   "tcp_port": 5025,
-  "tcp_timeout_s": 5.0,
-  "excel_template_path": "resources/report_template.xlsx"
+  "tcp_timeout_s": 5.0
 }
 ```
 
@@ -1200,7 +1225,7 @@ v1.0.1 기준 구현된 주요 기능을 한눈에 정리하면 다음과 같다
 | Bilog | In-band 공통 프로토콜 기반 Bilog 측정 |
 | Switch Box | 자동 경로 설정, 중단 시 안전 경로 복원, 수동 SET/THRU |
 | Turntable | 0도 초기화, 0/360 회전, progress event 표시 |
-| Report | Excel live update, band info, frequency/level 기록 |
+| Report | RawData 결과 자동 준비·재사용, Excel live update, band info, frequency/level 기록 |
 | Screenshot | Fundamental/Harmonic/In-band/Bilog/Precision screenshot 저장 |
 | UI | Instrument Check, Test Manager, RF Filter Box, Screenshot viewer |
 | Mock | LabVIEW mock server/client, loopback test 기반 |
@@ -1218,6 +1243,7 @@ v1.0.1 기준 구현된 주요 기능을 한눈에 정리하면 다음과 같다
 | LabVIEW command 변경 | `src/app/net/commands.py`, `tests/net/test_commands.py` |
 | TCP frame/protocol 변경 | `src/app/net/protocol.py`, `src/app/net/tcp_client.py`, `tests/net/test_protocol.py` |
 | 측정 흐름 변경 | `src/app/core/fsm/engine.py`, `src/app/core/fsm/states/**`, `tests/core/test_fsm_*.py` |
+| RawData 원본/결과 lifecycle 변경 | `src/app/report/rawdata_source.py`, `src/app/report/rawdata_workbook.py`, `tests/report` |
 | Excel 셀 매핑 변경 | `src/app/report/template_map.py`, `src/app/report/excel_writer.py`, `tests/report` |
 | Screenshot 이름/경로 변경 | `src/app/report/screenshot_store.py`, `tests/report/test_screenshot_store.py` |
 | UI 화면 변경 | `resources/main_window.ui`, `src/app/ui/**`, `tests/ui` |
@@ -1226,5 +1252,5 @@ v1.0.1 기준 구현된 주요 기능을 한눈에 정리하면 다음과 같다
 
 이 프로젝트를 한 문단으로 설명하면 다음과 같다.
 
-CE NR Radiated 측정 자동화 SW는 PySide6 기반 오퍼레이터 앱으로, NR Test Case를 생성하고 장비 연결/Set 상태를 확인한 뒤, FSM 기반으로 Harmonic, In-band, Bilog 측정 시퀀스를 실행한다. Python 앱은 장비를 직접 VISA 제어하지 않고 외부 LabVIEW 프로그램과 TCP/JSON 프로토콜로 통신하며, 측정 결과는 Excel 템플릿에 즉시 기록되고 SA 스크린샷은 모델명과 측정 조건 기반 폴더 구조로 저장된다. 전체 구조는 UI, core/FSM, net command facade, report writer, models lookup 계층으로 분리되어 있다.
+CE NR Radiated 측정 자동화 SW는 PySide6 기반 오퍼레이터 앱으로, NR Test Case를 생성하고 장비 연결/Set 상태를 확인한 뒤, FSM 기반으로 Harmonic, In-band, Bilog 측정 시퀀스를 실행한다. Python 앱은 장비를 직접 VISA 제어하지 않고 외부 LabVIEW 프로그램과 TCP/JSON 프로토콜로 통신한다. 측정 시작 시 패키징 RawData 원본으로 EUT별 결과 workbook을 자동 준비하고, 측정 결과는 그 파일에 즉시 기록하며 SA 스크린샷은 같은 EUT 결과 폴더 아래에 저장한다. 전체 구조는 UI, core/FSM, net command facade, report writer, models lookup 계층으로 분리되어 있다.
 

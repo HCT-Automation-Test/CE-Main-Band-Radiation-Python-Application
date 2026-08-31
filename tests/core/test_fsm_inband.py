@@ -22,6 +22,7 @@ def test_inband_measurement_chain(tmp_path: Path) -> None:
     assert events.state_changed.values == [
         "SessionInit",
         "Idle",
+        "PrepareReport",
         "InitialTurntableZero",
         "AntPolChange",
         "SetupSpectrumAnalyzerStartupLevel",

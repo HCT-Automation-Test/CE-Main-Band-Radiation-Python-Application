@@ -11,7 +11,10 @@ from PySide6.QtCore import QCoreApplication, QEvent, QObject
 
 import app.core.runner as runner_module
 
+from app.core.fsm.base import State, StateResult
 from app.core.fsm.context import SessionContext
+from app.core.fsm.engine import FSMEngine
+from app.core.fsm.states.session import IdleState, PrepareReportState
 from app.core.runner import (
     INSTRUMENT_CONNECTION_BLOCK_MESSAGE,
     INSTRUMENT_SET_BLOCK_MESSAGE,
@@ -39,6 +42,8 @@ from app.models.test_run_settings import (
     TestRunSettings,
     default_screenshot_root_dir,
 )
+from app.report.rawdata_source import RawDataWorkbookKind
+from app.report.rawdata_workbook import RawDataResultWorkbook
 
 
 class _FakeEngine:
@@ -84,6 +89,50 @@ class _BlockingEngine:
         self.current_state_name = "Idle"
         self.started.set()
         self.release.wait()
+
+
+class _SessionInitPassState(State):
+    name = "SessionInit"
+
+    def run(self, ctx: SessionContext) -> StateResult:
+        _ = ctx
+        return StateResult.OK
+
+    def next_state(
+        self,
+        ctx: SessionContext,
+        result: StateResult,
+    ) -> str | None:
+        _ = ctx
+        return "Idle" if result is StateResult.OK else None
+
+
+class _HoldInitialTurntableZeroState(State):
+    """준비 성공 이후 장비 상태로 진입하지 않게 멈추는 테스트 state."""
+
+    name = "InitialTurntableZero"
+
+    def run(self, ctx: SessionContext) -> StateResult:
+        while not ctx.stopped:
+            time.sleep(0.01)
+        return StateResult.FAIL
+
+    def next_state(
+        self,
+        ctx: SessionContext,
+        result: StateResult,
+    ) -> str | None:
+        _ = ctx, result
+        return None
+
+
+def _build_preparation_test_engine(ctx: SessionContext) -> FSMEngine:
+    engine = FSMEngine(ctx)
+    engine.register(_SessionInitPassState())
+    engine.register(IdleState())
+    engine.register(PrepareReportState())
+    engine.register(_HoldInitialTurntableZeroState())
+    return engine
 
 
 class _ReportWriter:
@@ -145,13 +194,10 @@ def _connection_config():
 
 
 def _make_settings(tmp_path: Path, *, eut_name: str = "SM-000") -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir(exist_ok=True)
     return TestRunSettings(
         eut_name=eut_name,
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -439,21 +485,37 @@ def test_runner_connection_service_uses_runner_client(
 def test_start_populates_context_and_sets_start_request(
     qtbot: Any, tmp_path: Path
 ) -> None:
-    engines: list[_FakeEngine] = []
+    engines: list[FSMEngine] = []
     report_writers: list[_ReportWriter] = []
+    resolver_thread_ids: list[int] = []
+    result_path = (tmp_path / "resolved-result.xlsx").resolve()
 
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
+    def engine_factory(ctx: SessionContext) -> FSMEngine:
+        engine = _build_preparation_test_engine(ctx)
         engines.append(engine)
         return engine
 
+    def result_resolver(**kwargs: Any) -> RawDataResultWorkbook:
+        resolver_thread_ids.append(threading.get_ident())
+        assert kwargs == {
+            "screenshot_root_dir": tmp_path / "screenshots",
+            "eut_name": "SM-000",
+            "generation": Generation.NR_SA,
+        }
+        return RawDataResultWorkbook(
+            kind=RawDataWorkbookKind.NR,
+            path=result_path,
+            created=True,
+        )
+
     def report_writer_factory(
-        template_path: Path,
+        workbook_path: Path,
         screenshot_root_dir: Path,
         model_name: str,
         events: Any,
     ) -> _ReportWriter:
-        assert template_path == tmp_path / "template.xlsx"
+        _ = events
+        assert workbook_path == result_path
         assert screenshot_root_dir == tmp_path / "screenshots"
         assert model_name == "SM-000"
         writer = _ReportWriter()
@@ -465,14 +527,17 @@ def test_start_populates_context_and_sets_start_request(
         commands=object(),
         engine_factory=engine_factory,  # type: ignore[arg-type]
         report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        rawdata_result_resolver=result_resolver,  # type: ignore[arg-type]
         temp_dir=tmp_path / "temp",
     )
     runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
+    qtbot.waitUntil(
+        lambda: bool(engines) and engines[0].current_state_name == "Idle"
+    )
 
     case = _make_case()
-    settings = _make_settings(tmp_path, eut_name=" SM-000 ")
+    settings = _make_settings(tmp_path)
+    ui_thread_id = threading.get_ident()
     runner.start(
         [case],
         settings=settings,
@@ -480,13 +545,16 @@ def test_start_populates_context_and_sets_start_request(
 
     ctx = runner.context
     assert ctx is not None
+    qtbot.waitUntil(lambda: ctx.report_writer is not None)
     assert ctx.queue == [case]
     assert ctx.settings == settings
     assert ctx.model_name == "SM-000"
-    assert ctx.template_path == tmp_path / "template.xlsx"
+    assert ctx.result_workbook_path == result_path
     assert ctx.screenshot_root_dir == tmp_path / "screenshots"
     assert ctx.report_writer is report_writers[0]
-    assert ctx.test_start_requested.is_set()
+    assert ctx.pending_run_request is None
+    assert not ctx.test_start_requested.is_set()
+    assert resolver_thread_ids and resolver_thread_ids[0] != ui_thread_id
     assert runner.is_measurement_active
 
     runner.events.state_changed.emit("Idle")
@@ -553,6 +621,51 @@ def test_start_rejects_mixed_generation_queue_before_report_setup(
     assert ctx.queue == []
     assert not ctx.test_start_requested.is_set()
     assert not runner.is_measurement_active
+
+    runner.stop()
+    qtbot.waitUntil(lambda: not runner.is_running)
+
+
+def test_duplicate_start_does_not_replace_pending_request(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[_FakeEngine] = []
+    messages: list[str] = []
+
+    class _ReadyEngine(_FakeEngine):
+        def run(self, initial_state: str = "SessionInit") -> None:
+            self.initial_state = initial_state
+            self.current_state_name = "Idle"
+            self.started.set()
+            while not self.ctx.stopped:
+                time.sleep(0.01)
+
+    def engine_factory(ctx: SessionContext) -> _ReadyEngine:
+        engine = _ReadyEngine(ctx)
+        engines.append(engine)
+        return engine
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.error.connect(messages.append)
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
+
+    first_case = _make_case()
+    second_case = _make_case(antenna_pol=AntennaPol.V)
+    settings = _make_settings(tmp_path)
+    runner.start([first_case], settings=settings)
+    runner.start([second_case], settings=settings)
+
+    assert runner.context is not None
+    assert runner.context.pending_run_request is not None
+    assert runner.context.pending_run_request.cases == (first_case,)
+    assert messages == ["시험 시작 실패: Runner is not idle"]
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
@@ -673,11 +786,11 @@ def test_start_prepares_report_writer_with_requested_start_case(
     qtbot: Any,
     tmp_path: Path,
 ) -> None:
-    engines: list[_FakeEngine] = []
+    engines: list[FSMEngine] = []
     report_writers: list[_ReportWriter] = []
 
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
+    def engine_factory(ctx: SessionContext) -> FSMEngine:
+        engine = _build_preparation_test_engine(ctx)
         engines.append(engine)
         return engine
 
@@ -691,11 +804,17 @@ def test_start_prepares_report_writer_with_requested_start_case(
         commands=object(),
         engine_factory=engine_factory,  # type: ignore[arg-type]
         report_writer_factory=report_writer_factory,  # type: ignore[arg-type]
+        rawdata_result_resolver=lambda **kwargs: RawDataResultWorkbook(
+            kind=RawDataWorkbookKind.NR,
+            path=tmp_path / "result.xlsx",
+            created=True,
+        ),  # type: ignore[arg-type]
         temp_dir=tmp_path / "temp",
     )
     runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
+    qtbot.waitUntil(
+        lambda: bool(engines) and engines[0].current_state_name == "Idle"
+    )
 
     first_case = _make_case()
     second_case = _make_case(antenna_pol=AntennaPol.V)
@@ -705,6 +824,9 @@ def test_start_prepares_report_writer_with_requested_start_case(
         start_index=1,
     )
 
+    qtbot.waitUntil(
+        lambda: bool(report_writers) and bool(report_writers[0].prepare_calls)
+    )
     assert report_writers[0].prepare_calls == [second_case]
 
     runner.stop()
@@ -715,11 +837,12 @@ def test_start_rejects_when_report_writer_prepare_fails(
     qtbot: Any,
     tmp_path: Path,
 ) -> None:
-    engines: list[_FakeEngine] = []
+    engines: list[FSMEngine] = []
     messages: list[str] = []
+    rejected: list[None] = []
 
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
+    def engine_factory(ctx: SessionContext) -> FSMEngine:
+        engine = _build_preparation_test_engine(ctx)
         engines.append(engine)
         return engine
 
@@ -730,34 +853,107 @@ def test_start_rejects_when_report_writer_prepare_fails(
         report_writer_factory=lambda *args: _ReportWriter(
             prepare_exception=RuntimeError("excel unavailable")
         ),  # type: ignore[arg-type]
+        rawdata_result_resolver=lambda **kwargs: RawDataResultWorkbook(
+            kind=RawDataWorkbookKind.NR,
+            path=tmp_path / "result.xlsx",
+            created=True,
+        ),  # type: ignore[arg-type]
         temp_dir=tmp_path / "temp",
     )
     runner.events.error.connect(messages.append)
+    runner.events.start_rejected.connect(lambda: rejected.append(None))
     runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
+    qtbot.waitUntil(
+        lambda: bool(engines) and engines[0].current_state_name == "Idle"
+    )
 
     runner.start([_make_case()], settings=_make_settings(tmp_path))
 
     ctx = runner.context
     assert ctx is not None
+    qtbot.waitUntil(lambda: rejected == [None] and not runner.is_measurement_active)
     assert not ctx.test_start_requested.is_set()
     assert not runner.is_measurement_active
     assert ctx.queue == []
+    assert ctx.pending_run_request is None
+    assert engines[0].current_state_name == "Idle"
     assert any("Excel report 준비 실패" in message for message in messages)
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
 
 
+def test_stop_during_result_resolution_skips_writer_and_measurement(
+    qtbot: Any,
+    tmp_path: Path,
+) -> None:
+    engines: list[FSMEngine] = []
+    resolver_entered = threading.Event()
+    resolver_release = threading.Event()
+    writer_calls: list[tuple[Any, ...]] = []
+    tc_started: list[int] = []
+    stopped: list[None] = []
+
+    def engine_factory(ctx: SessionContext) -> FSMEngine:
+        engine = _build_preparation_test_engine(ctx)
+        engines.append(engine)
+        return engine
+
+    def result_resolver(**kwargs: Any) -> RawDataResultWorkbook:
+        _ = kwargs
+        resolver_entered.set()
+        assert resolver_release.wait(2)
+        return RawDataResultWorkbook(
+            kind=RawDataWorkbookKind.NR,
+            path=tmp_path / "result.xlsx",
+            created=True,
+        )
+
+    def writer_factory(*args: Any) -> _ReportWriter:
+        writer_calls.append(args)
+        return _ReportWriter()
+
+    runner = Runner(
+        client=object(),
+        commands=object(),
+        engine_factory=engine_factory,  # type: ignore[arg-type]
+        report_writer_factory=writer_factory,  # type: ignore[arg-type]
+        rawdata_result_resolver=result_resolver,  # type: ignore[arg-type]
+        temp_dir=tmp_path / "temp",
+    )
+    runner.events.tc_started.connect(tc_started.append)
+    runner.events.session_stopped.connect(lambda: stopped.append(None))
+    runner.mark_equipment_ready(_ready_states())
+    qtbot.waitUntil(
+        lambda: bool(engines) and engines[0].current_state_name == "Idle"
+    )
+
+    runner.start([_make_case()], settings=_make_settings(tmp_path))
+    assert resolver_entered.wait(1)
+
+    started_at = time.monotonic()
+    runner.stop()
+    stop_elapsed = time.monotonic() - started_at
+    resolver_release.set()
+    qtbot.waitUntil(lambda: stopped == [None] and not runner.is_running)
+
+    assert stop_elapsed < 0.2
+    assert writer_calls == []
+    assert tc_started == []
+    assert runner.context is not None
+    assert runner.context.queue == []
+    assert runner.context.report_writer is None
+    assert runner.context.pending_run_request is None
+
+
 def test_start_uses_requested_start_and_stop_indexes(
     qtbot: Any,
     tmp_path: Path,
 ) -> None:
-    engines: list[_FakeEngine] = []
+    engines: list[FSMEngine] = []
 
-    def engine_factory(ctx: SessionContext) -> _FakeEngine:
-        engine = _FakeEngine(ctx)
+    def engine_factory(ctx: SessionContext) -> FSMEngine:
+        engine = _build_preparation_test_engine(ctx)
         engines.append(engine)
         return engine
 
@@ -766,11 +962,17 @@ def test_start_uses_requested_start_and_stop_indexes(
         commands=object(),
         engine_factory=engine_factory,  # type: ignore[arg-type]
         report_writer_factory=lambda *args: _ReportWriter(),  # type: ignore[arg-type]
+        rawdata_result_resolver=lambda **kwargs: RawDataResultWorkbook(
+            kind=RawDataWorkbookKind.NR,
+            path=tmp_path / "result.xlsx",
+            created=True,
+        ),  # type: ignore[arg-type]
         temp_dir=tmp_path / "temp",
     )
     runner.mark_equipment_ready(_ready_states())
-    qtbot.waitUntil(lambda: bool(engines) and engines[0].started.is_set())
-    engines[0].current_state_name = "Idle"
+    qtbot.waitUntil(
+        lambda: bool(engines) and engines[0].current_state_name == "Idle"
+    )
 
     cases = [_make_case(), _make_case(antenna_pol=AntennaPol.V)]
     runner.start(
@@ -782,6 +984,7 @@ def test_start_uses_requested_start_and_stop_indexes(
 
     ctx = runner.context
     assert ctx is not None
+    qtbot.waitUntil(lambda: ctx.result_workbook_path is not None)
     assert ctx.start_index == 1
     assert ctx.current_index == 1
     assert ctx.stop_index == 1
@@ -826,8 +1029,10 @@ def test_start_after_stop_initializes_new_worker(
 
     qtbot.waitUntil(lambda: len(engines) == 2 and engines[1].started.is_set())
     assert runner.context is not None
-    assert runner.context.queue == [case]
-    assert runner.context.start_index == 0
+    assert runner.context.queue == []
+    assert runner.context.pending_run_request is not None
+    assert runner.context.pending_run_request.cases == (case,)
+    assert runner.context.pending_run_request.start_index == 0
     assert runner.context.test_start_requested.is_set()
     assert runner.is_measurement_active
 
@@ -1129,8 +1334,10 @@ def test_start_ignores_previous_stop_state_and_uses_requested_index(
 
     ctx = runner.context
     assert ctx is not None
-    assert ctx.start_index == 1
-    assert ctx.current_index == 1
+    assert ctx.pending_run_request is not None
+    assert ctx.pending_run_request.cases == tuple(cases)
+    assert ctx.pending_run_request.start_index == 1
+    assert ctx.queue == []
 
     runner.stop()
     qtbot.waitUntil(lambda: not runner.is_running)
@@ -1208,6 +1415,8 @@ def test_equipment_disconnected_clears_runner_equipment_state(
     ("field", "value"),
     [
         ("eut_name", " "),
+        ("eut_name", " SM-000"),
+        ("eut_name", "SM-000 "),
         ("saturation_time_sec", -1),
         ("connection_waiting_time_sec", 0),
         ("connection_waiting_time_sec", 1.5),
@@ -1227,13 +1436,10 @@ def test_test_run_settings_rejects_invalid_values(
     field: str,
     value: Any,
 ) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir()
     kwargs = {
         "eut_name": "SM-000",
-        "template_path": template_path,
         "screenshot_root_dir": screenshot_root_dir,
         "saturation_time_sec": 5,
         "connection_waiting_time_sec": 5,
@@ -1253,7 +1459,7 @@ def test_default_screenshot_root_dir_uses_desktop_for_source_runtime(
     monkeypatch.delattr(test_run_settings.sys, "frozen", raising=False)
     monkeypatch.setattr(test_run_settings.Path, "home", lambda: tmp_path)
 
-    assert default_screenshot_root_dir() == tmp_path / "Desktop" / "screenshots"
+    assert default_screenshot_root_dir() == tmp_path / "Desktop"
 
 
 def test_default_screenshot_root_dir_uses_executable_dir_for_frozen_runtime(
@@ -1264,20 +1470,17 @@ def test_default_screenshot_root_dir_uses_executable_dir_for_frozen_runtime(
     monkeypatch.setattr(test_run_settings.sys, "frozen", True, raising=False)
     monkeypatch.setattr(test_run_settings.sys, "executable", str(executable))
 
-    assert default_screenshot_root_dir() == tmp_path.resolve() / "screenshots"
+    assert default_screenshot_root_dir() == tmp_path.resolve()
 
 
 def test_test_run_settings_accepts_optional_custom_turntable_speed(
     tmp_path: Path,
 ) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir()
 
     default_settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1286,7 +1489,6 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
     )
     custom_settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1299,27 +1501,11 @@ def test_test_run_settings_accepts_optional_custom_turntable_speed(
     assert custom_settings.custom_turntable_speed == 8
 
 
-def test_test_run_settings_rejects_missing_template_path(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="template_path"):
-        TestRunSettings(
-            eut_name="SM-000",
-            template_path=tmp_path / "missing.xlsx",
-            screenshot_root_dir=tmp_path / "screenshots",
-            saturation_time_sec=5,
-            connection_waiting_time_sec=5,
-            atten_level_db=0,
-            next_peak_search_level_db=6,
-        )
-
-
 def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "missing-screenshots"
-    template_path.write_bytes(b"template")
 
     settings = TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -1331,15 +1517,12 @@ def test_test_run_settings_allows_missing_screenshot_directory(tmp_path: Path) -
 
 
 def test_test_run_settings_rejects_screenshot_path_that_is_file(tmp_path: Path) -> None:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshot-file"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.write_bytes(b"not a directory")
 
     with pytest.raises(ValueError, match="screenshot_root_dir"):
         TestRunSettings(
             eut_name="SM-000",
-            template_path=template_path,
             screenshot_root_dir=screenshot_root_dir,
             saturation_time_sec=5,
             connection_waiting_time_sec=5,
@@ -1361,12 +1544,12 @@ def test_runner_connection_service_guard_blocks_when_measurement_active(
         return engine
 
     def report_writer_factory(
-        template_path: Path,
+        workbook_path: Path,
         screenshot_root_dir: Path,
         model_name: str,
         events: Any,
     ) -> _ReportWriter:
-        _ = template_path, screenshot_root_dir, model_name, events
+        _ = workbook_path, screenshot_root_dir, model_name, events
         return _ReportWriter()
 
     runner = Runner(
@@ -1412,7 +1595,7 @@ def test_start_rejects_when_runner_is_not_idle(
         return engine
 
     def report_writer_factory(
-        template_path: Path,
+        workbook_path: Path,
         screenshot_root_dir: Path,
         model_name: str,
         events: Any,

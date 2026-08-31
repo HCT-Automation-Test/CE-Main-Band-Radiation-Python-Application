@@ -10,8 +10,14 @@ from app.core.fsm.context import SessionContext
 from app.core.fsm.states.session import (
     CheckNextCaseState,
     IdleState,
+    PrepareReportState,
     SessionInitState,
     TestEndState,
+)
+from app.core.run_preparer import (
+    PreparedRun,
+    RunPreparationError,
+    RunPreparationRequest,
 )
 from app.models.enums import (
     AntennaPol,
@@ -27,6 +33,8 @@ from app.models.enums import (
 )
 from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
+from app.report.rawdata_source import RawDataWorkbookKind
+from app.report.rawdata_workbook import RawDataResultWorkbook
 
 
 class _SignalRecorder:
@@ -44,6 +52,45 @@ class _Events:
         self.tc_finished = _SignalRecorder()
         self.current_case_changed = _SignalRecorder()
         self.session_finished = _SignalRecorder()
+        self.start_rejected = _SignalRecorder()
+
+
+class _RunPreparer:
+    def __init__(
+        self,
+        *,
+        result_path: Path,
+        report_writer: object | None = None,
+        error: RunPreparationError | None = None,
+        stop_context: SessionContext | None = None,
+    ) -> None:
+        self.result_path = result_path
+        self.report_writer = report_writer if report_writer is not None else object()
+        self.error = error
+        self.stop_context = stop_context
+        self.calls: list[RunPreparationRequest] = []
+
+    def prepare(
+        self,
+        request: RunPreparationRequest,
+        *,
+        events: object,
+        should_stop: object | None = None,
+    ) -> PreparedRun:
+        _ = events, should_stop
+        self.calls.append(request)
+        if self.error is not None:
+            raise self.error
+        if self.stop_context is not None:
+            self.stop_context.stopped = True
+        return PreparedRun(
+            result_workbook=RawDataResultWorkbook(
+                kind=RawDataWorkbookKind.NR,
+                path=self.result_path,
+                created=True,
+            ),
+            report_writer=self.report_writer,  # type: ignore[arg-type]
+        )
 
 
 class _Client:
@@ -103,13 +150,10 @@ def _make_case(
 
 
 def _make_settings(tmp_path: Path) -> TestRunSettings:
-    template_path = tmp_path / "template.xlsx"
     screenshot_root_dir = tmp_path / "screenshots"
-    template_path.write_bytes(b"template")
     screenshot_root_dir.mkdir(exist_ok=True)
     return TestRunSettings(
         eut_name="SM-000",
-        template_path=template_path,
         screenshot_root_dir=screenshot_root_dir,
         saturation_time_sec=5,
         connection_waiting_time_sec=5,
@@ -232,101 +276,176 @@ def test_session_init_retries_when_equipment_state_has_only_unknown_keys() -> No
     assert events.error.values[0].endswith("equipment_state is not ready")
 
 
-def test_idle_waits_for_start_request_and_validates_context(tmp_path: Path) -> None:
+def test_idle_accepts_pending_request_and_routes_to_prepare_report(
+    tmp_path: Path,
+) -> None:
     events = _Events()
     settings = _make_settings(tmp_path)
     case = _make_case()
+    request = RunPreparationRequest(
+        cases=(case,),
+        settings=settings,
+        start_index=0,
+        stop_index=None,
+    )
     ctx = SessionContext(
-        queue=[case],
+        queue=[],
         commands=object(),
         events=events,  # type: ignore[arg-type]
-        report_writer=object(),  # type: ignore[arg-type]
         temp_dir=tmp_path,
-        settings=settings,
-        model_name=settings.eut_name,
-        template_path=settings.template_path,
-        screenshot_root_dir=settings.screenshot_root_dir,
+        run_preparer=_RunPreparer(result_path=tmp_path / "result.xlsx"),  # type: ignore[arg-type]
+        pending_run_request=request,
     )
-    ctx.last_applied_factor_keyword = "6G HPF"
     ctx.test_start_requested.set()
 
     result = IdleState().run(ctx)
 
     assert result is StateResult.OK
-    assert events.current_case_changed.values == [case]
-    assert events.tc_started.values == [0]
-    assert ctx.last_applied_factor_keyword is None
-    assert IdleState().next_state(ctx, result) == "InitialTurntableZero"
+    assert ctx.pending_run_request is request
+    assert ctx.queue == []
+    assert events.current_case_changed.values == []
+    assert events.tc_started.values == []
+    assert IdleState().next_state(ctx, result) == "PrepareReport"
 
 
-def test_idle_starts_from_context_start_index(tmp_path: Path) -> None:
+def test_prepare_report_commits_context_from_requested_start_index(
+    tmp_path: Path,
+) -> None:
     events = _Events()
     settings = _make_settings(tmp_path)
     first_case = _make_case()
     second_case = _make_case(antenna_pol=AntennaPol.V)
+    request = RunPreparationRequest(
+        cases=(first_case, second_case),
+        settings=settings,
+        start_index=1,
+        stop_index=1,
+    )
+    writer = object()
+    preparer = _RunPreparer(
+        result_path=tmp_path / "result.xlsx",
+        report_writer=writer,
+    )
     ctx = SessionContext(
-        queue=[first_case, second_case],
+        queue=[],
         commands=object(),
         events=events,  # type: ignore[arg-type]
-        report_writer=object(),  # type: ignore[arg-type]
         temp_dir=tmp_path,
-        settings=settings,
-        model_name=settings.eut_name,
-        template_path=settings.template_path,
-        screenshot_root_dir=settings.screenshot_root_dir,
-        start_index=1,
+        run_preparer=preparer,  # type: ignore[arg-type]
+        pending_run_request=request,
         last_applied_factor_keyword="6G HPF",
     )
-    ctx.test_start_requested.set()
 
-    result = IdleState().run(ctx)
+    state = PrepareReportState()
+    result = state.run(ctx)
 
     assert result is StateResult.OK
+    assert preparer.calls == [request]
+    assert ctx.queue == [first_case, second_case]
     assert ctx.current_index == 1
+    assert ctx.start_index == 1
+    assert ctx.stop_index == 1
+    assert ctx.report_writer is writer
+    assert ctx.result_workbook_path == tmp_path / "result.xlsx"
+    assert ctx.settings is settings
+    assert ctx.model_name == "SM-000"
+    assert ctx.screenshot_root_dir == settings.screenshot_root_dir
+    assert ctx.pending_run_request is None
     assert events.current_case_changed.values == [second_case]
     assert events.tc_started.values == [1]
     assert ctx.last_applied_factor_keyword is None
+    assert state.next_state(ctx, result) == "InitialTurntableZero"
 
 
-def test_idle_retries_without_report_writer(tmp_path: Path) -> None:
+def test_idle_rejects_missing_pending_request(tmp_path: Path) -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        temp_dir=tmp_path,
+        run_preparer=_RunPreparer(result_path=tmp_path / "result.xlsx"),  # type: ignore[arg-type]
+    )
+    ctx.test_start_requested.set()
+
+    result = IdleState().run(ctx)
+
+    assert result is StateResult.RETRY
+    assert events.error.values[0].endswith("pending run request is required")
+    assert events.start_rejected.values == [None]
+
+
+def test_prepare_report_failure_returns_to_idle_without_partial_context(
+    tmp_path: Path,
+) -> None:
     events = _Events()
     settings = _make_settings(tmp_path)
-    ctx = SessionContext(
-        queue=[_make_case()],
-        commands=object(),
-        events=events,  # type: ignore[arg-type]
-        temp_dir=tmp_path,
+    case = _make_case()
+    request = RunPreparationRequest(
+        cases=(case,),
         settings=settings,
-        model_name=settings.eut_name,
-        template_path=settings.template_path,
-        screenshot_root_dir=settings.screenshot_root_dir,
+        start_index=0,
+        stop_index=None,
     )
-    ctx.test_start_requested.set()
-
-    result = IdleState().run(ctx)
-
-    assert result is StateResult.RETRY
-    assert events.error.values[0].endswith("report_writer is not set")
-
-
-def test_idle_retries_without_settings(tmp_path: Path) -> None:
-    events = _Events()
+    preparer = _RunPreparer(
+        result_path=tmp_path / "result.xlsx",
+        error=RunPreparationError("Excel report 준비 실패: unavailable"),
+    )
     ctx = SessionContext(
-        queue=[_make_case()],
+        queue=[],
         commands=object(),
         events=events,  # type: ignore[arg-type]
-        report_writer=object(),  # type: ignore[arg-type]
         temp_dir=tmp_path,
-        model_name="SM-000",
-        template_path=tmp_path / "template.xlsx",
-        screenshot_root_dir=tmp_path / "screenshots",
+        run_preparer=preparer,  # type: ignore[arg-type]
+        pending_run_request=request,
     )
-    ctx.test_start_requested.set()
 
-    result = IdleState().run(ctx)
+    state = PrepareReportState()
+    result = state.run(ctx)
 
-    assert result is StateResult.RETRY
-    assert events.error.values[0].endswith("settings is required")
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "Idle"
+    assert ctx.queue == []
+    assert ctx.report_writer is None
+    assert ctx.result_workbook_path is None
+    assert ctx.pending_run_request is None
+    assert events.current_case_changed.values == []
+    assert events.tc_started.values == []
+    assert events.start_rejected.values == [None]
+    assert events.error.values[0].endswith("Excel report 준비 실패: unavailable")
+
+
+def test_prepare_report_observes_stop_after_blocking_preparation(
+    tmp_path: Path,
+) -> None:
+    events = _Events()
+    settings = _make_settings(tmp_path)
+    request = RunPreparationRequest(
+        cases=(_make_case(),),
+        settings=settings,
+        start_index=0,
+        stop_index=None,
+    )
+    ctx = SessionContext(
+        queue=[],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        pending_run_request=request,
+    )
+    ctx.run_preparer = _RunPreparer(  # type: ignore[assignment]
+        result_path=tmp_path / "result.xlsx",
+        stop_context=ctx,
+    )
+
+    result = PrepareReportState().run(ctx)
+
+    assert result is StateResult.FAIL
+    assert ctx.stopped
+    assert ctx.queue == []
+    assert ctx.report_writer is None
+    assert events.current_case_changed.values == []
+    assert events.tc_started.values == []
+    assert events.start_rejected.values == []
 
 
 def test_idle_stop_wakeup_returns_fail_without_empty_queue_error() -> None:

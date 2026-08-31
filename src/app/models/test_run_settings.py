@@ -8,15 +8,14 @@ from pathlib import Path
 
 _MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
 _MAX_CUSTOM_TURNTABLE_SPEED = 10
-_SCREENSHOT_DIR_NAME = "screenshots"
 
 
 def default_screenshot_root_dir() -> Path:
-    """런타임 환경 기준 기본 스크린샷 저장 경로를 반환한다."""
+    """런타임 환경 기준 EUT 결과 저장 기준 root를 반환한다."""
 
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / _SCREENSHOT_DIR_NAME
-    return Path.home() / "Desktop" / _SCREENSHOT_DIR_NAME
+        return Path(sys.executable).resolve().parent
+    return Path.home() / "Desktop"
 
 
 @dataclass(frozen=True)
@@ -26,7 +25,6 @@ class TestRunSettings:
     __test__ = False
 
     eut_name: str
-    template_path: Path
     screenshot_root_dir: Path
     saturation_time_sec: float
     connection_waiting_time_sec: int
@@ -36,8 +34,10 @@ class TestRunSettings:
     manual_marker_enabled: bool = False
 
     def __post_init__(self) -> None:
-        eut_name = self.eut_name.strip()
-        template_path = Path(self.template_path)
+        if not isinstance(self.eut_name, str):
+            raise ValueError("eut_name must be a string")
+        eut_name = self.eut_name
+        stripped_eut_name = eut_name.strip()
         screenshot_root_dir = Path(self.screenshot_root_dir)
         saturation_time_sec = float(self.saturation_time_sec)
         connection_waiting_time_sec = _coerce_int(
@@ -53,10 +53,10 @@ class TestRunSettings:
                 field_name="custom_turntable_speed",
             )
 
-        if not eut_name:
+        if not stripped_eut_name:
             raise ValueError("eut_name is required")
-        if not template_path.is_file():
-            raise ValueError("template_path must be an existing file")
+        if eut_name != stripped_eut_name:
+            raise ValueError("eut_name must not have leading or trailing whitespace")
         if screenshot_root_dir.exists() and not screenshot_root_dir.is_dir():
             raise ValueError("screenshot_root_dir must be a directory")
         if not math.isfinite(saturation_time_sec) or saturation_time_sec < 0:
@@ -84,7 +84,6 @@ class TestRunSettings:
             )
 
         object.__setattr__(self, "eut_name", eut_name)
-        object.__setattr__(self, "template_path", template_path)
         object.__setattr__(self, "screenshot_root_dir", screenshot_root_dir)
         object.__setattr__(self, "saturation_time_sec", saturation_time_sec)
         object.__setattr__(

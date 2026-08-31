@@ -66,7 +66,7 @@
 
 - **TestCase 표** (18컬럼): NR 다이얼로그/CSV에서 추가된 케이스 목록. 실행 중 현재 행은
   노란색 + 중앙 스크롤, 완료 행은 회색. 행 삭제 시 완료 인덱스 재매핑.
-- **Operation bar**: EUT Name, Excel 템플릿 찾기, 시작 Index 입력(1-based),
+- **Operation bar**: EUT Name, 시작 Index 입력(1-based),
   단일시작/시작/정지/삭제/초기화/불러오기(CSV)/저장(CSV) 버튼.
 - **FSV Factor List (TDF)**: List Update(`get_tdf_list`)/Select(`set_tdf`)/All Off.
   시험 외 수동 설정을 위한 편의 기능이며, Test Start의 입력이나 자동 적용의 중복
@@ -83,6 +83,11 @@
 실행 요청은 `start_requested`/`single_start_requested`/`stop_requested` 시그널로
 MainWindow에 위임되고, MainWindow가 `build_test_run_settings()` 검증 후 `Runner.start()`를
 호출한다(단일 시작은 stop_index=start_index).
+
+Excel 파일 선택 UI는 없다. Start가 성공하면 Generation과 EUT Name에 따라 RawData 결과
+workbook이 자동 생성·재사용된다. `screenshot_root_dir`는 호환성을 위해 유지된 설정 이름으로,
+개발 실행은 `~/Desktop`, frozen 실행은 EXE 폴더를 EUT 결과 기준 root로 사용한다. Excel과
+스크린샷은 모두 `<root>/<EUT>/` 아래에 저장된다.
 
 ### NR TestCase 생성 — [nr_select.py](../src/app/ui/nr_select.py)
 

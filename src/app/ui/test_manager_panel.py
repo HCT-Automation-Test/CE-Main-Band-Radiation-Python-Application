@@ -39,11 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.config.file_dialog_directory_settings import (
-    FileDialogDirectorySettings,
-    FileDialogDirectorySettingsStore,
-    runtime_base_directory,
-)
+from app.config.file_dialog_directory_settings import runtime_base_directory
 from app.core.tc_loader import load_csv, save_csv
 from app.models.enums import Generation, LTEBand
 from app.models.test_case import TestCase
@@ -202,19 +198,8 @@ class TestManagerPanel(QWidget):
     tdf_all_off_requested = Signal()
     set_tdf_requested = Signal(str)
 
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        *,
-        file_dialog_settings_store: FileDialogDirectorySettingsStore | None = None,
-    ) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._file_dialog_settings_store = (
-            FileDialogDirectorySettingsStore()
-            if file_dialog_settings_store is None
-            else file_dialog_settings_store
-        )
-        self._file_dialog_settings = self._file_dialog_settings_store.load()
         self._active_tdf_file_name: str | None = None
         self._test_cases: list[TestCase] = []
         self._test_case_progress: list[_TestCaseProgress] = []
@@ -234,16 +219,7 @@ class TestManagerPanel(QWidget):
     def eut_name(self) -> str:
         """UI에 입력된 EUT 이름을 반환한다."""
 
-        return self._eut_name_edit.text().strip()
-
-    @property
-    def excel_template_path(self) -> Path | None:
-        """UI에서 선택한 Excel 양식 경로를 반환한다."""
-
-        value = self._excel_template_path_edit.text().strip()
-        if not value:
-            return None
-        return Path(value)
+        return self._eut_name_edit.text()
 
     @property
     def test_cases(self) -> tuple[TestCase, ...]:
@@ -507,7 +483,6 @@ class TestManagerPanel(QWidget):
                 edit.setEnabled(not locked)
         self._custom_option_check_box.setEnabled(not locked)
         self._marker_check_box.setEnabled(not locked)
-        self._excel_template_browse_button.setEnabled(not locked)
         for object_name in _RUN_SETTING_BUTTON_NAMES:
             button = self.findChild(QPushButton, object_name)
             if button is not None:
@@ -641,10 +616,6 @@ class TestManagerPanel(QWidget):
             eut_name = self.eut_name
             if not eut_name:
                 raise ValueError("EUT Name을 입력하세요.")
-            template_path = self._required_file(
-                self.excel_template_path,
-                "Excel Template",
-            )
             screenshot_root_dir = default_screenshot_root_dir()
             custom_option_enabled = self._custom_option_check_box.isChecked()
             manual_marker_enabled = False
@@ -695,7 +666,6 @@ class TestManagerPanel(QWidget):
 
             settings = TestRunSettings(
                 eut_name=eut_name,
-                template_path=template_path,
                 screenshot_root_dir=screenshot_root_dir,
                 saturation_time_sec=saturation_time_sec,
                 connection_waiting_time_sec=connection_waiting_time_sec,
@@ -822,9 +792,6 @@ class TestManagerPanel(QWidget):
     def _connect_signals(self) -> None:
         """경로 선택 버튼 시그널을 연결한다."""
 
-        self._excel_template_browse_button.clicked.connect(
-            self.on_excel_template_browse_clicked,
-        )
         self._nr_sa_button.clicked.connect(self.on_nr_sa_button_clicked)
         self._nr_nsa_button.clicked.connect(self.on_nr_nsa_button_clicked)
         self._lte_button.clicked.connect(self.on_lte_button_clicked)
@@ -855,26 +822,11 @@ class TestManagerPanel(QWidget):
         input_layout.setHorizontalSpacing(8)
         input_layout.setVerticalSpacing(3)
         input_layout.addWidget(QLabel("EUT Name", input_panel), 0, 0)
-        input_layout.addWidget(QLabel("Excel", input_panel), 0, 1)
 
         self._eut_name_edit = QLineEdit(input_panel)
         self._eut_name_edit.setObjectName("eutNameEdit")
         input_layout.addWidget(self._eut_name_edit, 1, 0)
-
-        excel_row = QWidget(input_panel)
-        excel_row_layout = QHBoxLayout(excel_row)
-        excel_row_layout.setContentsMargins(0, 0, 0, 0)
-        excel_row_layout.setSpacing(8)
-        self._excel_template_path_edit = QLineEdit(excel_row)
-        self._excel_template_path_edit.setObjectName("excelTemplatePathEdit")
-        self._excel_template_path_edit.setReadOnly(True)
-        self._excel_template_browse_button = QPushButton("\uCC3E\uAE30", excel_row)
-        self._excel_template_browse_button.setObjectName("excelTemplateBrowseButton")
-        excel_row_layout.addWidget(self._excel_template_path_edit, 1)
-        excel_row_layout.addWidget(self._excel_template_browse_button)
-        input_layout.addWidget(excel_row, 1, 1)
         input_layout.setColumnStretch(0, 1)
-        input_layout.setColumnStretch(1, 2)
         layout.addWidget(input_panel, 3)
 
         index_panel = QWidget(panel)
@@ -1387,46 +1339,6 @@ class TestManagerPanel(QWidget):
         self._screenshot_image_label.setText("")
         self._screenshot_image_label.setPixmap(scaled)
 
-    def on_excel_template_browse_clicked(self) -> None:
-        """Excel 양식 파일을 선택해 입력칸에 반영한다."""
-
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Excel 양식 선택",
-            str(self._excel_dialog_initial_location()),
-            "Excel Files (*.xlsx *.xlsm);;All Files (*)",
-        )
-        if file_path:
-            selected_path = Path(file_path)
-            self._excel_template_path_edit.setText(str(selected_path))
-            self._remember_excel_directory(selected_path.parent)
-
-    def _excel_dialog_initial_location(self) -> Path:
-        """CSV 최근 경로와 무관한 Excel 대화상자 시작 위치를 반환한다."""
-
-        current_value = self._excel_template_path_edit.text().strip()
-        if current_value:
-            current_path = Path(current_value)
-            if current_path.is_file():
-                return current_path
-
-        stored_value = self._file_dialog_settings.excel_directory
-        if stored_value:
-            stored_directory = Path(stored_value)
-            if stored_directory.is_dir():
-                return stored_directory
-
-        return runtime_base_directory()
-
-    def _remember_excel_directory(self, directory: Path) -> None:
-        """선택한 Excel 파일의 부모 디렉터리만 기억한다."""
-
-        resolved_directory = directory.resolve()
-        self._file_dialog_settings = FileDialogDirectorySettings(
-            excel_directory=str(resolved_directory),
-        )
-        self._file_dialog_settings_store.save(self._file_dialog_settings)
-
     def on_nr_sa_button_clicked(self) -> None:
         """NR SA 통합 생성 팝업을 연다."""
 
@@ -1619,13 +1531,6 @@ class TestManagerPanel(QWidget):
             )
             return directory.parent
         return directory
-
-    def _required_file(self, value: Path | None, label: str) -> Path:
-        if value is None:
-            raise ValueError(f"{label}을 선택하세요.")
-        if not value.is_file():
-            raise ValueError(f"{label} 파일이 존재하지 않습니다.")
-        return value
 
     def _float_field(self, object_name: str, label: str) -> float:
         text = self._field_text(object_name)

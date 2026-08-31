@@ -10,6 +10,7 @@ from app.models.enums import Generation
 from app.models.test_case import TestCase
 
 _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_SCREENSHOT_DIR = "screenshots"
 _TRAFFIC_DIR = "Traffic"
 _RAT_DIR = "5G"
 _LTE_RAT_DIR = "4G"
@@ -78,6 +79,7 @@ def _screenshot_directory(
         return (
             Path(root_dir)
             / model
+            / _SCREENSHOT_DIR
             / _TRAFFIC_DIR
             / _LTE_RAT_DIR
             / band
@@ -87,6 +89,7 @@ def _screenshot_directory(
     return (
         Path(root_dir)
         / model
+        / _SCREENSHOT_DIR
         / _TRAFFIC_DIR
         / _RAT_DIR
         / band

@@ -19,6 +19,12 @@ from app.core.instrument_connection import (
     normalize_equipment_state,
     should_preserve_equipment_state_on_connection_error,
 )
+from app.core.run_preparer import (
+    RawDataResultResolver,
+    ReportWriterFactory,
+    RunPreparer,
+    RunPreparationRequest,
+)
 from app.core.tc_validator import validate_queue
 from app.models.test_case import TestCase
 from app.models.test_run_settings import TestRunSettings
@@ -26,12 +32,12 @@ from app.net import commands as default_commands
 from app.net.lv_server_process import LvServerManager
 from app.net.tcp_client import TcpClient
 from app.report.excel_writer import ExcelReportWriter
+from app.report.rawdata_workbook import ensure_rawdata_result_workbook
 from app.report.report_writer import ReportWriter
 
 logger = logging.getLogger(__name__)
 
 EngineFactory = Callable[[SessionContext], FSMEngine]
-ReportWriterFactory = Callable[[Path, Path, str, RunnerEvents], ReportWriter]
 InstrumentConnectionBlocker = Callable[[], str | None]
 
 _TEMP_DIR = Path("temp")
@@ -50,13 +56,13 @@ INSTRUMENT_CONNECTION_BLOCK_MESSAGE = (
 
 
 def _default_report_writer_factory(
-    template_path: Path,
+    workbook_path: Path,
     screenshot_root_dir: Path,
     model_name: str,
     events: RunnerEvents,
 ) -> ReportWriter:
     return ReportWriter(
-        excel_writer=ExcelReportWriter(template_path),
+        excel_writer=ExcelReportWriter(workbook_path),
         screenshot_root_dir=screenshot_root_dir,
         model_name=model_name,
         events=events,
@@ -112,6 +118,9 @@ class Runner(QObject):
         instrument_connection_service: InstrumentConnectionService | None = None,
         engine_factory: EngineFactory = build_session_engine,
         report_writer_factory: ReportWriterFactory = _default_report_writer_factory,
+        rawdata_result_resolver: RawDataResultResolver = (
+            ensure_rawdata_result_workbook
+        ),
         tcp_host: str = "127.0.0.1",
         tcp_port: int = 5025,
         temp_dir: Path = _TEMP_DIR,
@@ -131,7 +140,10 @@ class Runner(QObject):
         self._client = client if client is not None else TcpClient(self)
         self._commands = commands
         self._engine_factory = engine_factory
-        self._report_writer_factory = report_writer_factory
+        self._run_preparer = RunPreparer(
+            result_resolver=rawdata_result_resolver,
+            report_writer_factory=report_writer_factory,
+        )
         self._tcp_host = tcp_host
         self._tcp_port = tcp_port
         self._temp_dir = Path(temp_dir)
@@ -166,6 +178,7 @@ class Runner(QObject):
             )
         )
         self.events.session_finished.connect(self._on_session_finished)
+        self.events.start_rejected.connect(self._on_start_rejected)
         self._instrument_connection_service.connection_finished.connect(
             self._on_instrument_connection_finished
         )
@@ -262,6 +275,7 @@ class Runner(QObject):
             tcp_host=self._tcp_host,
             tcp_port=self._tcp_port,
             temp_dir=self._temp_dir,
+            run_preparer=self._run_preparer,
         )
         self._ctx.equipment_state = dict(self._equipment_state)
 
@@ -332,6 +346,9 @@ class Runner(QObject):
         if self.is_equipment_setting:
             self._emit_error(f"시험 시작 실패: {INSTRUMENT_SET_BLOCK_MESSAGE}")
             return
+        if self.is_measurement_active:
+            self._emit_error("시험 시작 실패: Runner is not idle")
+            return
         if not self.is_equipment_ready:
             self._emit_error("시험 시작 실패: Instrument Check 연결을 완료하세요")
             return
@@ -347,42 +364,17 @@ class Runner(QObject):
             return
         if start_index is None or start_index < 0 or start_index >= len(cases):
             start_index = 0
-        normalized_model_name = settings.eut_name
-        template = settings.template_path
-        screenshot_root = settings.screenshot_root_dir
-        self._temp_dir.mkdir(parents=True, exist_ok=True)
-        try:
-            report_writer = self._report_writer_factory(
-                template,
-                screenshot_root,
-                normalized_model_name,
-                self.events,
-            )
-        except Exception as exc:
-            self._emit_error(f"시험 시작 실패: report writer 생성 실패: {exc}")
-            return
-        try:
-            report_writer.prepare_for_run(cases[start_index])
-        except Exception as exc:
-            self._emit_error(f"시험 시작 실패: Excel report 준비 실패: {exc}")
-            return
 
         ctx = self._ctx
-        ctx.queue = list(cases)
-        ctx.report_writer = report_writer
-        ctx.start_index = start_index
-        ctx.stop_index = stop_index
-        ctx.current_index = start_index
+        ctx.pending_run_request = RunPreparationRequest(
+            cases=tuple(cases),
+            settings=settings,
+            start_index=start_index,
+            stop_index=stop_index,
+        )
         ctx.paused = False
         ctx.stopped = False
         ctx.current_case_stop_requested = False
-        ctx.current_angle = 0.0
-        ctx.fundamental_frequency_mhz = None
-        ctx.temp_dir = self._temp_dir
-        ctx.settings = settings
-        ctx.model_name = normalized_model_name
-        ctx.template_path = template
-        ctx.screenshot_root_dir = screenshot_root
         self._session_completed_normally = False
         self._set_measurement_active(True)
         ctx.test_start_requested.set()
@@ -672,6 +664,10 @@ class Runner(QObject):
     @Slot()
     def _on_session_finished(self) -> None:
         self._session_completed_normally = True
+        self._set_measurement_active(False)
+
+    @Slot()
+    def _on_start_rejected(self) -> None:
         self._set_measurement_active(False)
 
     @Slot(dict)

@@ -10,11 +10,11 @@
 | 계획 대상 | v3.0(사용자 지정 작업명) |
 | 검토 기준일 | 2026-08-24 (Asia/Seoul) |
 | Anchor/Command 계약 정정 | 2026-08-24 — MID/5 MHz/RB Size 1/RB Offset 0/QPSK, Band→UL/DL lookup, `DLCHAN` 전용 HO, LV 내부 NR Call helper 재사용 단일 composite 반영 |
-| 구현 상태 동기화 | 2026-08-26 — `H2026E014-39` 기준, NSA TestCase/UI/Python Handover routing과 RawData 최초 Anchor 기록 반영 |
+| 구현 상태 동기화 | 2026-08-31 — `H2026E014-41/44/45/43/42` 기준, RawData source·결과 lifecycle·FSM 준비·수동 선택 제거·회귀 검증 반영 |
 | 초기 저장소 기준 | `main` / `7a80d3cdead2b46ac7f7f1fc4055a0ed1b8d31ca` |
 | 작업 트리 | 검토 시작 시 clean |
 | 검토 방식 | 코드, 문서, 테스트 코드, Git 이력의 정적 검토 |
-| 실행 검증 | 초기 PM 검토에서는 미수행. 2026-08-26 H2026E014-39 동기화 시 report `96 passed`, 기본 전체 `837 passed, 384 skipped` 확인 |
+| 실행 검증 | RawData v3.0 기준 기본 전체 `893 passed, 380 skipped`, Qt focused `64 passed`, RawData/path focused `62 passed`, PyInstaller 원본 위치·시트·SHA-256 검증 |
 | 실제 LabVIEW 검증 | 소스와 승인된 장비 환경이 없어 수행하지 않음 |
 
 ### 1.1 이 문서에서 구분하는 정보
@@ -44,6 +44,8 @@
 
 - 초기 PM 검토에서는 `pytest`를 포함한 테스트를 실행하지 않았다.
 - H2026E014-39 구현 상태 동기화에서는 report 테스트와 기본 전체 테스트를 실행했으며, 실제 LabVIEW/실장비 검증은 수행하지 않았다.
+- H2026E014-41/44/45/43/42에서는 기본 전체, 승인된 Qt focused, RawData/path focused와
+  PyInstaller one-folder 원본 asset 검증을 수행했다. 실제 LabVIEW/실장비는 실행하지 않았다.
 - 요구사항 정리와 Jira 백로그 생성 작업도 테스트 실행을 필요로 하지 않는다.
 - 후속 구현 검증은 사용자와 실행 환경을 확인한 뒤 관련 범위만 대상으로 진행한다.
 - 다른 작업 창 종료 문제가 있으므로 전체 `pytest`를 기본 검증으로 무조건 실행하지 않는다.
@@ -64,7 +66,9 @@ NSA 우선 개발의 주요 작업축은 다음 두 가지다.
 1. NSA TestCase의 Anchor Band property·CSV·결과 매핑
 2. 확정된 MT8000A 고수준 workflow의 TCP/JSON 계약을 구현하고 terminal 상태 polling을 벤치에서 검증
 
-EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. 기준 양식은 이미 `resources/templates`에 있으며, 남은 일은 asset 추적·검증, runtime resolver, 기존 결과 파일 lifecycle이다. 이 Track은 NSA 도메인·UI·FSM 전체의 착수 blocker가 아니다.
+EUT 기반 RawData 파일 lifecycle은 H2026E014-41/44/45/43/42에서 구현·검증됐다. 기준 양식은
+`resources/templates`에 추적되며 dev/frozen resolver, 기존 결과 재사용, 신규 안전 복사,
+`PrepareReport` FSM 통합과 수동 Excel 선택 제거까지 완료됐다.
 
 ### 2.1 현재 상태 요약
 
@@ -75,7 +79,7 @@ EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. �
 | LTE | 모델, 생성 UI, Call/Handover, 결과 기록이 현재 코드에 존재 | 직접 개발 대상 아님. NSA UI와 Anchor 데이터의 참고 기반 |
 | TDF | Band Group 기반 자동 적용 구현 | 기존 동작 유지 |
 | MT8000A Recall | 식별자 파생과 TC 간 변경 감지는 존재하나 실제 변경은 수동 팝업 | 첫 실행 TC의 Recall ID를 세션 초기값으로 간주하고 이후 ID 변경 시에만 고수준 Recall Change 수행 |
-| RawData | 사용자가 Excel 파일을 직접 선택하고 해당 파일을 in-place 수정 | EUT Name 기반 자동 탐색·재사용·양식 복사 |
+| RawData | EUT Name 기반 자동 생성·재사용, FSM worker 준비와 Excel live monitoring 구현 | 실제 장비 없이 완료 가능한 회귀·패키징 검증 완료 |
 | Manual Marker | 자동시험 FSM에 결합된 수동 마커 다이얼로그 존재 | Standalone Manual Test와는 별개이며 일부 UI/명령만 재사용 |
 | Manual Test | 내비게이션과 빈 패널만 존재 | SA/Marker/Turntable/Mast/Semi Auto/Capture 전체 개발 |
 | Range | Range 1~6의 완전한 장비 설정 모델 | Range 7~9는 v3.0 필수 범위에서 제외하며 후속 요구가 생길 때 다시 판단 |
@@ -92,8 +96,8 @@ EUT 기반 RawData 파일 lifecycle은 운영 편의 Track의 선행축이다. �
 | POL-MT-02 | 첫 NSA TC는 목표 Anchor가 장비에 미리 준비되어 있다고 간주하고 기존 `NR Call`을 사용한다. 연속 NSA TC의 Anchor가 같으면 기존 `NR Handover`, Anchor가 바뀌면 신규 고수준 `NSA Handover` 단일 composite를 호출한다. LV는 SCG Release → LTE Anchor `DLCHAN` 변경·고정 profile 검증 → 기존 NR Call helper 재사용 → SCG Addition·최종 상태 확인을 수행한다. | Python은 Anchor 변경 시에만 `NSA Handover` 한 번을 호출하며 `NR Call` 또는 `CALLSO`/`CALLSA`/`CALLSTAT?`/`REM_DEST` 순서를 추가로 조합하지 않는다. 기존 `NR Call` 외부 request는 현행을 유지한다. |
 | POL-MT-03 | `Recall Change`는 NSA Handover와 분리된 고수준 LV workflow다. 첫 실행 TC에는 Recall을 호출하지 않고 그 TC의 ID를 세션 초기값으로 사용하며, 이후 ID가 바뀔 때만 실행하고 성공 후에만 적용 ID를 갱신한다. | `start_index > 0`이면 해당 TC를 첫 실행 TC로 본다. Call 단절 시 Recall은 유지된 것으로 보고 기존 Call만 재실행하며 신뢰 가능한 조회 방법 전에는 현재 Recall 조회를 요구하지 않는다. |
 | POL-MT-04 | 외부 API 경계는 기존 `NR Call`, 신규 `NSA Handover`, 신규 `Recall Change`, 기존 `Check Call Status`의 의미 기반 workflow다. | LV helper는 매 단계 `REM_DEST`를 명시한다. `NSA Handover`는 Default Response를 사용하고 Python은 최종 `status`만 판정한다. |
-| POL-RAW-01 | RawData 결과 파일의 논리 경로는 `{Screenshot 저장 기준 경로}/{EUT Name}/{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx`다. `NR` 파일은 NR SA/NSA에, `LTE` 파일은 LTE에 사용한다. | 예: `.../DUT-A/DUT-A_CE Main_Radiation_NR.xlsx`. EUT Name의 안전한 경로 변환·검증은 resolver 구현 범위다. |
-| POL-RAW-02 | NR SA/NSA source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | 두 asset은 현재 worktree에 존재한다. source 수령은 더 이상 blocker가 아니며 추적·검증·runtime lookup을 구현한다. |
+| POL-RAW-01 | RawData 결과 파일의 논리 경로는 `{EUT 결과 기준 root}/{EUT Name}/{EUT Name}_CE Main_Radiation_{NR\|LTE}.xlsx`다. `NR` 파일은 NR SA/NSA에, `LTE` 파일은 LTE에 사용한다. | 개발 root=`~/Desktop`, frozen root=EXE 폴더. EUT Name은 resolver에서 안전성을 검증한다. |
+| POL-RAW-02 | NR SA/NSA source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | 두 asset은 Git 추적 및 PyInstaller 포함·위치·시트·SHA-256 검증 완료. |
 | POL-MAN-01 | 자동시험과 Standalone Manual Test의 장비 조작에는 Filter Box와 동일한 배타 정책을 적용한다. 한쪽이 장비 operation을 소유하는 동안 다른 쪽의 장비 조작은 시작할 수 없다. | 경쟁 장비 command 미전송과 busy 안내를 Acceptance Criteria에 포함한다. 기존 guard 확장 또는 신규 coordinator 여부는 설계에서 정한다. |
 | POL-MAN-02 | Range 7~9 세부사항은 이번 v3.0 계획에서 고려하지 않는다. 필요하지 않으면 Range 모델과 Manual preset에 추가하지 않아도 된다. | Range 7~9 구현 Issue는 생성하지 않는다. 추후 WCDMA/GSM 또는 Manual 요구가 생기면 별도 Refinement한다. |
 | POL-MAN-03 | Screenshot 목록에는 현재 앱 실행 세션에서 성공적으로 생성된 파일만 최신순으로 표시한다. | 시작 시 저장 폴더 전체를 스캔하지 않는다. 해당 세션에서 생성되지 않은 기존 파일은 목록에 넣지 않는다. |
@@ -103,11 +107,14 @@ RawData filename의 `*` 표기는 Markdown 강조 기호로 해석했으며 실�
 
 ### 2.3 SRS와 Jira 작성 기준
 
-현재 확정사항으로 NSA/Recall과 RawData의 SRS 및 Jira Issue를 작성할 수 있다. 추가 제품 결정이나 별도 Discovery Issue를 선행 blocker로 두지 않는다.
+현재 확정사항으로 NSA/Recall의 SRS 및 Jira Issue를 작성할 수 있다. RawData는
+H2026E014-41/44/45/43/42에서 구현·검증 완료됐으며 추가 Discovery Issue를 만들지 않는다.
 
 - 첫 NSA TC는 목표 LTE Anchor가 장비에 미리 준비되어 있다고 간주하고 NR SA와 동일한 기존 `NR Call`로 NR SCG를 연결해야 한다.
 - Recall ID와 Anchor Band가 함께 바뀌면 목표 Recall과 Anchor를 모두 적용하고 NSA 최종 연결 상태를 복구해야 한다. 세부 단계 순서는 `Recall Change` LV 구현 Issue에서 설계·검증한다.
-- RawData는 기존 결과 파일이 있으면 재사용하고 없으면 확정 source template을 복사한다. 경로 안전성, 파일 열림·손상, resource lookup과 packaging은 RawData 구현 Issue의 예외처리·검증 범위다.
+- RawData는 기존 결과 파일이 있으면 재사용하고 없으면 확정 source template을 복사한다.
+  경로 안전성, 파일 열림·손상, resource lookup, FSM/UI와 packaging은
+  H2026E014-41/44/45/43/42에서 검증됐다.
 
 실제 TCP/JSON 명칭·필드, LV helper 순서, timeout·polling·retry 수치와 파일 처리 알고리즘은 관련 구현 Issue의 interface contract·subtask·DoD로 관리한다. 성공 판정은 확정된 terminal 상태 polling을 사용하며 별도의 stable-state 요구는 만들지 않는다. Manual Test 상세 계약은 확정 정책대로 Manual Test 착수 시 관련 구현 Issue에서 Refinement한다.
 
@@ -290,8 +297,8 @@ Python은 `Anchor Band`를 고정 MID/5 MHz 기준의 목표 UL/DL Channel로 lo
 | 임시 코드 | 확정 입력 |
 |---|---|
 | PM-RAW-01 | 사용자가 RawData 파일을 UI에서 직접 선택하지 않는다. |
-| PM-RAW-02 | RawData 결과 파일은 Screenshot 저장 기준 경로 아래 `{EUT Name}` 폴더에서 자동으로 찾는다. |
-| PM-RAW-03 | 결과 파일명은 `{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx`를 사용하며 NR SA/NSA는 `NR`, LTE는 `LTE` 파일로 구분한다. |
+| PM-RAW-02 | RawData 결과 파일은 EUT 결과 기준 root 아래 `{EUT Name}` 폴더에서 자동으로 찾는다. |
+| PM-RAW-03 | 결과 파일명은 `{EUT Name}_CE Main_Radiation_{NR\|LTE}.xlsx`를 사용하며 NR SA/NSA는 `NR`, LTE는 `LTE` 파일로 구분한다. |
 | PM-RAW-04 | 대응 파일이 없으면 NR SA/NSA는 `resources/templates/NR_Rawdata_.xlsx`, LTE는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`를 복사해 결과 파일을 만든다. |
 | PM-RCL-01 | v2.0에서 연기된 MT8000A Parameter Recall 요구는 4.2의 세션 정책으로 대체한다. 첫 TC에는 호출하지 않고 세션 중 Recall ID 변경만 자동 처리한다. |
 | PM-RCL-02 | 첫 실행 TC의 Recall ID를 세션 초기값으로 사용하고 이후 목표 ID가 달라질 때만 신규 고수준 `Recall Change`를 호출한다. |
@@ -451,29 +458,27 @@ Band info와 Anchor는 `ExcelReportWriter` 실행 중 `sheet + layout`당 최초
 
 ### 6.1 EUT Name 기반 RawData 자동 관리
 
-현행 파일 흐름은 다음과 같다.
+H2026E014-41/44/45/43/42 구현 후 파일 흐름은 다음과 같다.
 
 ```text
-사용자 Excel 찾기
-→ TestRunSettings.template_path
-→ Runner.start()
-→ ExcelReportWriter(template_path)
-→ 선택 파일 자체를 열고 in-place 저장
-
-EUT Name
-→ ReportWriter.model_name
-→ Plot 경로/파일명에만 사용
+Runner.start(cases, settings, start_index, stop_index)
+→ 저비용 검증 후 pending RunPreparationRequest 저장
+→ FSM QThread의 PrepareReport
+→ Generation별 read-only source 조회·관리 시트 검증
+→ EUT/RAT별 result workbook exclusive-create 또는 기존 파일 재사용
+→ ExcelReportWriter(result_workbook_path) + live monitoring 준비
+→ 성공한 경우에만 측정 FSM 진입
 ```
 
-| 요청 | 현행 | Gap 및 영향 | 근거 |
-|---|---|---|---|
-| Excel 선택 제거 | 실제 파일 선택이 Start 필수값 | UI, validation, 최근 Excel 경로 설정 정리 | `src/app/ui/test_manager_panel.py:680`, `src/app/ui/test_manager_panel.py:900` |
-| EUT 기반 탐색 | 구현 없음 | Screenshot 저장 기준 경로 아래 EUT 폴더와 확정 filename을 계산하는 RawData path resolver 필요 | `src/app/models/test_run_settings.py:22` |
-| 미존재 시 양식 복사 | `resources/templates`에 NR/LTE 기준 양식 존재, 자동 resolver/copy는 없음 | asset 추적·검증, source resolver, 안전한 copy 필요 | `resources/templates`, `CE_NR_Radiated.spec:16` |
-| 기존 파일 재사용 | writer는 받은 파일을 수정할 수 있음 | 기존 파일을 그대로 재사용하고 열림·손상 등 사용 불가 상태는 오류 처리 | `src/app/report/excel_writer.py:33` |
-| EUT filename 안전성 | Plot용 private sanitizer만 존재 | 공용 filename/path 안전성 검증 구현 필요 | `src/app/report/screenshot_store.py:21` |
+| 요청 | 구현 결과 | 근거 |
+|---|---|---|
+| Excel 선택 제거 | Excel 행·browse handler·저장 경로 설정과 `template_path` 제거 | `test_manager_panel.py`, `test_run_settings.py`, `excel_writer.py` |
+| EUT 기반 결과 | `<root>/<EUT>/<EUT>_CE Main_Radiation_<NR\|LTE>.xlsx` 계산 | `rawdata_workbook.py` |
+| 미존재 시 양식 복사 | target exclusive-create 후 복사·검증, 실패 시 자신이 만든 부분 파일만 제거 | `rawdata_source.py`, `rawdata_workbook.py` |
+| 기존 파일 재사용 | 검증된 파일은 덮어쓰지 않고 재사용, 손상·읽기 실패는 Start 차단 | `rawdata_workbook.py` |
+| EUT filename 안전성 | 공백, trailing dot, Windows 금지문자·예약명과 root 이탈 차단 | `rawdata_workbook.py` |
 
-현재 `template_path`는 원본 양식과 결과 파일 두 의미를 동시에 가진다. v3에서는 최소한 다음 lifecycle로 분리해야 한다.
+원본 양식과 결과 파일은 다음 lifecycle로 분리됐다.
 
 ```text
 승인 source template(read-only)
@@ -486,32 +491,34 @@ ExcelReportWriter(result_path)
 Excel live monitoring + in-place 결과 갱신
 ```
 
-source-to-result mapping은 다음으로 확정됐다.
+source-to-result mapping은 다음과 같다.
 
 | 결과 RAT | source template | 확인된 sheet |
 |---|---|---|
-| NR SA/NSA | `resources/templates/NR_Rawdata_.xlsx` | 현재 지원 NR Band 15개의 `Sub6 n*` sheet |
-| LTE | `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx` | 현재 지원 LTE Band 11개의 `LTE_BAND *` sheet. WCDMA sheet는 이번 범위에서 사용하지 않음 |
+| NR SA/NSA | `resources/templates/NR_Rawdata_.xlsx` | 현재 지원 NR Band 15개의 `Sub6 n*` sheet. SA/NSA가 같은 NR 결과 파일 공유 |
+| LTE | `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx` | 현재 지원 LTE Band 11개의 `LTE_BAND *` sheet. WCDMA 등 비관리 sheet 허용 |
 
-두 파일은 현재 worktree에 존재하지만 Git에서는 아직 untracked다. `CE_NR_Radiated.spec`은 이미 `resources` 전체를 datas에 포함하므로 별도 PyInstaller datas 규칙을 새로 요구하기보다, asset을 추적하고 dev/frozen 양쪽에서 올바르게 찾는 runtime resolver를 검증한다.
+두 파일은 Git에 추적되며 `CE_NR_Radiated.spec`의 `resources` datas에 포함된다. 개발 실행은
+`<repository>/resources/templates`, frozen 실행은 `<sys._MEIPASS>/resources/templates`만
+조회한다. 런타임은 SHA-256을 산출하지만 고정값 비교는 테스트와 PyInstaller 검증에서 수행한다.
 
 결과 경로 규칙은 다음과 같이 확정됐다.
 
 ```text
-{Screenshot 저장 기준 경로}/
+{EUT 결과 기준 root}/
 └─ {EUT Name}/
-   ├─ {EUT Name}_CE Main_Radiation_NR.xlsx    # NR SA/NSA
-   └─ {EUT Name}_CE Main_Radiation_LTE.xlsx   # LTE
+   ├─ screenshots/Traffic/...                       # SA PNG
+   ├─ {EUT Name}_CE Main_Radiation_NR.xlsx          # NR SA/NSA
+   └─ {EUT Name}_CE Main_Radiation_LTE.xlsx         # LTE
 ```
 
-현재 Plot root는 개발 실행에서 `~/Desktop/screenshots`, 패키징 실행에서 실행 파일 옆 `screenshots`로 달라진다. RawData resolver는 별도의 결과 root를 다시 정의하지 않고 Screenshot 저장 기준 경로 해석을 공유해야 한다. source root는 `resources/templates`로 확정됐으므로 `AppConfig.excel_template_path`의 휴면 예시 경로를 source로 사용하지 않는다.
+개발 실행의 root는 `~/Desktop`, frozen 실행은 EXE 폴더다. 호환 필드명
+`screenshot_root_dir`도 이 **EUT 결과 기준 root**를 뜻한다. 기존
+`<root>/screenshots/<EUT>` 경로는 조회·이동·재사용하지 않고 `AppConfig.excel_template_path`도
+source나 결과 fallback으로 사용하지 않는다.
 
-RawData 구현 Issue에는 다음 예외처리와 검증을 포함한다. 이는 추가 제품 결정이 아니다.
-
-- EUT Name으로 안전한 폴더와 파일 경로를 생성하고 사용할 수 없는 이름은 명확한 오류로 차단
-- 기존 결과 파일은 재사용하고, 잘못된 sheet·손상·이미 열린 파일은 원인을 표시하고 Start 차단
-- 개발 실행과 패키징 실행에서 `resources/templates` runtime lookup 검증
-- source 누락, 권한 실패, 부분 복사 시 결과 파일을 사용하지 않고 Start 차단
+Prepare 중 Stop은 UI를 막지 않지만 이미 진행 중인 openpyxl/COM 호출을 강제 중단하지 않는다.
+호출 반환 직후 Stop을 관찰해 장비 command와 측정 상태에 진입하지 않고 `Idle`로 복귀한다.
 
 ### 6.2 MT8000A Parameter Recall 자동 적용
 
@@ -657,8 +664,8 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 | DEC-RCL-02 | 첫 실행 TC에는 Recall을 호출하지 않고 `start_index`를 반영한 해당 TC의 ID를 세션 초기값으로 사용한다. | first-TC Recall command를 제거한다. |
 | DEC-RCL-03 | 목표 ID 변경 시에만 Recall Change를 실행하고 성공 후에만 applied ID를 갱신한다. Call 단절 시 Recall은 유지되며 현재 Recall 조회는 요구하지 않는다. | session context·복구 Acceptance Criteria에 반영한다. |
 | DEC-RCL-04 | Recall Change는 NSA Handover와 분리된 고수준 LV workflow다. NSA의 `CALLSO`는 SCG Release로 처리한다. | Generation별 정리→Recall→기존 Call 재연결→최종 상태 확인을 LV에서 수행한다. |
-| DEC-RAW-01 | 결과 경로와 filename은 `POL-RAW-01`을 따른다. | path resolver Story의 고정 입력으로 사용한다. |
-| DEC-RAW-02 | NR source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | asset 수령 질문을 닫고 추적·검증·runtime lookup만 남긴다. |
+| DEC-RAW-01 | 결과 경로와 filename은 `POL-RAW-01`을 따른다. | H2026E014-44/43에서 구현 완료. |
+| DEC-RAW-02 | NR source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | H2026E014-41/42에서 추적·dev/frozen lookup·패키징 검증 완료. |
 | DEC-MAN-01 | Filter Box와 같은 전역 배타 장비 operation 정책을 적용한다. | 경쟁 command 차단과 busy 안내를 고정 입력으로 사용하고 구현 방식은 설계에서 정한다. |
 | DEC-MAN-03 | Screenshot 목록은 현재 앱 실행 세션에서 성공한 파일만 표시한다. | 폴더 전체 scan 요구를 제거한다. |
 | DEC-MAN-04 | Range 7~9는 v3.0 필수 범위에서 제외한다. | Range 7~9 구현 Story를 만들지 않는다. |
@@ -666,14 +673,15 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 
 ### 8.2 추가 제품 결정 상태
 
-현재 NSA/Recall과 RawData SRS 및 Jira Issue 작성을 막는 추가 제품 결정은 없다. 다음 사항은 결정 Register에 올리지 않고 해당 구현 Issue에서 구체화한다.
+현재 NSA/Recall SRS 및 Jira Issue 작성을 막는 추가 제품 결정은 없다. RawData 관련 결정은
+H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결정 Register에 올리지 않고
+해당 구현 Issue에서 구체화한다.
 
 | 기술사항 | 관리 위치 | 요구되는 결과 |
 |---|---|---|
 | 첫 NSA TC 연결 순서 | `NSA-05` | 목표 Anchor가 사전 준비됐다고 간주하고 기존 `NR Call` 사용 |
 | Recall+Anchor 동시 변경 내부 순서 | `RCL-02-LV` | 목표 Recall·Anchor 적용 후 NSA 최종 연결 상태 복구 |
 | Anchor CSV 필드와 결과 cell mapping | `NSA-01`, `NSA-06` | NSA TC에 Anchor 필수, 결과는 NR Band 옆 셀에 `B*` 형식으로 기록 |
-| RawData path 안전성·열림·손상·runtime lookup | `RAW-01`, `RAW-04`, `RAW-05` | 기존 파일 재사용, 미존재 시 확정 양식 복사, 실패 시 명확한 오류와 Start 차단 |
 | Manual command/API/UX 세부 계약 | 각 `MAN-*` 구현 Issue | Manual Test 착수 시 확정 요구사항을 만족하도록 Refinement |
 
 ### 8.3 구현 Issue의 기술 설계·검증 산출물
@@ -682,7 +690,7 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 |---|---|---|
 | MT8000A TCP/JSON command·Params·응답 계약 | `NSA-04-PY/LV`, `RCL-02-PY/LV` | 고수준 workflow 경계와 command별 Default Response/오류 계약을 정의 |
 | timeout·polling·retry 값과 벤치 결과 | `NSA-04-LV`, `RCL-02-LV`, 통합 인수 | 무한 대기 없이 terminal 상태 또는 명시적 실패로 종료되도록 구현·검증 |
-| RawData resolver와 배포 resource 검증 | `RAW-01`, `RAW-04`, `RAW-05` | dev/frozen에서 동일 source를 찾고 copy/reuse 실패를 안전하게 처리 |
+| RawData resolver와 배포 resource 검증(완료) | `H2026E014-41/44/45/43/42` | dev/frozen source, copy/reuse 실패, FSM/UI와 패키징 결과 검증 완료 |
 | Manual Test interface contract | 관련 `MAN-*` Python/LV Issue | NSA 개발 이후 Manual Test 착수 시 구현팀과 함께 Refinement |
 
 위 항목은 독립적인 ‘결정용 Issue’가 아니다. 구현에 별도 실장비 검증이 필요하면 해당 Story의 subtask 또는 DoD로 관리한다. terminal 성공은 4.2의 최종 상태 polling으로 판정하며, 근거 없는 추가 유지 시간 기준은 요구하지 않는다.
@@ -717,7 +725,7 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
     └─ Anchor domain/CSV → SA·NSA UI → 고수준 Python/LV workflow → FSM/결과 → 통합 인수
 
 2차 또는 비충돌 병렬 Track: 운영 편의
-  ├─ resources/templates asset 추적·검증 → RawData resolver/store → Runner/UI 통합
+  ├─ RawData asset/resolver/lifecycle/FSM/UI 통합 완료 (H2026E014-41/44/45/43/42)
   └─ 확정된 고수준 Recall Change 기반 Recall FSM
 
 후속 Track: Standalone Manual Test
@@ -738,11 +746,11 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 |---|---|---|
 | NSA Domain/UI/Report | 확정된 Anchor property·allowlist·결과 위치를 사용해 바로 착수하고 CSV/writer 세부 mapping은 Issue 안에서 완성 | `test_case.py`, `test_manager_panel.py`, `excel_writer.py` |
 | NSA/Recall FSM | 확정된 고수준 workflow와 terminal 상태를 기준으로 착수하고 Python/LV wire contract는 양쪽 Issue가 함께 작성 | `session.py`, `transition.py`, `commands.py` |
-| RawData | 확정 source/path/filename으로 착수하고 asset tracking, copy/reuse 예외처리와 runtime lookup을 구현 범위에 포함 | `runner.py`, `test_run_settings.py`, report 계층 |
+| RawData(완료) | H2026E014-41/44/45/43/42에서 source/path/lifecycle/FSM/UI/회귀·패키징 검증 완료 | `run_preparer.py`, `runner.py`, `test_run_settings.py`, report 계층 |
 | Manual Test | NSA 우선순위를 해치지 않는 착수 시점에 각 기능 Issue에서 FSV/CO3000 계약을 Refinement | `main_window.py`, `commands.py`, mock |
 | LabVIEW | Python counterpart와 같은 interface contract를 사용하고 벤치 결과를 해당 Issue에 첨부 | 외부 LV source/release |
 
-NSA와 Recall은 `session.py`, `transition.py`, `commands.py`, Mock LV를 공유하므로 서로 다른 브랜치에서 독립 구현하지 않는 편이 안전하다. NSA Anchor 결과와 RawData 자동화는 `excel_writer.py`, `template_map.py`, 실제 Excel 양식과 report lifecycle에서 조정이 필요하다. `runner.py`의 직접 변경 중심은 RawData lifecycle 쪽이다. Manual Test 역시 command catalog와 Mock LV를 확장하므로 공통 파일 담당자 또는 순차 merge 계획이 필요하다.
+NSA와 Recall은 `session.py`, `transition.py`, `commands.py`, Mock LV를 공유하므로 서로 다른 브랜치에서 독립 구현하지 않는 편이 안전하다. RawData 자동화는 H2026E014-41/44/45/43/42에서 `run_preparer.py`, `runner.py`, `excel_writer.py`와 report lifecycle 조정을 완료했다. Manual Test 역시 command catalog와 Mock LV를 확장하므로 공통 파일 담당자 또는 순차 merge 계획이 필요하다.
 
 ## 10. Jira Agent용 후보 작업 패키지
 
@@ -750,7 +758,8 @@ NSA와 Recall은 `session.py`, `transition.py`, `commands.py`, Mock LV를 공유
 
 ### 10.1 별도 결정용 Issue를 만들지 않는 범위
 
-NSA/Recall과 RawData는 현재 확정사항으로 구현 Story를 작성한다. 내부 sequence, wire schema, timeout·retry, path 예외처리와 runtime lookup을 확정하기 위한 독립 Discovery/Spike는 만들지 않고 관련 Python/LV/RawData Story의 subtask 또는 DoD로 포함한다.
+NSA/Recall은 현재 확정사항으로 구현 Story를 작성한다. RawData Story는
+H2026E014-41/44/45/43/42로 구현·검증 완료됐으며 별도 Discovery/Spike를 추가하지 않는다.
 
 Manual Test의 상세 command/API/UX 계약도 지금 별도의 미결정 Issue로 만들지 않는다. NSA 우선 개발 후 각 Manual 구현 Story를 Refinement할 때 필요한 계약 작업을 함께 등록한다.
 
@@ -767,15 +776,15 @@ Manual Test의 상세 command/API/UX 계약도 지금 별도의 미결정 Issue�
 | NSA-06 | NR Band 옆 cell에 `B*` 형식으로 Anchor Band 기록 | NSA-01 | report/template map |
 | NSA-07 | 실제 LV를 포함한 NSA 통합 인수와 임시 문서 정식화 | NSA-02~06, NSA-04-LV | tests/docs/release |
 
-### 10.3 시험 운영 편의 개선 후보 패키지
+### 10.3 시험 운영 편의 개선 구현 결과와 Recall 후보 패키지
 
 | 후보 ID | Outcome | 의존성 | 예상 주 영향 |
 |---|---|---|---|
-| RAW-01 | 확정 경로·filename을 사용하는 EUT/RAT RawData resolver와 safe copy/reuse | POL-RAW-01/02 | report/config/assets |
-| RAW-02 | Runner가 확정 source template으로 결과 workbook을 자동 확보한 뒤 writer 생성 | RAW-01, RAW-04 | Runner/context/report |
-| RAW-03 | Excel 선택 UI와 사용자 path validation 제거 | RAW-02 | Test Manager/config. CSV 경로에도 쓰는 `runtime_base_directory()`는 유지 검토 |
-| RAW-04 | 두 `resources/templates` asset의 tracking/검증과 dev/frozen runtime lookup | POL-RAW-02 | resources/spec. 기존 spec의 resources 포함 규칙 검증 |
-| RAW-05 | 신규/기존/손상/열림/복사 실패 lifecycle 검증과 문서화 | RAW-01~04 | tests/docs |
+| RAW-01 (완료) | 확정 경로·filename을 사용하는 EUT/RAT RawData resolver와 safe copy/reuse | H2026E014-44 | report/assets |
+| RAW-02 (완료) | FSM worker에서 결과 workbook을 확보한 뒤 writer 생성 | H2026E014-45 | Runner/context/report |
+| RAW-03 (완료) | Excel 선택 UI와 사용자 path validation 제거 | H2026E014-43 | Test Manager/config |
+| RAW-04 (완료) | 두 `resources/templates` asset의 tracking/검증과 dev/frozen runtime lookup | H2026E014-41 | resources/spec |
+| RAW-05 (완료) | 신규/기존/손상/열림/복사 실패와 cross-layer·패키징 검증 | H2026E014-42 | tests/docs |
 | RCL-02-PY | 현재 모델의 Recall 식별자를 wire Params에 매핑하는 신규 고수준 `Recall Change` facade, wire contract, failure parsing과 REM_DEST별 Mock 확장 | 4.2 확정 workflow | models/net/mock |
 | RCL-02-LV | Generation별 정리→Recall→기존 Call 재연결과 Recall+Anchor 동시 변경을 수행하는 고수준 `Recall Change` LV workflow 및 벤치 검증 | 4.2 확정 workflow | 외부 LV |
 | RCL-03 | 첫 TC 미호출, `start_index` 초기화, ID 변경 시만 호출, 성공 후만 갱신, Call 단절 시 Call만 복구하는 FSM | RCL-02-PY | core/fsm |
@@ -852,8 +861,8 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 - SRS에는 자동 수행 여부, 입력 제약, 최종 상태, 결과 기록, 실패 응답처럼 사용자와 시스템 경계에서 관찰 가능한 동작을 작성한다.
 - LV helper 순서, 실제 wire field 이름, timeout·retry 수치와 path 정규화 알고리즘은 제품 미결정으로 만들지 않는다. 관련 구현 Issue의 설계·검증 산출물로 연결한다.
 - terminal 상태 polling 외의 추가 stable-state 유지 시간은 요구하지 않는다. 실장비에서 필요성이 확인될 때만 결함 보강 또는 기술 subtask로 추가한다.
-- RawData 기존 파일 재사용과 미존재 시 source 복사는 확정 동작이다. 열림·손상·권한·경로 오류는 구현 Issue의 safe-failure Acceptance Criteria로 작성한다.
-- Manual 세부 계약은 Manual Test 착수 시 관련 구현 Issue에서 Refinement하며, 현재 NSA/RawData SRS의 미결정 목록으로 복사하지 않는다.
+- RawData 기존 파일 재사용과 미존재 시 source 복사는 구현 완료된 동작이다. 열림·손상·권한·경로 오류의 safe-failure 회귀는 H2026E014-42가 보유한다.
+- Manual 세부 계약은 Manual Test 착수 시 관련 구현 Issue에서 Refinement하며, 현재 NSA SRS나 완료된 RawData 범위의 미결정 목록으로 복사하지 않는다.
 - 모든 NR–Anchor 조합 허용, SA/NSA/LTE 혼합 시작 차단, `REM_DEST`별 상태 의미, 고수준 NSA Handover/Recall Change API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 두 source template mapping, 전역 배타 operation 동작, 현재 세션 Screenshot 목록, Range 7~9 제외는 다시 미결정 항목으로 올리지 않는다.
 
 ## 12. 검증 시나리오 작성 시 포함할 관점
@@ -885,10 +894,15 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 ### RawData와 Recall
 
-- 확정 EUT 폴더와 `{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx` 경로 계산
-- NR은 `NR_Rawdata_.xlsx`, LTE는 `_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`를 source로 복사함
-- 신규 EUT 파일 생성, 기존 EUT 재사용, 잘못된/손상/열린 파일
+- 개발은 `~/Desktop`, frozen은 EXE 폴더를 기준으로 `<root>/<EUT>/` 결과 구조를 계산함
+- Excel 결과는 `<EUT>_CE Main_Radiation_{NR|LTE}.xlsx`, Screenshot은 같은 EUT 폴더의 `screenshots/Traffic/...`에 배치함
+- 기존 `<root>/screenshots/<EUT>` 파일은 fallback 없이 무시함
+- 개발 source는 저장소 `resources/templates`, frozen source는 `sys._MEIPASS/resources/templates`만 사용함
+- NR 15개 `Sub6 n*`, LTE 11개 `LTE_BAND *` 관리 시트와 LTE 비관리 WCDMA 시트 허용을 검증함
+- 런타임 SHA-256 산출과 테스트/PyInstaller 고정 checksum 비교의 책임을 구분함
+- 신규 EUT 파일 생성, 열린 정상 파일을 포함한 기존 EUT 재사용, 잘못된/손상 파일의 명확한 실패
 - source template 누락과 result directory 권한 오류 시 FSM 미시작
+- Prepare 중 Stop은 openpyxl/COM 반환 직후 관찰하고 장비 command 없이 Idle 복귀
 - 첫 실행 TC와 `start_index > 0`의 첫 TC에서 Recall command를 보내지 않고 해당 ID를 세션 초기값으로 기록함
 - 같은 Recall에는 command를 보내지 않고 변경된 Recall에만 고수준 `Recall Change`를 호출함
 - Recall Change 성공 후에만 적용 ID를 갱신하고 실패 시 Factor/측정으로 진입하지 않음
@@ -917,7 +931,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 | NR/NSA/LTE 생성 UI | `src/app/ui/test_manager_panel.py`, `src/app/ui/nr_select.py`, `src/app/ui/lte_select.py` |
 | NSA/Recall FSM | `src/app/core/fsm/call_routing.py`, `src/app/core/fsm/states/nr_setup.py`, `src/app/core/fsm/states/session.py`, `src/app/core/fsm/states/transition.py`, `src/app/core/fsm/engine.py` |
 | Command/Mock | `src/app/net/commands.py`, `src/app/net/protocol.py`, `src/app/net/tcp_client.py`, `src/app/net/mock_lv_server.py` |
-| RawData/Excel | `src/app/models/test_run_settings.py`, `src/app/core/runner.py`, `src/app/report/excel_writer.py`, `src/app/report/report_writer.py`, `resources/templates/NR_Rawdata_.xlsx`, `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx` |
+| RawData/Excel | `src/app/models/test_run_settings.py`, `src/app/core/runner.py`, `src/app/core/run_preparer.py`, `src/app/report/rawdata_source.py`, `src/app/report/rawdata_workbook.py`, `src/app/report/excel_writer.py`, `resources/templates/NR_Rawdata_.xlsx`, `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx` |
 | NSA result/Plot | `src/app/report/template_map.py`, `src/app/report/screenshot_store.py` |
 | Manual Test | `src/app/ui/manual_test_panel.py`, `src/app/ui/main_window.py`, `src/app/ui/manual_marker_dialog.py`, `src/app/models/test_range.py`, `src/app/net/commands.py`, `src/app/net/mock_lv_server.py`, `src/app/net/tcp_client.py`, `src/app/report/screenshot_store.py`, 신규 core service 후보 |
 | Turntable/Event 참고 | `src/app/core/fsm/states/measurement/common.py` |
@@ -928,10 +942,10 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 v3.0은 세 Epic으로 관리하되 NSA 정식 지원을 우선한다. 이번 검토로 NR–Anchor 조합과 고정값, Generation 혼합 차단, `REM_DEST`별 상태 의미, 같은/다른 Anchor routing, 고수준 `NSA Handover`·`Recall Change` API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 source asset, Manual 장비 배타 정책, Screenshot 목록 source, Range 7~9 범위가 확정됐다. 후속 Agent는 이 항목을 다시 Discovery 질문으로 되돌리지 않는다.
 
-현재 확정사항으로 NSA/Recall과 RawData SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. 첫 NSA TC에는 별도 NSA 순서가 없고 기존 `NR Call`을 사용한다. Recall+Anchor 동시 변경의 자동 적용 순서와 실제 TCP/JSON 표현, timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
+현재 확정사항으로 NSA/Recall SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. RawData는 H2026E014-41/44/45/43/42에서 구현·검증 완료됐다. 첫 NSA TC에는 별도 NSA 순서가 없고 기존 `NR Call`을 사용한다. Recall+Anchor 동시 변경의 자동 적용 순서와 실제 TCP/JSON 표현, timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
 
 `anchor_band` CSV field와 Generation별 검증은 H2026E014-33에서, NR Band 옆 `B*` 형식의 최초 Anchor 결과 mapping은 H2026E014-39에서 구현·검증됐다. 남은 NSA report 작업은 H2026E014-40의 실제 LV·승인 장비 통합 인수와 기존 SA/LTE/Plot 회귀 증빙이다.
 
-RawData source는 이미 `resources/templates`에 있다. NR SA/NSA는 `NR_Rawdata_.xlsx`, LTE는 `_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`를 사용한다. 남은 일은 asset을 추적하고 runtime resolver, 기존 파일 reuse와 오류 처리, dev/frozen 동작을 구현·검증하는 것이다.
+RawData source는 Git에 추적된 `resources/templates`의 NR/LTE workbook을 사용한다. dev/frozen 전용 lookup, EUT별 결과 생성·재사용, 오류 rollback, `PrepareReport` FSM 통합, Excel 선택 제거, 결과·Screenshot의 EUT 중심 배치와 패키징 검증까지 완료됐다.
 
 NSA FSM과 Recall FSM은 확정된 고수준 MT8000A workflow와 하나의 승인된 TCP/JSON 계약 아래에서 통합한다. Python과 실제 LabVIEW Issue는 분리하되, Python이 LV 내부 primitive sequencing을 다시 구현하지 않는다. Manual Test의 상세 계약은 NSA 개발과 분리해 Manual 착수 시 논의한다.
