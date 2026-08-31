@@ -23,9 +23,22 @@ def test_mock_recall_param_stores_name_and_restores_call_state(tmp_path) -> None
     )
 
     assert response.status == "ok"
-    assert response.result is None
+    assert response.result == {"ok": True, "connected": True}
     assert server.state.last_recall_name == "NR_N78_SA.recall"
     assert server.state.call_connected is True
+
+
+def test_mock_recall_param_reports_internal_call_disconnection(tmp_path) -> None:
+    server = MockLvServer(temp_dir=tmp_path, scenario="call-disconnected")
+
+    response = server._handle_request(
+        _recall_request({"Recall Name": "NR_N78_SA.recall"})
+    )
+
+    assert response.status == "ok"
+    assert response.result == {"ok": True, "connected": False}
+    assert server.state.last_recall_name == "NR_N78_SA.recall"
+    assert server.state.call_connected is False
 
 
 @pytest.mark.parametrize(

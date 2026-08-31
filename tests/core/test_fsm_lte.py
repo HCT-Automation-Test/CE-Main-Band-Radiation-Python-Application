@@ -437,13 +437,12 @@ def test_lte_recall_change_checks_call_then_runs_lte_call() -> None:
     assert LTECallConnectState().run(ctx) is StateResult.OK
     assert commands.command_sequence == [
         "recall_param",
-        "check_call_status",
         "setup_lte_mt8000",
     ]
     assert commands.recall_calls == [
         (client, {"recall_name": cases[1].mt8000_recall})
     ]
-    assert commands.status_calls == [client]
+    assert commands.status_calls == []
     assert ctx.last_applied_recall_id == cases[1].mt8000_recall
     assert events.user_action_required.values == []
 

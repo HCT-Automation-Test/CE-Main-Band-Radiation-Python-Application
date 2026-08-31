@@ -502,11 +502,11 @@ def test_check_next_case_transitions(
     if expected_transition == "RecallChange":
         assert call_names.count("recall_param") == 1
         recall_index = call_names.index("recall_param")
-        assert call_names[recall_index : recall_index + 3] == [
+        assert call_names[recall_index : recall_index + 2] == [
             "recall_param",
-            "check_call_status",
             "setup_mt8000",
         ]
+        assert call_names.count("check_call_status") == 1
         assert events.user_action_required.values == []
     else:
         assert "recall_param" not in call_names

@@ -756,7 +756,7 @@ def test_nsa_handover_timeout_routes_to_nr_call_disconnected() -> None:
     ]
 
 
-def test_recall_change_applies_recall_then_checks_call_once() -> None:
+def test_recall_change_uses_recall_response_without_separate_call_check() -> None:
     prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
     current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
     ctx, commands, events, client = _make_ctx(
@@ -774,15 +774,15 @@ def test_recall_change_applies_recall_then_checks_call_once() -> None:
     assert commands.recall_calls == [
         (client, {"recall_name": current_case.mt8000_recall})
     ]
-    assert commands.call_status_calls == [client]
-    assert commands.call_sequence == ["recall_param", "check_call_status"]
+    assert commands.call_status_calls == []
+    assert commands.call_sequence == ["recall_param"]
     assert ctx.last_applied_recall_id == current_case.mt8000_recall
     assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) == "NRCallConnect"
     assert ctx.pending_transition_states == []
 
 
-def test_recall_and_anchor_change_runs_nsa_handover_after_call_check() -> None:
+def test_recall_and_anchor_change_runs_nsa_handover_without_call_check() -> None:
     prev_case = _make_case(
         generation=Generation.NR_NSA,
         band=NRBand.N7,
@@ -810,7 +810,6 @@ def test_recall_and_anchor_change_runs_nsa_handover_after_call_check() -> None:
     assert NSAHandoverState().run(ctx) is StateResult.OK
     assert commands.call_sequence == [
         "recall_param",
-        "check_call_status",
         "nsa_handover",
     ]
 
@@ -820,22 +819,14 @@ def test_recall_and_anchor_change_runs_nsa_handover_after_call_check() -> None:
     [
         (
             _Commands(recall_configured=False),
-            "Recall 변경 실패: recall_param returned false",
+            "Recall 변경 실패: recall_param returned disconnected",
         ),
         (
             _Commands(recall_exception=RuntimeError("recall timeout")),
             "Recall 변경 실패: recall timeout",
         ),
-        (
-            _Commands(call_connected=False),
-            "Recall 후 Call 상태 확인 실패: check_call_status returned disconnected",
-        ),
-        (
-            _Commands(call_status_exception=RuntimeError("status timeout")),
-            "Recall 후 Call 상태 확인 실패: status timeout",
-        ),
     ],
-    ids=["recall-false", "recall-error", "call-disconnected", "call-check-error"],
+    ids=["recall-disconnected", "recall-error"],
 )
 def test_recall_change_failure_keeps_applied_id_and_blocks_next_state(
     commands: _Commands,
@@ -861,13 +852,7 @@ def test_recall_change_failure_keeps_applied_id_and_blocks_next_state(
     assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) is None
     assert ctx.pending_transition_states == ["NRCallConnect", "AntPolChange"]
-
-    expected_check_count = (
-        0
-        if commands.recall_configured is False or commands.recall_exception
-        else 1
-    )
-    assert len(commands.call_status_calls) == expected_check_count
+    assert commands.call_status_calls == []
 
 
 def test_recall_change_fails_before_commands_when_mt8000a_is_disconnected() -> None:

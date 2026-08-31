@@ -270,9 +270,10 @@ class MockLvServer:
                 )
             if self.scenario == "recall-param-error":
                 return _error(request, "Recall Param failed: equipment error")
+            connected = self.scenario != "call-disconnected"
             self.state.last_recall_name = recall_name
-            self.state.call_connected = True
-            return _ok(request)
+            self.state.call_connected = connected
+            return _ok(request, {"ok": True, "connected": connected})
         if request.command == _COMMAND_NSA_HANDOVER:
             return self._handle_nsa_handover(request)
         if request.command in {_COMMAND_NR_CALL, _COMMAND_LTE_CALL}:

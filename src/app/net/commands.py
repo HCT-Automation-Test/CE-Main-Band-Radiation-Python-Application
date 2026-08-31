@@ -345,14 +345,25 @@ def setup_lte_mt8000(
 
 
 def recall_param(client: Any, *, recall_name: str) -> bool:
-    """LV가 관리하는 MT8000A Recall 파일을 적용한다."""
+    """MT8000A Recall을 적용하고 LV가 확인한 Call 연결 상태를 반환한다."""
     response = _send_request(
         client,
         _TARGET_MT8000A,
         _COMMAND_RECALL_PARAM,
         {"Recall Name": recall_name},
     )
-    return _action_ok(response, _TARGET_MT8000A, _COMMAND_RECALL_PARAM)
+    result = _result_dict(response, _TARGET_MT8000A, _COMMAND_RECALL_PARAM)
+    ok = _boolean(result, "ok", _TARGET_MT8000A, _COMMAND_RECALL_PARAM)
+    if not ok:
+        raise CommandError(
+            f"{_TARGET_MT8000A} / {_COMMAND_RECALL_PARAM} returned ok=false"
+        )
+    return _boolean(
+        result,
+        "connected",
+        _TARGET_MT8000A,
+        _COMMAND_RECALL_PARAM,
+    )
 
 
 def call_handover(

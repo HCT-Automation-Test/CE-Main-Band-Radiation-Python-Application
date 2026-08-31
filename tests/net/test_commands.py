@@ -320,16 +320,8 @@ def test_setup_lte_mt8000_raises_on_error_response() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "response",
-    [
-        Response(id="response-id", status="ok"),
-        Response(id="response-id", status="ok", result={"unexpected": "value"}),
-        Response(id="response-id", status="ok", result=["arbitrary"]),
-    ],
-)
-def test_recall_param_sends_only_recall_name_and_ignores_result(response: Response) -> None:
-    client = _Client(response)
+def test_recall_param_sends_only_recall_name_and_returns_connected() -> None:
+    client = _Client(_ok(ok=True, connected=True))
 
     assert commands.recall_param(client, recall_name="NR_N78_SA.recall") is True
     assert client.calls == [
@@ -339,6 +331,22 @@ def test_recall_param_sends_only_recall_name_and_ignores_result(response: Respon
             {"Recall Name": "NR_N78_SA.recall"},
         )
     ]
+
+
+def test_recall_param_returns_false_when_lv_reports_disconnected() -> None:
+    client = _Client(_ok(ok=True, connected=False))
+
+    assert commands.recall_param(client, recall_name="NR_N78_SA.recall") is False
+
+
+def test_recall_param_raises_when_internal_call_check_failed() -> None:
+    client = _Client(_ok(ok=False, connected=False))
+
+    with pytest.raises(
+        commands.CommandError,
+        match="MT8000A / Recall Param returned ok=false",
+    ):
+        commands.recall_param(client, recall_name="NR_N78_SA.recall")
 
 
 def test_recall_param_raises_default_error_message() -> None:

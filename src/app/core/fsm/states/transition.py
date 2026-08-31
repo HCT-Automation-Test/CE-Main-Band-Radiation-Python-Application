@@ -295,7 +295,7 @@ class LTEHandoverState(State):
 
 
 class RecallChangeState(State):
-    """LV에 Recall 적용을 요청하고 Call 재연결 상태를 확인한다."""
+    """LV에 Recall 적용과 Call 재연결 확인을 요청한다."""
 
     name = "RecallChange"
 
@@ -315,19 +315,9 @@ class RecallChangeState(State):
             return StateResult.FAIL
 
         if not recalled:
-            _emit_error(ctx, "Recall 변경 실패: recall_param returned false")
-            return StateResult.FAIL
-
-        try:
-            call_connected = ctx.commands.check_call_status(ctx.client)
-        except Exception as exc:
-            _emit_error(ctx, f"Recall 후 Call 상태 확인 실패: {exc}")
-            return StateResult.FAIL
-
-        if not call_connected:
             _emit_error(
                 ctx,
-                "Recall 후 Call 상태 확인 실패: check_call_status returned disconnected",
+                "Recall 변경 실패: recall_param returned disconnected",
             )
             return StateResult.FAIL
 
