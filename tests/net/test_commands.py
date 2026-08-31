@@ -320,6 +320,55 @@ def test_setup_lte_mt8000_raises_on_error_response() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    "response",
+    [
+        Response(id="response-id", status="ok"),
+        Response(id="response-id", status="ok", result={"unexpected": "value"}),
+        Response(id="response-id", status="ok", result=["arbitrary"]),
+    ],
+)
+def test_recall_param_sends_only_recall_name_and_ignores_result(response: Response) -> None:
+    client = _Client(response)
+
+    assert commands.recall_param(client, recall_name="NR_N78_SA.recall") is True
+    assert client.calls == [
+        (
+            "MT8000A",
+            "Recall Param",
+            {"Recall Name": "NR_N78_SA.recall"},
+        )
+    ]
+
+
+def test_recall_param_raises_default_error_message() -> None:
+    client = _Client(
+        Response(
+            id="response-id",
+            status="error",
+            error={"message": "recall file not found"},
+        )
+    )
+
+    with pytest.raises(commands.CommandError, match="recall file not found"):
+        commands.recall_param(client, recall_name="missing.recall")
+
+
+def test_recall_param_propagates_transport_timeout() -> None:
+    class _TimeoutClient:
+        def send_request(
+            self,
+            target: str,
+            command: str,
+            params: dict[str, Any],
+        ) -> Response:
+            _ = target, command, params
+            raise TimeoutError("Recall Param timeout")
+
+    with pytest.raises(TimeoutError, match="Recall Param timeout"):
+        commands.recall_param(_TimeoutClient(), recall_name="NR_N78_SA.recall")
+
+
 def test_lte_call_handover_sends_params() -> None:
     client = _Client(_default_ok())
 

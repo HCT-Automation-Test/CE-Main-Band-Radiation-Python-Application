@@ -67,7 +67,29 @@ facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equi
 | `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor DL Channel |
 | `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `lte_call_handover` | `LTE Handover` | BandWidth(문자열), DL Channel, UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
+| `recall_param` | `Recall Param` | `{"Recall Name": "<TestCase.mt8000_recall>"}` 단일 필드 |
 | `check_call_status` | `Check Call Status` | NR/LTE 공용 → Result `{ok, connected}` |
+
+#### Recall Param Interface Contract (H2026E014-47)
+
+Python은 Recall 파일 이름만 `MT8000A / Recall Param`으로 전달한다. LV는 Call 정리,
+Recall 적용, Call 재연결을 내부에서 모두 처리하고 Default Response를 반환한다.
+
+```jsonc
+// Request Params
+{"Recall Name": "NR_N78_SA.recall"}
+
+// Success: Result는 없거나 임의 형식이어도 판정에 사용하지 않는다.
+{"type": "response", "id": "<same id>", "status": "ok"}
+
+// Failure
+{"type": "response", "id": "<same id>", "status": "error", "Error": {"message": "..."}}
+```
+
+성공 응답 뒤 Python은 기존 `Check Call Status`를 정확히 한 번 호출한다. 연결 확인에
+성공한 후 현재 Test Case 설정은 기존 `NR Call`/`LTE Call`로 적용하며, Recall과 NSA
+Anchor가 함께 변경된 경우에는 `NR Call` 대신 `NSA Handover`를 사용한다. Python은
+LV primitive를 직접 호출하거나 조합하지 않는다.
 
 LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`, `"3"`, `"5"`, `"10"`, `"15"`, `"20"` 중 하나로 전송한다.
 
