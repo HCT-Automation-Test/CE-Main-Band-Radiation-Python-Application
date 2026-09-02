@@ -48,9 +48,10 @@
 ## 3. 명령 카탈로그 — [commands.py](../src/app/net/commands.py)
 
 `commands.py`는 FSM이 호출하는 고수준 facade이자 **target/command 문자열과 파라미터 스키마의
-단일 진실 공급원**이다. 응답 status가 "ok"가 아니면 `CommandError`를 던지므로, bool 반환
-facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equipment` — 장비별 실패를
-예외 대신 `False` 값으로 dict에 담아 반환한다.
+단일 진실 공급원**이다. 응답 status가 "ok"가 아니거나 판정 대상 `Result.ok`가 `false`이면
+`CommandError`를 던진다. 일반 action facade는 성공 시 `True`를 반환하지만,
+`connect_equipment`는 장비별 연결 결과를 bool dict로 반환하고 `check_call_status`와
+`recall_param`은 `Result.connected`에 따른 최종 Call 연결 상태를 bool로 반환한다.
 
 ### 연결
 
