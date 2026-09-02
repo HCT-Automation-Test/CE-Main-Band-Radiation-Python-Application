@@ -5,7 +5,10 @@ import logging
 from typing import TYPE_CHECKING
 
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.call_routing import handover_entry_state_for_case
+from app.core.fsm.call_routing import (
+    call_entry_state_for_case,
+    handover_entry_state_for_case,
+)
 from app.core.instrument_connection import (
     describe_equipment_not_ready,
     is_selected_equipment_ready,
@@ -64,6 +67,7 @@ def _antenna_pol_setup_required(
 def _transition_states_for(
     prev_case: "TestCase",
     current_case: "TestCase",
+    last_applied_recall_id: str | None,
 ) -> list[str]:
     transition_states: list[str] = []
 
@@ -75,9 +79,7 @@ def _transition_states_for(
         or prev_case.rb_allocation != current_case.rb_allocation
         or prev_case.modulation != current_case.modulation
     )
-    recall_changed = (
-        band_changed and prev_case.mt8000_recall != current_case.mt8000_recall
-    )
+    recall_changed = last_applied_recall_id != current_case.mt8000_recall
     anchor_changed = (
         prev_case.generation is Generation.NR_NSA
         and current_case.generation is Generation.NR_NSA
@@ -85,6 +87,10 @@ def _transition_states_for(
     )
     if recall_changed:
         transition_states.append("RecallChange")
+        if anchor_changed:
+            transition_states.append("NSAHandover")
+        else:
+            transition_states.append(call_entry_state_for_case(current_case))
     elif anchor_changed:
         transition_states.append("NSAHandover")
     elif call_config_changed:
@@ -204,6 +210,7 @@ class PrepareReportState(State):
         ctx.current_angle = 0.0
         ctx.fundamental_frequency_mhz = None
         ctx.last_applied_factor_keyword = None
+        ctx.last_applied_recall_id = ctx.current_case.mt8000_recall
         ctx.pending_transition_states.clear()
         ctx.settings = request.settings
         ctx.model_name = request.settings.eut_name
@@ -275,7 +282,11 @@ class CheckNextCaseState(State):
         if prev_case is None:
             return "ApplyTdf"
 
-        transition_states = _transition_states_for(prev_case, current_case)
+        transition_states = _transition_states_for(
+            prev_case,
+            current_case,
+            ctx.last_applied_recall_id,
+        )
         if transition_states:
             ctx.pending_transition_states = transition_states[1:]
             return transition_states[0]
@@ -295,6 +306,7 @@ class TestEndState(State):
         ctx.stop_index = None
         ctx.fundamental_frequency_mhz = None
         ctx.last_applied_factor_keyword = None
+        ctx.last_applied_recall_id = None
         ctx.pending_transition_states.clear()
         return StateResult.OK
 

@@ -295,45 +295,41 @@ class LTEHandoverState(State):
 
 
 class RecallChangeState(State):
-    """MT8000A Recall file 변경을 시험원에게 수동으로 요청한다.
-
-    Band 변경 과정에서 Recall file 교체가 필요한 경우 사용.
-    수동 조작 완료 후 현재 Generation의 Call 상태로 전이한다.
-    """
+    """LV에 Recall 적용과 Call 재연결 확인을 요청한다."""
 
     name = "RecallChange"
 
     def run(self, ctx: "SessionContext") -> StateResult:
-        prev_case = ctx.prev_case
-        current_case = ctx.current_case
-        if prev_case is None:
-            _emit_error(ctx, "Recall 변경 실패: previous test case is not set")
+        if not is_equipment_connected(ctx, "MT8000A"):
+            _emit_error(ctx, "Recall 변경 실패: MT8000A가 연결되어 있지 않습니다.")
             return StateResult.FAIL
 
-        prev_recall = prev_case.mt8000_recall
-        current_recall = current_case.mt8000_recall
-
-        ctx.user_action_completed.clear()
-        if ctx.events is not None:
-            ctx.events.user_action_required.emit(
-                f"MT8000A Recall 변경: {prev_recall} -> {current_recall}"
+        recall_id = ctx.current_case.mt8000_recall
+        try:
+            recalled = ctx.commands.recall_param(
+                ctx.client,
+                recall_name=recall_id,
             )
+        except Exception as exc:
+            _emit_error(ctx, f"Recall 변경 실패: {exc}")
+            return StateResult.FAIL
 
-        while not ctx.stopped and not ctx.current_case_stop_requested:
-            if ctx.user_action_completed.wait(_USER_ACTION_WAIT_INTERVAL_SEC):
-                if ctx.stopped or ctx.current_case_stop_requested:
-                    return StateResult.FAIL
-                ctx.user_action_completed.clear()
-                return StateResult.OK
+        if not recalled:
+            _emit_error(
+                ctx,
+                "Recall 변경 실패: recall_param returned disconnected",
+            )
+            return StateResult.FAIL
 
-        return StateResult.FAIL
+        ctx.last_applied_recall_id = recall_id
+        return StateResult.OK
 
     def next_state(
         self, ctx: "SessionContext", result: StateResult
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return call_entry_state_for(ctx)
+        return next_transition_or(ctx, "ApplyTdf")
 
 
 class DUTAxisChangeState(State):

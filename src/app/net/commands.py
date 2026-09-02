@@ -40,6 +40,7 @@ _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
+_COMMAND_RECALL_PARAM = "Recall Param"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
@@ -341,6 +342,28 @@ def setup_lte_mt8000(
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_LTE_CALL)
+
+
+def recall_param(client: Any, *, recall_name: str) -> bool:
+    """MT8000A Recall을 적용하고 LV가 확인한 Call 연결 상태를 반환한다."""
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_RECALL_PARAM,
+        {"Recall Name": recall_name},
+    )
+    result = _result_dict(response, _TARGET_MT8000A, _COMMAND_RECALL_PARAM)
+    ok = _boolean(result, "ok", _TARGET_MT8000A, _COMMAND_RECALL_PARAM)
+    if not ok:
+        raise CommandError(
+            f"{_TARGET_MT8000A} / {_COMMAND_RECALL_PARAM} returned ok=false"
+        )
+    return _boolean(
+        result,
+        "connected",
+        _TARGET_MT8000A,
+        _COMMAND_RECALL_PARAM,
+    )
 
 
 def call_handover(

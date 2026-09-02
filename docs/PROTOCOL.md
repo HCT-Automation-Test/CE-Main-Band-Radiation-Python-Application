@@ -48,9 +48,10 @@
 ## 3. 명령 카탈로그 — [commands.py](../src/app/net/commands.py)
 
 `commands.py`는 FSM이 호출하는 고수준 facade이자 **target/command 문자열과 파라미터 스키마의
-단일 진실 공급원**이다. 응답 status가 "ok"가 아니면 `CommandError`를 던지므로, bool 반환
-facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equipment` — 장비별 실패를
-예외 대신 `False` 값으로 dict에 담아 반환한다.
+단일 진실 공급원**이다. 응답 status가 "ok"가 아니거나 판정 대상 `Result.ok`가 `false`이면
+`CommandError`를 던진다. 일반 action facade는 성공 시 `True`를 반환하지만,
+`connect_equipment`는 장비별 연결 결과를 bool dict로 반환하고 `check_call_status`와
+`recall_param`은 `Result.connected`에 따른 최종 Call 연결 상태를 bool로 반환한다.
 
 ### 연결
 
@@ -67,7 +68,29 @@ facade는 사실상 성공 시 항상 True다. 유일한 예외는 `connect_equi
 | `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor DL Channel |
 | `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `lte_call_handover` | `LTE Handover` | BandWidth(문자열), DL Channel, UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
+| `recall_param` | `Recall Param` | `{"Recall Name": "<TestCase.mt8000_recall>"}` 단일 필드 → Result `{ok, connected}` |
 | `check_call_status` | `Check Call Status` | NR/LTE 공용 → Result `{ok, connected}` |
+
+#### Recall Param Interface Contract (H2026E014-47)
+
+Python은 Recall 파일 이름만 `MT8000A / Recall Param`으로 전달한다. LV는 Call 정리,
+Recall 적용, Call 재연결과 최종 Call Check를 내부에서 모두 처리한다.
+
+```jsonc
+// Request Params
+{"Recall Name": "NR_N78_SA.recall"}
+
+// Success
+{"type": "response", "id": "<same id>", "status": "ok", "Result": {"ok": true, "connected": true}}
+
+// Failure
+{"type": "response", "id": "<same id>", "status": "error", "Error": {"message": "..."}}
+```
+
+Python은 `Result.ok=true`를 요구하고 `Result.connected`를 Call 연결 결과로 사용한다.
+별도 `Check Call Status`는 호출하지 않는다. 연결 성공 후 현재 Test Case 설정은 기존
+`NR Call`/`LTE Call`로 적용하며, Recall과 NSA Anchor가 함께 변경된 경우에는 `NR Call`
+대신 `NSA Handover`를 사용한다. Python은 LV primitive를 직접 호출하거나 조합하지 않는다.
 
 LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`, `"3"`, `"5"`, `"10"`, `"15"`, `"20"` 중 하나로 전송한다.
 

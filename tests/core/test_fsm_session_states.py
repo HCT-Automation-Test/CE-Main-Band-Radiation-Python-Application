@@ -162,6 +162,11 @@ def _make_settings(tmp_path: Path) -> TestRunSettings:
     )
 
 
+def _prepared_check_next_state(ctx: SessionContext) -> CheckNextCaseState:
+    ctx.last_applied_recall_id = ctx.current_case.mt8000_recall
+    return CheckNextCaseState()
+
+
 def test_session_init_accepts_ready_equipment_state_without_connecting() -> None:
     events = _Events()
     client = _Client()
@@ -314,7 +319,11 @@ def test_prepare_report_commits_context_from_requested_start_index(
     events = _Events()
     settings = _make_settings(tmp_path)
     first_case = _make_case()
-    second_case = _make_case(antenna_pol=AntennaPol.V)
+    second_case = _make_case(
+        band=NRBand.N38,
+        bandwidth=20.0,
+        antenna_pol=AntennaPol.V,
+    )
     request = RunPreparationRequest(
         cases=(first_case, second_case),
         settings=settings,
@@ -334,6 +343,7 @@ def test_prepare_report_commits_context_from_requested_start_index(
         run_preparer=preparer,  # type: ignore[arg-type]
         pending_run_request=request,
         last_applied_factor_keyword="6G HPF",
+        last_applied_recall_id="STALE_RECALL",
     )
 
     state = PrepareReportState()
@@ -354,6 +364,7 @@ def test_prepare_report_commits_context_from_requested_start_index(
     assert events.current_case_changed.values == [second_case]
     assert events.tc_started.values == [1]
     assert ctx.last_applied_factor_keyword is None
+    assert ctx.last_applied_recall_id == second_case.mt8000_recall
     assert state.next_state(ctx, result) == "InitialTurntableZero"
 
 
@@ -472,7 +483,7 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -493,7 +504,7 @@ def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -512,7 +523,7 @@ def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -531,7 +542,7 @@ def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -545,13 +556,17 @@ def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None
 def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
     events = _Events()
     prev_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
-    next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
+    next_case = _make_case(
+        TestType.HARMONIC,
+        band=NRBand.N78,
+        dut_axis=DUTAxis.Y,
+    )
     ctx = SessionContext(
         queue=[prev_case, next_case],
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -559,7 +574,12 @@ def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "RecallChange"
-    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+    assert ctx.pending_transition_states == [
+        "NRCallConnect",
+        "DUTAxisChange",
+        "AntPolChange",
+        "TestTypeChange",
+    ]
 
 
 def test_check_next_case_treats_co3000_mast_change_as_ant_pol_change() -> None:
@@ -571,7 +591,7 @@ def test_check_next_case_treats_co3000_mast_change_as_ant_pol_change() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -589,7 +609,7 @@ def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() ->
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -616,7 +636,7 @@ def test_check_next_case_routes_same_band_call_config_change_to_handover(
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -634,7 +654,7 @@ def test_check_next_case_routes_same_anchor_nr_nsa_config_change_to_handover() -
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -662,7 +682,7 @@ def test_check_next_case_routes_nsa_anchor_change_to_nsa_handover(
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -690,12 +710,13 @@ def test_check_next_case_keeps_recall_change_priority_over_anchor_change() -> No
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "RecallChange"
+    assert ctx.pending_transition_states == ["NSAHandover"]
 
 
 def test_check_next_case_skips_handover_when_call_config_is_unchanged() -> None:
@@ -705,7 +726,7 @@ def test_check_next_case_skips_handover_when_call_config_is_unchanged() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -729,12 +750,62 @@ def test_check_next_case_routes_band_change_to_recall_change_when_recall_differs
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
+    state = _prepared_check_next_state(ctx)
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "RecallChange"
+    assert ctx.pending_transition_states == ["NRCallConnect"]
+
+
+def test_check_next_case_compares_target_recall_to_applied_id_not_previous_case() -> None:
+    events = _Events()
+    previous_case = _make_case(band=NRBand.N1, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N78)
+    ctx = SessionContext(
+        queue=[previous_case, current_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        last_applied_recall_id=current_case.mt8000_recall,
+    )
+    state = CheckNextCaseState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert previous_case.mt8000_recall != current_case.mt8000_recall
+    assert state.next_state(ctx, result) == "Handover"
+    assert ctx.pending_transition_states == ["AntPolChange"]
+
+
+def test_check_next_case_routes_nsa_recall_change_to_nr_call() -> None:
+    events = _Events()
+    previous_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N7,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N38,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B1,
+    )
+    ctx = SessionContext(
+        queue=[previous_case, current_case],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+        last_applied_recall_id=previous_case.mt8000_recall,
+    )
     state = CheckNextCaseState()
 
     result = state.run(ctx)
 
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "RecallChange"
+    assert ctx.pending_transition_states == ["NRCallConnect"]
 
 
 
@@ -746,7 +817,7 @@ def test_check_next_case_goes_to_test_end_at_stop_index() -> None:
         events=events,  # type: ignore[arg-type]
         stop_index=0,
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -765,7 +836,7 @@ def test_check_next_case_goes_to_test_end_at_queue_end() -> None:
         commands=object(),
         events=events,  # type: ignore[arg-type]
     )
-    state = CheckNextCaseState()
+    state = _prepared_check_next_state(ctx)
 
     result = state.run(ctx)
 
@@ -783,6 +854,7 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
         current_index=0,
         fundamental_frequency_mhz=3550.25,
         last_applied_factor_keyword="6G HPF",
+        last_applied_recall_id="SA_TDD",
     )
     state = TestEndState()
 
@@ -793,4 +865,5 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
     assert ctx.queue == []
     assert ctx.fundamental_frequency_mhz is None
     assert ctx.last_applied_factor_keyword is None
+    assert ctx.last_applied_recall_id is None
     assert state.next_state(ctx, result) == "Idle"

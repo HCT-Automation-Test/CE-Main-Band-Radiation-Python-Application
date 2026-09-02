@@ -139,6 +139,10 @@ class _Commands:
         self.calls.append(("call_handover", params))
         return True
 
+    def recall_param(self, client: Any, **params: Any) -> bool:
+        self.calls.append(("recall_param", params))
+        return True
+
     def check_call_status(self, client: Any) -> bool:
         self.calls.append(("check_call_status", {}))
         return True
@@ -432,6 +436,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
     assert "measure_fundamental" in _call_names(commands)
     assert "measure_harmonics" in _call_names(commands)
     call_names = _call_names(commands)
+    assert "recall_param" not in call_names
     assert call_names.index("setup_mt8000") < call_names.index("get_tdf_list")
     assert call_names.index("get_tdf_list") < call_names.index("set_tdf")
     assert call_names.index("set_tdf") < call_names.index("measure_fundamental")
@@ -487,12 +492,24 @@ def test_check_next_case_transitions(
     second_case: TestCase,
     expected_transition: str,
 ) -> None:
-    ctx, events, _, _ = _make_ctx(tmp_path, [first_case, second_case])
+    ctx, events, commands, _ = _make_ctx(tmp_path, [first_case, second_case])
 
     _run_session(ctx)
 
     first_check_next_case = events.state_changed.values.index("CheckNextCase")
     assert events.state_changed.values[first_check_next_case + 1] == expected_transition
+    call_names = _call_names(commands)
+    if expected_transition == "RecallChange":
+        assert call_names.count("recall_param") == 1
+        recall_index = call_names.index("recall_param")
+        assert call_names[recall_index : recall_index + 2] == [
+            "recall_param",
+            "setup_mt8000",
+        ]
+        assert call_names.count("check_call_status") == 1
+        assert events.user_action_required.values == []
+    else:
+        assert "recall_param" not in call_names
     assert events.error.values == []
 
 
@@ -516,4 +533,5 @@ def test_nr_call_disconnected_recovery(tmp_path: Path) -> None:
         "NRCallConnect",
     ]
     assert _call_names(commands).count("setup_mt8000") == 2
+    assert "recall_param" not in _call_names(commands)
     assert events.user_action_required.values == ["비행기 모드 On/Off 후 확인"]

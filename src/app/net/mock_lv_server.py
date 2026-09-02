@@ -42,6 +42,7 @@ MockLvScenario = Literal[
     "nsa-nr-call-error",
     "nsa-nr-call-timeout",
     "nsa-final-status-timeout",
+    "recall-param-error",
 ]
 
 _TARGET_FSV40 = "FSV40"
@@ -70,6 +71,7 @@ _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
+_COMMAND_RECALL_PARAM = "Recall Param"
 _COMMAND_CHECK_CALL_STATUS = "Check Call Status"
 _COMMAND_CHANGE_ANT_POL = "Change Ant Pol"
 _COMMAND_MOVE_TURNTABLE = "Move TurnTable"
@@ -151,6 +153,7 @@ class MockLvState:
     anchor_dl_channel: int | None = None
     anchor_ul_channel: int | None = None
     last_nsa_nr_params: dict[str, Any] | None = None
+    last_recall_name: str | None = None
     current_angle: float = 0.0
     switch_input_path: int | None = None
     switch_filter_path: int | None = None
@@ -256,6 +259,21 @@ class MockLvServer:
         return _error(request, "unsupported command")
 
     def _handle_mt8000a(self, request: Request) -> Response:
+        if request.command == _COMMAND_RECALL_PARAM:
+            if set(request.params) != {"Recall Name"}:
+                return _error(request, "invalid Recall Param Params")
+            recall_name = request.params.get("Recall Name")
+            if not isinstance(recall_name, str) or not recall_name:
+                return _error(
+                    request,
+                    "Recall Param Params.Recall Name must be a non-empty string",
+                )
+            if self.scenario == "recall-param-error":
+                return _error(request, "Recall Param failed: equipment error")
+            connected = self.scenario != "call-disconnected"
+            self.state.last_recall_name = recall_name
+            self.state.call_connected = connected
+            return _ok(request, {"ok": True, "connected": connected})
         if request.command == _COMMAND_NSA_HANDOVER:
             return self._handle_nsa_handover(request)
         if request.command in {_COMMAND_NR_CALL, _COMMAND_LTE_CALL}:
@@ -709,6 +727,7 @@ def main(argv: list[str] | None = None) -> int:
             "nsa-nr-call-error",
             "nsa-nr-call-timeout",
             "nsa-final-status-timeout",
+            "recall-param-error",
         ],
         default="normal",
     )

@@ -75,9 +75,12 @@ class _Commands:
         self.call_calls: list[tuple[Any, dict[str, Any]]] = []
         self.handover_calls: list[tuple[Any, dict[str, Any]]] = []
         self.status_calls: list[Any] = []
+        self.recall_calls: list[tuple[Any, dict[str, Any]]] = []
+        self.command_sequence: list[str] = []
 
     def setup_lte_mt8000(self, client: Any, **params: Any) -> bool:
         self.call_calls.append((client, params))
+        self.command_sequence.append("setup_lte_mt8000")
         if self.call_exception is not None:
             raise self.call_exception
         return self.call_connected
@@ -90,7 +93,13 @@ class _Commands:
 
     def check_call_status(self, client: Any) -> bool:
         self.status_calls.append(client)
+        self.command_sequence.append("check_call_status")
         return self.status_connected
+
+    def recall_param(self, client: Any, **params: Any) -> bool:
+        self.recall_calls.append((client, params))
+        self.command_sequence.append("recall_param")
+        return True
 
 
 def _make_case(
@@ -128,14 +137,16 @@ def _make_ctx(
     client = object()
     command_facade = commands or _Commands()
     events = _Events()
+    case_queue = queue or [case]
     ctx = SessionContext(
-        queue=queue or [case],
+        queue=case_queue,
         commands=command_facade,
         events=events,  # type: ignore[arg-type]
         client=client,
         current_index=current_index,
         settings=SimpleNamespace(connection_waiting_time_sec=waiting_time),
         equipment_state={"MT8000A": True},
+        last_applied_recall_id=case_queue[0].mt8000_recall,
     )
     return ctx, command_facade, events, client
 
@@ -345,6 +356,7 @@ def test_lte_band_change_routes_by_recall() -> None:
 
     assert same_state.next_state(same_ctx, same_result) == "LTEHandover"
     assert changed_state.next_state(changed_ctx, changed_result) == "RecallChange"
+    assert changed_ctx.pending_transition_states == ["LTECallConnect"]
 
 
 @pytest.mark.parametrize(
@@ -408,24 +420,31 @@ def test_lte_combined_changes_preserve_nr_transition_order() -> None:
     ]
 
 
-def test_lte_recall_change_keeps_manual_flow_then_reconnects() -> None:
+def test_lte_recall_change_checks_call_then_runs_lte_call() -> None:
     cases = [_make_case(band=LTEBand.B7), _make_case(band=LTEBand.B38)]
-    ctx, _, events, _ = _make_ctx(
+    ctx, commands, events, client = _make_ctx(
         cases[1],
         queue=cases,
         current_index=1,
     )
+    ctx.pending_transition_states = ["LTECallConnect"]
     state = RecallChangeState()
-    thread = _complete_user_action(ctx)
 
     result = state.run(ctx)
-    thread.join(timeout=1.0)
 
     assert result is StateResult.OK
-    assert events.user_action_required.values == [
-        "MT8000A Recall 변경: LTE_FDD -> LTE_TDD"
-    ]
     assert state.next_state(ctx, result) == "LTECallConnect"
+    assert LTECallConnectState().run(ctx) is StateResult.OK
+    assert commands.command_sequence == [
+        "recall_param",
+        "setup_lte_mt8000",
+    ]
+    assert commands.recall_calls == [
+        (client, {"recall_name": cases[1].mt8000_recall})
+    ]
+    assert commands.status_calls == []
+    assert ctx.last_applied_recall_id == cases[1].mt8000_recall
+    assert events.user_action_required.values == []
 
 
 def test_lte_test_type_failure_routes_to_lte_recovery_with_lte_message() -> None:
