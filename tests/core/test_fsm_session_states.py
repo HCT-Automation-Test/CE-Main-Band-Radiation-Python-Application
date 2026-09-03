@@ -854,7 +854,7 @@ def test_test_end_clears_queue_and_returns_to_idle() -> None:
         current_index=0,
         fundamental_frequency_mhz=3550.25,
         last_applied_factor_keyword="6G HPF",
-        last_applied_recall_id="SA_TDD",
+        last_applied_recall_id="5GNR_SA_TDD",
     )
     state = TestEndState()
 

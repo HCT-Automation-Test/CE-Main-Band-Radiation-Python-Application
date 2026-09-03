@@ -80,12 +80,12 @@ rb_allocation/antenna_pol/dut_axis는 CSV 경로(`from_csv_row`)에서만 변환
 
 ## 4. Band 그룹 — [band_group.py](../src/app/models/band_group.py)
 
-| 그룹 key | bands | SCS | SA recall | MT8000 recall | 턴테이블 속도 |
-| --- | --- | --- | --- | --- | --- |
-| `lb` | 5, 8, 20, 26, 28, 71 | 15 | 1G HPF | SA_FDD | 5 |
-| `mhb_fdd` | 1, 3, 7 | 15 | 3G HPF | SA_FDD | 5 |
-| `mhb_tdd` | 38, 40, 41 | 30 | 3G HPF | SA_TDD | 3 |
-| `uhb_tdd` | 77, 78, 79 | 30 | 6G HPF | SA_TDD | 3 |
+| 그룹 key | bands | SCS | SA recall | MT8000 SA recall | MT8000 NSA recall | 턴테이블 속도 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `lb` | 5, 8, 20, 26, 28, 71 | 15 | 1G HPF | 5GNR_SA_FDD | 5GNR_NSA_FDD | 5 |
+| `mhb_fdd` | 1, 3, 7 | 15 | 3G HPF | 5GNR_SA_FDD | 5GNR_NSA_FDD | 5 |
+| `mhb_tdd` | 38, 40, 41 | 30 | 3G HPF | 5GNR_SA_TDD | 5GNR_NSA_TDD | 3 |
+| `uhb_tdd` | 77, 78, 79 | 30 | 6G HPF | 5GNR_SA_TDD | 5GNR_NSA_TDD | 3 |
 
 `RANGE_BY_BAND_TEST`가 (band, TestType) → RangeId를 결정한다:
 
@@ -95,7 +95,9 @@ rb_allocation/antenna_pol/dut_axis는 CSV 경로(`from_csv_row`)에서만 변환
 | mhb_* | RANGE_1 | RANGE_2 | RANGE_4 |
 | uhb_tdd | RANGE_1 | RANGE_5 | RANGE_6 |
 
-`mt8000_recall`이 그룹 간에 달라지는 경우(FDD↔TDD)가 FSM의 `RecallChange` 트리거다.
+`TestCase.mt8000_recall`은 Generation과 Band Group의 duplex를 함께 반영한다. 같은
+Generation Queue에서 적용된 Recall ID와 목표 ID가 달라지는 경우(FDD↔TDD)가 FSM의
+`RecallChange` 트리거다.
 
 ## 5. Lookup 테이블 3종
 

@@ -11,6 +11,7 @@
 | 검토 기준일 | 2026-08-24 (Asia/Seoul) |
 | Anchor/Command 계약 정정 | 2026-08-24 — MID/5 MHz/RB Size 1/RB Offset 0/QPSK, Band→UL/DL lookup, `DLCHAN` 전용 HO, LV 내부 NR Call helper 재사용 단일 composite 반영 |
 | 구현 상태 동기화 | 2026-08-31 — `H2026E014-41/44/45/43/42` 기준, RawData source·결과 lifecycle·FSM 준비·수동 선택 제거·회귀 검증 반영 |
+| Recall ID 정정 동기화 | 2026-09-03 — `H2026E014-47`, 코드 커밋 `0f475e7`, NR SA/NSA×FDD/TDD 네 ID와 `.PRM` 제외 계약 반영. 대상 `407 passed`, 기본 전체 `915 passed, 380 skipped` |
 | 초기 저장소 기준 | `main` / `7a80d3cdead2b46ac7f7f1fc4055a0ed1b8d31ca` |
 | 작업 트리 | 검토 시작 시 clean |
 | 검토 방식 | 코드, 문서, 테스트 코드, Git 이력의 정적 검토 |
@@ -159,7 +160,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 | 버전 | `README`, `pyproject.toml`, `app.__version__`은 여전히 `1.0.1`; 사용자는 v3.0 계획을 요청 | Jira `fixVersion`과 배포 버전 체계를 별도로 확인 |
 | NSA 상태 | 첫 NSA TC는 기존 `NR Call`, 연속 TC의 Anchor 변경은 `NSA Handover`, 같은 Anchor의 NR 설정 변경은 `NR Handover`로 라우팅 | 첫 Anchor는 외부 절차로 사전 준비하며 수동 확인 state나 런타임 검증을 두지 않음 |
 | LTE 상태 | 과거 UI 문서는 LTE 버튼 미결선으로 설명하지만 현재 코드는 LTE UI를 연결 | 코드 기준으로 완료/재사용 상태 처리 |
-| Recall 식별자 | 현재 NR 코드는 `SA_FDD/SA_TDD`, LTE 코드는 `LTE_FDD/LTE_TDD`; 과거 Spike 목록과 표현이 다름 | 현재 모델 값을 구현 기준선으로 유지하고 LV 전달 표현은 `Recall Change` interface contract에서 매핑한다. |
+| Recall 식별자 | NR은 `5GNR_SA_FDD/5GNR_SA_TDD/5GNR_NSA_FDD/5GNR_NSA_TDD`, LTE는 `LTE_FDD/LTE_TDD`를 사용 | `.PRM` 확장자 없이 모델 값을 `Recall Change` interface에 그대로 전달한다. |
 | NSA RawData | H2026E014-39에서 `A7=NR Band`, `B7=최초 Anchor Band` 기록과 writer 실행 단위 최초 값 유지 구현 | SRS v5와 report 문서 동기화 완료, 실제 LV 통합 인수에서 회귀 확인 |
 
 ## 4. 요청 범위 정상화
@@ -524,7 +525,7 @@ Prepare 중 Stop은 UI를 막지 않지만 이미 진행 중인 openpyxl/COM 호
 
 | 요청 | 현행 | Gap 및 영향 | 근거 |
 |---|---|---|---|
-| Recall ID 파생 | NR `SA_FDD/SA_TDD`, LTE `LTE_FDD/LTE_TDD` 존재 | 현재 모델 값을 기준선으로 사용하고 LV 전달 표현은 TCP/JSON Params 계약에서 매핑 | `src/app/models/band_group.py:31`, `src/app/models/lte_band_group.py:23` |
+| Recall ID 파생 | NR은 SA/NSA와 FDD/TDD를 조합한 네 ID, LTE는 `LTE_FDD/LTE_TDD` 사용 | `.PRM` 확장자 없는 모델 값을 TCP/JSON Params에 그대로 전달 | `src/app/models/band_group.py:31`, `src/app/models/lte_band_group.py:23` |
 | 변경 감지 | Band와 Recall이 함께 바뀔 때 `RecallChange` 예약 | 첫 실행 TC는 호출하지 않고 이후 목표 Recall ID 자체가 달라질 때만 예약하도록 수정 | `src/app/core/fsm/states/session.py:63` |
 | 첫 실행 TC | 별도 적용 상태 초기화 규칙 없음 | `start_index`를 반영한 첫 실행 TC의 Recall ID를 장비에 이미 적용된 세션 초기값으로 기록 | `src/app/core/fsm/context.py:40` |
 | 실제 Recall | 사용자 팝업 완료만 대기 | 신규 고수준 `Recall Change` facade/LV workflow와 실패 처리 필요 | `src/app/core/fsm/states/transition.py:225` |

@@ -1,5 +1,11 @@
 # 차기 버전 SRS 및 Jira 백로그
 
+> **문서 상태:** 이 문서는 2026-07-22 작성된 초기 기안 이력이다. 현행 v3.0 개발
+> 정본은 Confluence의 [CE Main Band Radiation Test Engine v3.0 소프트웨어 요구사항
+> 명세서(SRS)](https://hctste.atlassian.net/wiki/spaces/H2026E014/pages/18448386)를
+> 따른다. 본문의 Recall ID 파일명은 H2026E014-47 정정에 맞춰 동기화했지만, 첫 TC
+> Recall 등 lifecycle 정책이 현행 정본과 충돌하면 Confluence 정본을 우선한다.
+
 ## 1. 문서 개요
 
 | 항목 | 내용 |
@@ -68,14 +74,16 @@ CSV에는 ARFCN 채널 번호 열을 추가하지 않는다. 채널 번호와 Fr
 |---|---|---|
 | LTE | `lb`, `mhb_fdd` | `LTE_FDD` |
 | LTE | `mhb_tdd` | `LTE_TDD` |
-| NR_SA | 각 NR Band Group | 해당 Group의 `mt8000_recall` |
-| NR_NSA | 각 NR Band Group | 해당 Group의 `mt8000_recall` |
+| NR_SA | `lb`, `mhb_fdd` | `5GNR_SA_FDD` |
+| NR_SA | `mhb_tdd`, `uhb_tdd` | `5GNR_SA_TDD` |
+| NR_NSA | `lb`, `mhb_fdd` | `5GNR_NSA_FDD` |
+| NR_NSA | `mhb_tdd`, `uhb_tdd` | `5GNR_NSA_TDD` |
 
 #### 기능 요구사항
 
 | ID | 요구사항 | 인수 기준 |
 |---|---|---|
-| SRS-RCL-001 | 현재 Test Case의 Band Group에서 Recall 식별자를 조회한다. Group key와 식별자 문자열은 해석하지 않는다. | Band Group profile의 `mt8000_recall` 값을 그대로 사용한다. |
+| SRS-RCL-001 | 현재 Test Case의 Generation과 Band Group에서 Recall 식별자를 조회한다. Group key와 식별자 문자열은 해석하지 않는다. | NR은 Band Group의 Generation별 Recall 값을, LTE는 Band Group의 `mt8000_recall` 값을 그대로 사용한다. |
 | SRS-RCL-002 | 첫 Test Case에서 목표 Recall을 자동 적용한다. | 시험 시작 전 사용자의 MT8000A 수동 Recall 조작이 필요하지 않다. |
 | SRS-RCL-003 | 다음 Test Case의 Recall 식별자가 달라질 때만 Recall을 변경한다. | 같은 Recall 식별자가 이어지면 Recall을 다시 수행하지 않는다. |
 | SRS-RCL-004 | 활성 Call 상태에서 Recall이 변경되면 Call Stop → Parameter Recall → Call Start 순서로 제어한다. | 진행 중 Recall 변경에서 Call Stop 후 Recall하고 Call을 다시 시작한다. |
