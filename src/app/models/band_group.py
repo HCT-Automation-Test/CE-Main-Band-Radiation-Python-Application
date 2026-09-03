@@ -14,7 +14,8 @@ class BandGroupProfile:
 
     `test_ranges`는 그룹에서 사용하는 전역 Range 상수 목록이다.
     `sa_recall`은 Spectrum Analyzer(FSV40)에 로드할 preset/recall 이름이고,
-    `mt8000_recall`은 MT8000A recall 이름이다.
+    `mt8000_sa_recall`과 `mt8000_nsa_recall`은 Generation별 MT8000A
+    recall 이름이다.
     Switch Box filter 선택은 band group이 아니라 Range 정의에서 관리한다.
     Band 그룹 정의는 별도 JSON이 아니라 이 모듈의 상수로 유지한다.
     """
@@ -23,7 +24,8 @@ class BandGroupProfile:
     bands: tuple[int, ...]
     test_ranges: tuple[RangeId, ...]
     sa_recall: str
-    mt8000_recall: str
+    mt8000_sa_recall: str
+    mt8000_nsa_recall: str
     scs_khz: int
     turntable_speed: int
 
@@ -34,7 +36,8 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         bands=(5, 8, 20, 26, 28, 71),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_3),
         sa_recall="1G HPF",
-        mt8000_recall="SA_FDD",
+        mt8000_sa_recall="5GNR_SA_FDD",
+        mt8000_nsa_recall="5GNR_NSA_FDD",
         scs_khz=15,
         turntable_speed=5,
     ),
@@ -43,7 +46,8 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         bands=(1, 3, 7),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         sa_recall="3G HPF",
-        mt8000_recall="SA_FDD",
+        mt8000_sa_recall="5GNR_SA_FDD",
+        mt8000_nsa_recall="5GNR_NSA_FDD",
         scs_khz=15,
         turntable_speed=5,
     ),
@@ -52,7 +56,8 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         bands=(38, 40, 41),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_2, RangeId.RANGE_4),
         sa_recall="3G HPF",
-        mt8000_recall="SA_TDD",
+        mt8000_sa_recall="5GNR_SA_TDD",
+        mt8000_nsa_recall="5GNR_NSA_TDD",
         scs_khz=30,
         turntable_speed=3,
     ),
@@ -61,7 +66,8 @@ BAND_GROUPS: tuple[BandGroupProfile, ...] = (
         bands=(77, 78, 79),
         test_ranges=(RangeId.RANGE_1, RangeId.RANGE_5, RangeId.RANGE_6),
         sa_recall="6G HPF",
-        mt8000_recall="SA_TDD",
+        mt8000_sa_recall="5GNR_SA_TDD",
+        mt8000_nsa_recall="5GNR_NSA_TDD",
         scs_khz=30,
         turntable_speed=3,
     ),

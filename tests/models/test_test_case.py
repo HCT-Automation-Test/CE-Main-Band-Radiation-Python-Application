@@ -30,8 +30,11 @@ def _build_case(
     test_type: MeasurementTestType = MeasurementTestType.HARMONIC,
     rb_allocation: RBAllocation = RBAllocation.INNER_FULL,
     test_channel: ChannelEnum | str = ChannelEnum.MID,
+    generation: Generation = Generation.NR_SA,
 ) -> TestCase:
     return TestCase(
+        generation=generation,
+        anchor_band=LTEBand.B1 if generation is Generation.NR_NSA else None,
         band=band,
         bandwidth=bandwidth,
         test_type=test_type,
@@ -52,7 +55,7 @@ def test_test_case_instantiation() -> None:
     assert case.generation is Generation.NR_SA
     assert case.scs_khz == 30
     assert case.factor_keyword == "6G HPF"
-    assert case.mt8000_recall == "SA_TDD"
+    assert case.mt8000_recall == "5GNR_SA_TDD"
     assert case.turntable_speed == 3
     assert case.channel_number == 636666
     assert case.frequency_mhz == 3549.99
@@ -65,6 +68,32 @@ def test_test_case_instantiation() -> None:
     assert case.antenna_pol is AntennaPol.H
     assert case.dut_axis is DUTAxis.X
     assert case.dut_ant_position is DUTAntPosition.UPPER
+
+
+@pytest.mark.parametrize(
+    ("generation", "band", "bandwidth", "expected_recall"),
+    [
+        (Generation.NR_SA, NRBand.N7, 20.0, "5GNR_SA_FDD"),
+        (Generation.NR_SA, NRBand.N38, 20.0, "5GNR_SA_TDD"),
+        (Generation.NR_NSA, NRBand.N7, 20.0, "5GNR_NSA_FDD"),
+        (Generation.NR_NSA, NRBand.N38, 20.0, "5GNR_NSA_TDD"),
+    ],
+    ids=["sa-fdd", "sa-tdd", "nsa-fdd", "nsa-tdd"],
+)
+def test_nr_mt8000_recall_uses_generation_and_duplex(
+    generation: Generation,
+    band: NRBand,
+    bandwidth: float,
+    expected_recall: str,
+) -> None:
+    case = _build_case(
+        generation=generation,
+        band=band,
+        bandwidth=bandwidth,
+    )
+
+    assert case.mt8000_recall == expected_recall
+    assert "." not in case.mt8000_recall
 
 
 def test_test_case_csv_fieldnames_include_anchor_in_canonical_order() -> None:

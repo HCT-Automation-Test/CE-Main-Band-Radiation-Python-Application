@@ -78,7 +78,7 @@ Recall 적용, Call 재연결과 최종 Call Check를 내부에서 모두 처리
 
 ```jsonc
 // Request Params
-{"Recall Name": "NR_N78_SA.recall"}
+{"Recall Name": "5GNR_SA_TDD"}
 
 // Success
 {"type": "response", "id": "<same id>", "status": "ok", "Result": {"ok": true, "connected": true}}
@@ -86,6 +86,9 @@ Recall 적용, Call 재연결과 최종 Call Check를 내부에서 모두 처리
 // Failure
 {"type": "response", "id": "<same id>", "status": "error", "Error": {"message": "..."}}
 ```
+
+`Recall Name`에는 MT8000A Parameter Recall 파일명에서 `.PRM` 확장자를 제외한 값을
+전달한다.
 
 Python은 `Result.ok=true`를 요구하고 `Result.connected`를 Call 연결 결과로 사용한다.
 별도 `Check Call Status`는 호출하지 않는다. 연결 성공 후 현재 Test Case 설정은 기존

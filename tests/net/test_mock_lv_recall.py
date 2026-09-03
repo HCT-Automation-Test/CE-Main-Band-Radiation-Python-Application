@@ -19,12 +19,12 @@ def test_mock_recall_param_stores_name_and_restores_call_state(tmp_path) -> None
     server = MockLvServer(temp_dir=tmp_path)
 
     response = server._handle_request(
-        _recall_request({"Recall Name": "NR_N78_SA.recall"})
+        _recall_request({"Recall Name": "5GNR_SA_TDD"})
     )
 
     assert response.status == "ok"
     assert response.result == {"ok": True, "connected": True}
-    assert server.state.last_recall_name == "NR_N78_SA.recall"
+    assert server.state.last_recall_name == "5GNR_SA_TDD"
     assert server.state.call_connected is True
 
 
@@ -32,12 +32,12 @@ def test_mock_recall_param_reports_internal_call_disconnection(tmp_path) -> None
     server = MockLvServer(temp_dir=tmp_path, scenario="call-disconnected")
 
     response = server._handle_request(
-        _recall_request({"Recall Name": "NR_N78_SA.recall"})
+        _recall_request({"Recall Name": "5GNR_SA_TDD"})
     )
 
     assert response.status == "ok"
     assert response.result == {"ok": True, "connected": False}
-    assert server.state.last_recall_name == "NR_N78_SA.recall"
+    assert server.state.last_recall_name == "5GNR_SA_TDD"
     assert server.state.call_connected is False
 
 
@@ -47,7 +47,7 @@ def test_mock_recall_param_reports_internal_call_disconnection(tmp_path) -> None
         {},
         {"Recall Name": ""},
         {"Recall Name": 123},
-        {"Recall Name": "NR_N78_SA.recall", "Unexpected": True},
+        {"Recall Name": "5GNR_SA_TDD", "Unexpected": True},
     ],
 )
 def test_mock_recall_param_rejects_invalid_params_without_state_change(
@@ -55,7 +55,7 @@ def test_mock_recall_param_rejects_invalid_params_without_state_change(
     params: dict[str, object],
 ) -> None:
     server = MockLvServer(temp_dir=tmp_path)
-    server.state.last_recall_name = "previous.recall"
+    server.state.last_recall_name = "PREVIOUS_RECALL"
     server.state.call_connected = False
 
     response = server._handle_request(_recall_request(params))
@@ -63,20 +63,20 @@ def test_mock_recall_param_rejects_invalid_params_without_state_change(
     assert response.status == "error"
     assert response.result is None
     assert set(response.error) == {"message"}
-    assert server.state.last_recall_name == "previous.recall"
+    assert server.state.last_recall_name == "PREVIOUS_RECALL"
     assert server.state.call_connected is False
 
 
 def test_mock_recall_param_error_scenario_preserves_state(tmp_path) -> None:
     server = MockLvServer(temp_dir=tmp_path, scenario="recall-param-error")
-    server.state.last_recall_name = "previous.recall"
+    server.state.last_recall_name = "PREVIOUS_RECALL"
     server.state.call_connected = False
 
     response = server._handle_request(
-        _recall_request({"Recall Name": "NR_N78_SA.recall"})
+        _recall_request({"Recall Name": "5GNR_SA_TDD"})
     )
 
     assert response.status == "error"
     assert response.error == {"message": "Recall Param failed: equipment error"}
-    assert server.state.last_recall_name == "previous.recall"
+    assert server.state.last_recall_name == "PREVIOUS_RECALL"
     assert server.state.call_connected is False

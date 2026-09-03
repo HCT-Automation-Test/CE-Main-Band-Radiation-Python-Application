@@ -323,12 +323,12 @@ def test_setup_lte_mt8000_raises_on_error_response() -> None:
 def test_recall_param_sends_only_recall_name_and_returns_connected() -> None:
     client = _Client(_ok(ok=True, connected=True))
 
-    assert commands.recall_param(client, recall_name="NR_N78_SA.recall") is True
+    assert commands.recall_param(client, recall_name="5GNR_SA_TDD") is True
     assert client.calls == [
         (
             "MT8000A",
             "Recall Param",
-            {"Recall Name": "NR_N78_SA.recall"},
+            {"Recall Name": "5GNR_SA_TDD"},
         )
     ]
 
@@ -336,7 +336,7 @@ def test_recall_param_sends_only_recall_name_and_returns_connected() -> None:
 def test_recall_param_returns_false_when_lv_reports_disconnected() -> None:
     client = _Client(_ok(ok=True, connected=False))
 
-    assert commands.recall_param(client, recall_name="NR_N78_SA.recall") is False
+    assert commands.recall_param(client, recall_name="5GNR_SA_TDD") is False
 
 
 def test_recall_param_raises_when_internal_call_check_failed() -> None:
@@ -346,7 +346,7 @@ def test_recall_param_raises_when_internal_call_check_failed() -> None:
         commands.CommandError,
         match="MT8000A / Recall Param returned ok=false",
     ):
-        commands.recall_param(client, recall_name="NR_N78_SA.recall")
+        commands.recall_param(client, recall_name="5GNR_SA_TDD")
 
 
 def test_recall_param_raises_default_error_message() -> None:
@@ -359,7 +359,7 @@ def test_recall_param_raises_default_error_message() -> None:
     )
 
     with pytest.raises(commands.CommandError, match="recall file not found"):
-        commands.recall_param(client, recall_name="missing.recall")
+        commands.recall_param(client, recall_name="MISSING_RECALL")
 
 
 def test_recall_param_propagates_transport_timeout() -> None:
@@ -374,7 +374,7 @@ def test_recall_param_propagates_transport_timeout() -> None:
             raise TimeoutError("Recall Param timeout")
 
     with pytest.raises(TimeoutError, match="Recall Param timeout"):
-        commands.recall_param(_TimeoutClient(), recall_name="NR_N78_SA.recall")
+        commands.recall_param(_TimeoutClient(), recall_name="5GNR_SA_TDD")
 
 
 def test_lte_call_handover_sends_params() -> None:

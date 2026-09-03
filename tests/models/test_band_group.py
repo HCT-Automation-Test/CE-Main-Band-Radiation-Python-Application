@@ -48,7 +48,8 @@ def test_resolve_range_id_unknown_band() -> None:
 def test_find_band_group_returns_expected_profile() -> None:
     group = find_band_group(NRBand.N78)
     assert group.sa_recall == "6G HPF"
-    assert group.mt8000_recall == "SA_TDD"
+    assert group.mt8000_sa_recall == "5GNR_SA_TDD"
+    assert group.mt8000_nsa_recall == "5GNR_NSA_TDD"
     assert group.scs_khz == 30
     assert group.turntable_speed == 3
     assert group.test_ranges == (RangeId.RANGE_1, RangeId.RANGE_5, RangeId.RANGE_6)

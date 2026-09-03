@@ -756,9 +756,28 @@ def test_nsa_handover_timeout_routes_to_nr_call_disconnected() -> None:
     ]
 
 
-def test_recall_change_uses_recall_response_without_separate_call_check() -> None:
-    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
-    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+@pytest.mark.parametrize(
+    ("generation", "expected_recall"),
+    [
+        (Generation.NR_SA, "5GNR_SA_TDD"),
+        (Generation.NR_NSA, "5GNR_NSA_TDD"),
+    ],
+    ids=["sa", "nsa"],
+)
+def test_recall_change_uses_generation_recall_without_separate_call_check(
+    generation: Generation,
+    expected_recall: str,
+) -> None:
+    prev_case = _make_case(
+        generation=generation,
+        band=NRBand.N7,
+        bandwidth=20.0,
+    )
+    current_case = _make_case(
+        generation=generation,
+        band=NRBand.N38,
+        bandwidth=20.0,
+    )
     ctx, commands, events, client = _make_ctx(
         current_case,
         queue=[prev_case, current_case],
@@ -772,11 +791,11 @@ def test_recall_change_uses_recall_response_without_separate_call_check() -> Non
 
     assert result is StateResult.OK
     assert commands.recall_calls == [
-        (client, {"recall_name": current_case.mt8000_recall})
+        (client, {"recall_name": expected_recall})
     ]
     assert commands.call_status_calls == []
     assert commands.call_sequence == ["recall_param"]
-    assert ctx.last_applied_recall_id == current_case.mt8000_recall
+    assert ctx.last_applied_recall_id == expected_recall
     assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) == "NRCallConnect"
     assert ctx.pending_transition_states == []

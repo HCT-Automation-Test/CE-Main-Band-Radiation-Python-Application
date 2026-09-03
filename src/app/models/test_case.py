@@ -222,7 +222,10 @@ class TestCase:
     def mt8000_recall(self) -> str:
         if self.generation is Generation.LTE:
             return find_lte_band_group(self.band).mt8000_recall
-        return find_band_group(self.band).mt8000_recall
+        group = find_band_group(self.band)
+        if self.generation is Generation.NR_NSA:
+            return group.mt8000_nsa_recall
+        return group.mt8000_sa_recall
 
     @property
     def turntable_speed(self) -> int:
