@@ -58,11 +58,11 @@ v3.0은 다음 세 Epic 후보로 정리할 수 있다.
 
 1. NSA 정식 지원
 2. 시험 운영 편의 개선
-3. Standalone Manual Test
+3. Manual Test
 
-개발 우선순위는 **NSA 정식 지원이 1순위**다. 현재 확정사항으로 NSA SRS와 Jira 백로그를 작성할 수 있다. Standalone Manual Test의 command/payload/workflow 세부 계약은 확정 정책대로 Manual Test 개발 착수 시 해당 구현 Issue 안에서 Refinement한다.
+사용자 일정 기준으로 NSA 정식 지원과 시험 운영 편의 개선은 테스트 대기 중이며, 현재 다음 계획 대상은 Manual Test다. Manual Test의 제품 요구사항은 4.4를 기준으로 하고, command명·payload·Python/LV 책임 경계는 후속 Interface Contract에서 확정한다.
 
-NSA 우선 개발의 주요 작업축은 다음 두 가지다.
+NSA Track의 주요 작업축은 다음 두 가지다.
 
 1. NSA TestCase의 Anchor Band property·CSV·결과 매핑
 2. 확정된 MT8000A 고수준 workflow의 TCP/JSON 계약을 구현하고 terminal 상태 polling을 벤치에서 검증
@@ -81,9 +81,9 @@ EUT 기반 RawData 파일 lifecycle은 H2026E014-41/44/45/43/42에서 구현·�
 | TDF | Band Group 기반 자동 적용 구현 | 기존 동작 유지 |
 | MT8000A Recall | 식별자 파생과 TC 간 변경 감지는 존재하나 실제 변경은 수동 팝업 | 첫 실행 TC의 Recall ID를 세션 초기값으로 간주하고 이후 ID 변경 시에만 고수준 Recall Change 수행 |
 | RawData | EUT Name 기반 자동 생성·재사용, FSM worker 준비와 Excel live monitoring 구현 | 실제 장비 없이 완료 가능한 회귀·패키징 검증 완료 |
-| Manual Marker | 자동시험 FSM에 결합된 수동 마커 다이얼로그 존재 | Standalone Manual Test와는 별개이며 일부 UI/명령만 재사용 |
-| Manual Test | 내비게이션과 빈 패널만 존재 | SA/Marker/Turntable/Mast/Semi Auto/Capture 전체 개발 |
-| Range | Range 1~6의 완전한 장비 설정 모델 | Range 7~9는 v3.0 필수 범위에서 제외하며 후속 요구가 생길 때 다시 판단 |
+| 자동시험의 Manual Marker | 자동시험 FSM에 결합된 수동 마커 다이얼로그 존재 | Manual Test와는 별개이며 일부 UI/명령만 재사용 |
+| Manual Test | 내비게이션과 빈 패널만 존재 | FSV40 설정·Sweep/Marker/Turntable/Mast/Semi Auto/Capture 개발 |
+| Range | Range 1~6의 정식 TestCase 설정 모델 | Manual Test preset에 Range 7~9를 추가하되 정식 TestCase 매핑에는 사용하지 않음 |
 | 실제 LV | 실행 파일만 있고 소스는 저장소에 없음 | Python Issue와 별도 LV Issue 및 벤치 검증 필요 |
 
 ### 2.2 이번 검토에서 확정된 정책
@@ -99,10 +99,12 @@ EUT 기반 RawData 파일 lifecycle은 H2026E014-41/44/45/43/42에서 구현·�
 | POL-MT-04 | 외부 API 경계는 기존 `NR Call`, 신규 `NSA Handover`, 신규 `Recall Change`, 기존 `Check Call Status`의 의미 기반 workflow다. | LV helper는 매 단계 `REM_DEST`를 명시한다. `NSA Handover`는 Default Response를 사용하고 Python은 최종 `status`만 판정한다. |
 | POL-RAW-01 | RawData 결과 파일의 논리 경로는 `{EUT 결과 기준 root}/{EUT Name}/{EUT Name}_CE Main_Radiation_{NR\|LTE}.xlsx`다. `NR` 파일은 NR SA/NSA에, `LTE` 파일은 LTE에 사용한다. | 개발 root=`~/Desktop`, frozen root=EXE 폴더. EUT Name은 resolver에서 안전성을 검증한다. |
 | POL-RAW-02 | NR SA/NSA source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | 두 asset은 Git 추적 및 PyInstaller 포함·위치·시트·SHA-256 검증 완료. |
-| POL-MAN-01 | 자동시험과 Standalone Manual Test의 장비 조작에는 Filter Box와 동일한 배타 정책을 적용한다. 한쪽이 장비 operation을 소유하는 동안 다른 쪽의 장비 조작은 시작할 수 없다. | 경쟁 장비 command 미전송과 busy 안내를 Acceptance Criteria에 포함한다. 기존 guard 확장 또는 신규 coordinator 여부는 설계에서 정한다. |
-| POL-MAN-02 | Range 7~9 세부사항은 이번 v3.0 계획에서 고려하지 않는다. 필요하지 않으면 Range 모델과 Manual preset에 추가하지 않아도 된다. | Range 7~9 구현 Issue는 생성하지 않는다. 추후 WCDMA/GSM 또는 Manual 요구가 생기면 별도 Refinement한다. |
-| POL-MAN-03 | Screenshot 목록에는 현재 앱 실행 세션에서 성공적으로 생성된 파일만 최신순으로 표시한다. | 시작 시 저장 폴더 전체를 스캔하지 않는다. 해당 세션에서 생성되지 않은 기존 파일은 목록에 넣지 않는다. |
-| POL-PRIO-01 | Manual Test 명령명, payload, Python workflow, LV 복합 명령 단위 등 상세 계약은 Manual Test 개발 시 논의해 확정하며, NSA 개발을 우선한다. | 현재의 제품 미결정이나 NSA blocker로 관리하지 않고 Manual 구현 Issue의 Refinement 범위로 둔다. |
+| POL-MAN-01 | Manual Test 기능은 장비 연결 상태로 활성화하며 TestCase·Call·Filter 설정과 관계없이 사용할 수 있다. 장비 조작에는 Filter Box와 동일한 배타 정책을 적용한다. | 경쟁 장비 command는 보내지 않고 busy 상태를 알린다. 진행 중인 Manual operation의 Stop은 잠금 중에도 허용한다. |
+| POL-MAN-02 | Manual Test의 FSV40 preset은 Range 1~9를 제공한다. Range 7~9는 Start/Stop Frequency와 RBW/VBW만 정의하며 정식 TestCase Range 매핑에는 사용하지 않는다. | Range 7~9의 미확정 속성을 임의로 만들지 않고 Manual preset 범위에만 반영한다. |
+| POL-MAN-03 | Capture는 사용자가 저장 폴더와 기준 파일명을 지정한다. 기존 파일은 덮어쓰지 않으며, 성공한 파일만 현재 앱 실행 세션의 목록에 최신순으로 표시한다. | Single/N-Capture의 사전 충돌 확인과 경고, 부분 성공 보존을 Acceptance Criteria에 포함한다. 저장 폴더 전체는 스캔하지 않는다. |
+| POL-MAN-04 | Detector Mode는 확정된 9종을 제공하고 기본값은 `RMS`로 한다. `Next Peak Search Level`은 기존 Marker command의 `Excursion`으로 사용한다. UI는 명백한 입력 오류만 차단하며 장비별 상세 제한은 LV/FSV40 오류로 처리한다. | FSV40 상세 허용 범위를 UI에 임의로 고정하지 않고 기존 Marker parameter mapping을 재사용한다. |
+| POL-MAN-05 | Saturation Time은 FSV40 설정에서 입력하고 Set으로 적용한다. Semi Auto는 별도로 입력받지 않고 적용된 값만큼 Continuous Sweep 후 대기한다. 초기 기준점은 `현재 각도 <= 180° → 0°`, `> 180° → 360°`, 속도 6으로 정렬하며 전 과정에서 Stop할 수 있다. | Stop 후 남은 단계를 실행하지 않으며 회전 중이면 Turntable을 정지한다. |
+| POL-PRIO-01 | Manual Test의 제품 동작은 4.4로 확정한다. command명·payload·Python workflow·LV 복합 명령 단위는 후속 Interface Contract에서 확정한다. | 확정된 UX를 Refinement 대상으로 되돌리지 않는다. 기술 계약만 후속 작업으로 관리한다. |
 
 RawData filename의 `*` 표기는 Markdown 강조 기호로 해석했으며 실제 파일명 문자로 사용하지 않았다. 이 문서의 canonical filename은 `{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx`다.
 
@@ -117,7 +119,7 @@ H2026E014-41/44/45/43/42에서 구현·검증 완료됐으며 추가 Discovery I
   경로 안전성, 파일 열림·손상, resource lookup, FSM/UI와 packaging은
   H2026E014-41/44/45/43/42에서 검증됐다.
 
-실제 TCP/JSON 명칭·필드, LV helper 순서, timeout·polling·retry 수치와 파일 처리 알고리즘은 관련 구현 Issue의 interface contract·subtask·DoD로 관리한다. 성공 판정은 확정된 terminal 상태 polling을 사용하며 별도의 stable-state 요구는 만들지 않는다. Manual Test 상세 계약은 확정 정책대로 Manual Test 착수 시 관련 구현 Issue에서 Refinement한다.
+실제 TCP/JSON 명칭·필드, LV helper 순서, timeout·polling·retry 수치와 파일 처리 알고리즘은 관련 구현 Issue의 interface contract·subtask·DoD로 관리한다. 성공 판정은 확정된 terminal 상태 polling을 사용하며 별도의 stable-state 요구는 만들지 않는다. Manual Test는 4.4의 제품 요구사항을 사용하고 command명·payload·Python/LV 책임 경계만 후속 Interface Contract에서 확정한다.
 
 SRS와 Jira Acceptance Criteria는 자동 수행 여부, 최종 상태, 결과 파일, 실패 응답처럼 외부에서 확인 가능한 결과를 기준으로 작성한다.
 
@@ -149,7 +151,7 @@ Python은 UI, orchestration, 파일 관리와 결과 작성을 담당한다. 장
 - Semi Auto는 Single Sweep와 자동 Screenshot을 수행하지 않으며, 완료 후 Max Hold를 유지한다.
 - `NR_SA`, `NR_NSA`, `LTE`가 섞인 실행 Queue는 시험 시작 단계에서 차단한다.
 - Manual 장비 operation과 자동시험 장비 operation은 Filter Box와 같은 배타 정책을 적용한다.
-- Range 7~9는 v3.0 필수 범위가 아니며 현재 Range 모델에 추가하지 않아도 된다.
+- Range 7~9는 Manual Test preset에만 포함하고 정식 TestCase Range 매핑에는 추가하지 않는다.
 - WCDMA/GSM Test Case와 자동시험 구현은 이번 범위가 아니다.
 - `src/app/ui/generated/**`는 직접 수정하지 않는다. 이번 대상 화면은 현재 Python 코드로 동적 구성된다.
 
@@ -307,34 +309,37 @@ Python은 `Anchor Band`를 고정 MID/5 MHz 기준의 목표 UL/DL Channel로 lo
 
 과거 v2 문서의 “첫 TestCase Recall 자동 적용”과 단순 `Call Stop → Recall → Call Start` 순서는 이번 4.2 확정사항으로 대체한다. Recall 문자열을 프로그램이 해석하지 않는 불투명 식별자로 다루는 원칙은 유지하되, 과거 Recall ID 목록은 현재 코드와 충돌하므로 그대로 복사하지 않는다.
 
-### 4.4 Standalone Manual Test
+### 4.4 Manual Test
 
 #### 장비별 활성화
 
 | 기능 | 활성 조건 |
 |---|---|
-| SA 설정, Sweep, Marker, Capture | `FSV40 == connected` |
+| FSV40 설정, Sweep, Marker, Capture | `FSV40 == connected` |
 | Turntable 및 3m Mast | `CO3000 == connected` |
 | 1m Mast | `3D Controller == connected` |
 | Semi Auto | `FSV40 == connected` 그리고 `CO3000 == connected` |
 
-TestCase 존재 여부, Call 상태, Switch Box Filter 설정은 위 capability 판정에 사용하지 않는다.
+각 기능은 위 장비 연결 조건을 충족하면 TestCase 존재 여부, Call 상태, Switch Box Filter 설정과 관계없이 사용할 수 있다.
 
-다만 기능이 활성 상태여도 장비 operation 실행 권한은 별도다. 자동시험이 장비를 조작 중이면 Manual 장비 action을 시작할 수 없고, Manual operation 중에는 자동시험을 시작할 수 없다. 이 배타 동작은 기존 Filter Box의 동시 조작 방지 정책과 같은 방식으로 사용자에게 busy 상태를 알린다.
+장비 조작에는 기존 Filter Box와 같은 배타 정책을 적용한다. 다른 장비 operation이 진행 중이면 Manual 장비 조작을 시작하지 않고 busy 상태를 알리며, Manual operation 중에는 다른 장비 operation을 시작할 수 없다. 잠금 중에도 현재 Manual operation의 Stop은 허용한다. 입력 편집과 저장된 Screenshot 열람처럼 장비 command를 발생시키지 않는 동작은 허용한다.
 
-#### SA 설정과 Sweep
+#### FSV40 설정과 Sweep
 
-- Frequency Range preset을 선택한다.
-- `Custom On`이면 Start/Stop Frequency, RBW, VBW를 직접 입력한다.
-- Sweep Point, Sweep Time, Saturation Time, Attenuation, Det Mode, Line Limit를 직접 입력한다.
-- Det Mode 기본값은 RMS다.
+- Frequency Range preset은 Range 1~9를 사용한다.
+- `Custom Off`에서는 선택한 Range의 Start/Stop Frequency, RBW, VBW를 사용하고, `Custom On`에서는 네 값을 직접 입력한다.
+- Sweep Point, Sweep Time, Saturation Time, Attenuation, Detector Mode, Line Limit를 직접 입력한다.
+- Detector Mode는 `Auto Peak`, `Positive Peak`, `Negative Peak`, `Sample`, `RMS`, `Average`, `Quasipeak`, `CISPR Average`, `RMS Average`를 제공하며 기본값은 `RMS`다.
 - Preset 버튼은 LabVIEW를 통해 FSV40 `*RST`를 수행한다.
-- Set 버튼은 입력 설정을 적용한다.
+- Set 버튼은 Saturation Time을 포함한 입력 설정을 적용한다.
 - Single Sweep와 Continuous Sweep를 제공한다.
+
+필수값 누락, 숫자 형식 오류, Start Frequency가 Stop Frequency 이상인 경우, 음수 주파수나 0 이하의 RBW/VBW처럼 명백한 입력 오류만 UI에서 차단한다. FSV40의 상세 허용 범위와 option·설정 조합 제약은 UI에 별도로 고정하지 않고 LV/FSV40 오류를 사용자에게 표시한다.
 
 #### Marker
 
 - Target Marker를 선택한다.
+- Next Peak Search Level을 입력하며 기존 Marker command의 `Excursion` 값으로 사용한다.
 - Peak, Next Peak, Marker OFF, ALL Marker OFF를 제공한다.
 - 선택 Marker의 Auto Peak ON/OFF를 제공한다.
 - 선택 Marker의 주파수를 Center Frequency로 설정하는 Mkr→Center를 제공한다.
@@ -349,24 +354,27 @@ TestCase 존재 여부, Call 상태, Switch Box Filter 설정은 위 capability 
 
 #### Semi Auto
 
+Semi Auto 실행 시 Saturation Time을 다시 입력받지 않고 마지막 Set으로 적용된 값을 사용한다.
+
 ```text
 현재 각도 조회
-→ 가까운 0°/360°로 속도 6 초기 정렬
+→ 현재 각도가 180° 이하면 0°, 초과면 360°로 속도 6 초기 정렬
 → Clear Write
 → Max Hold
 → Continuous Sweep
+→ Set으로 적용된 Saturation Time 대기
 → 입력 속도로 반대 기준점까지 한 바퀴 회전
 → Max Hold 유지
 ```
 
-Single Sweep와 자동 Screenshot은 수행하지 않는다.
+Semi Auto 전 과정에서 Stop할 수 있다. Stop하면 이후 단계를 실행하지 않고, Turntable 회전 중이면 회전을 정지한다. Single Sweep와 자동 Screenshot은 수행하지 않으며 정상 완료 후 Max Hold를 유지한다.
 
 #### Screenshot Capture
 
-- Single Capture는 지정 PNG가 이미 있으면 저장하지 않고 경고한다.
-- N-Capture는 Interval과 N Shots를 입력받는다.
-- N-Capture 파일명은 `_001`, `_002`, ... 순번을 사용한다.
-- 생성 예정 파일 중 하나라도 있으면 Capture 전체를 시작하지 않는다.
+- 사용자는 저장 폴더와 기준 파일명을 지정하며 결과 형식은 PNG다.
+- Single Capture는 현재 FSV40 화면을 `{기준 파일명}.png`로 저장한다. 같은 파일이 있으면 저장하지 않고 경고한다.
+- N-Capture는 Interval과 N Shots를 입력받고 `{기준 파일명}_001.png`, `{기준 파일명}_002.png`, ... 순으로 저장한다.
+- 생성 예정 파일 중 하나라도 있으면 경고하고 Capture 전체를 시작하지 않는다.
 - 첫 Capture 후 각 다음 Capture까지 `Clear Write → Max Hold → Interval Wait → Capture`를 반복한다.
 - 중간 실패 시 이후 작업을 중단하고 이미 성공한 파일은 유지한다.
 - 성공한 Screenshot을 최신순 목록에 추가하고 선택 이미지를 표시한다.
@@ -374,7 +382,13 @@ Single Sweep와 자동 Screenshot은 수행하지 않는다.
 
 #### Range 7~9
 
-Range 7~9는 v3.0 필수 개발 범위에서 제외한다. 기존에 제시된 WCDMA/GSM용 후보값은 향후 요구를 위한 참고 정보로만 보존하고, 이번 명세와 Jira에는 Range 모델/preset 추가를 요구하지 않는다. 향후 WCDMA/GSM 또는 Manual Test에서 필요해질 때 나머지 속성과 함께 별도 Refinement한다.
+| Range | Start Frequency | Stop Frequency | RBW | VBW |
+|---|---:|---:|---:|---:|
+| 7 | 1000 MHz | 3000 MHz | 0.1 MHz | 0.3 MHz |
+| 8 | 1000 MHz | 4000 MHz | 3 MHz | 3 MHz |
+| 9 | 3000 MHz | 4000 MHz | 3 MHz | 3 MHz |
+
+Range 7~9는 Manual Test preset에 포함하지만 정식 TestCase Range 매핑에는 사용하지 않는다. 위 네 값 이외의 Range 속성은 이번 요구사항에서 임의로 정의하지 않는다.
 
 ## 5. NSA 정식 지원: 현행과 Gap
 
@@ -575,20 +589,21 @@ N-Capture interval, Turntable event 대기, Semi Auto 다단계와 파일 I/O가
 | Start/Stop/RBW/VBW/Sweep Point/Limit | `setup_sa()` | 부분 재사용 |
 | Attenuation | `setup_sa_startup_levels()` | 부분 재사용 |
 | Sweep Time | precision 측정용 명령만 존재 | 신규 일반 계약 필요 |
+| Saturation Time | 자동시험의 실행 설정과 Python 대기값 | Manual Set 적용과 Semi Auto 재사용 필요. 저장·전달 책임은 Interface Contract 대상 |
 | Screenshot | `get_screenshot()` 요청 후 LV가 `temp/screenshot.png`를 생성하는 계약 | 재사용 가능하나 저장 workflow 신규 |
 | Peak/Next/OFF/ALL OFF | 기존 marker facade | 재사용 가능 |
 | Turntable move/stop/angle | 기존 CO3000 facade | 재사용 가능 |
 | 1m/3m Horn/Bilog 편파 | `set_antenna_pol()`과 Mast Index mapping | 재사용 가능 |
-| FSV `*RST` Preset | 없음 | 신규 LV/Python command |
+| FSV40 `*RST` Preset | 없음 | 신규 LV/Python command |
 | Single/Continuous Sweep | 없음 | 신규 LV/Python command |
 | Clear Write/Max Hold | 없음 | 신규 LV/Python command |
-| Det Mode | 없음 | 신규 모델/command |
+| Detector Mode | 없음 | 신규 모델/command |
 | Marker Auto Peak | 없음 | 신규 LV/Python command |
 | Mkr→Center | 없음 | 신규 LV/Python command |
 
-관련 command 근거는 `src/app/net/commands.py:494-765`다.
+관련 command 근거는 `src/app/net/commands.py:494-901`다.
 
-현행 Peak/Next/OFF facade는 모두 `Marker Index`와 `Excursion` payload를 요구하지만 신규 Standalone UI 입력에는 Excursion이 없다. 기존 Manual Marker는 Marker 1~10과 Next Peak Search Level을 제공한다. Standalone 구현 시 UI 요구를 유지하면서 실제 payload를 맞추는 adapter/interface contract를 관련 Manual Story 안에서 작성한다. 이를 현재 제품 결정으로 올리지 않는다.
+기존 Manual Marker의 `Next Peak Search Level` 입력은 Peak/Next/OFF facade의 `Excursion` payload로 전달된다. Manual Test도 이 입력과 기존 parameter mapping을 재사용한다. Marker Auto Peak와 Marker to Center만 신규 command 계약 대상이다.
 
 현재 Mast mapping은 다음과 같아 내부 adapter로 재사용할 수 있다.
 
@@ -609,9 +624,11 @@ Manual domain에서는 사용자가 Filter Path를 선택하는 것으로 오해
 - 초기 정렬 속도 6
 - 중단 시 Turntable Stop
 
+Manual Test는 FSV40 설정에서 입력해 Set으로 적용한 Saturation Time을 Semi Auto에서 별도 입력 없이 재사용한다.
+
 관련 로직은 `src/app/core/fsm/states/measurement/common.py:289-568`에 있다. 이 state는 SessionContext와 TestCase에 결합되어 있으므로 Manual Test에서 직접 호출하지 않고 알고리즘과 event handling을 Manual service로 재구성한다.
 
-현행 가까운 기준점 규칙을 재사용하므로 정확히 180°일 때는 현재 알고리즘대로 0°를 선택한다. initial align/본 회전 timeout, Stop 반응, 실패 시 안전 상태와 회전 완료 event correlation은 `MAN-09`의 구현·검증 범위이며 별도 제품 결정으로 만들지 않는다.
+기존 `InitialTurntableZeroState`에는 `현재 각도 <= 180° → 0°`, `현재 각도 > 180° → 360°`, 초기 속도 6 규칙이 구현·검증되어 있다. Manual Test는 이 판정 규칙을 그대로 재사용한다. timeout, 실패 시 안전 상태와 회전 완료 event correlation만 `MAN-09`의 구현·검증 범위로 둔다.
 
 ### 7.4 Single/N-Capture와 목록
 
@@ -631,9 +648,9 @@ Manual Capture에는 최소한 다음 처리가 필요하다.
 
 ### 7.5 Range 7~9
 
-Range 7~9는 v3.0 필수 범위에서 제외됐으므로 현행 `TestRange`, `ALL_TEST_RANGES`, Test Manager의 Range 확인 표를 변경하지 않아도 된다. 이에 대한 구현 Story나 모델 의사결정도 이번 백로그에 만들지 않는다.
+현행 `TestRange`는 Range 1~6만 정의하며 limit, sweep point, input path, filter mode까지 필수로 요구한다: `src/app/models/test_range.py:52`. Range 7~9는 4.4의 네 FSV40 값만 확정됐으므로 Manual preset에는 추가하되 정식 TestCase의 Band×TestType Range 매핑과 Test Manager의 TestCase Range 표시에는 추가하지 않는다.
 
-향후 요구가 다시 생기면 현재 `TestRange`가 limit, sweep point, input path, filter mode를 모두 필수로 요구한다는 제약부터 재검토해야 한다: `src/app/models/test_range.py:52`. 이 메모는 후속 WCDMA/GSM 또는 Manual Refinement용이며 v3.0 Acceptance Criteria가 아니다.
+Manual preset 표현을 별도로 둘지 기존 Range 표현을 분리할지는 구현 설계에서 결정한다. 어느 방식을 사용하더라도 Range 7~9의 미확정 속성에 임의 값을 채우지 않는다.
 
 ### 7.6 자동시험과 Manual Test 동시성
 
@@ -668,9 +685,11 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 | DEC-RAW-01 | 결과 경로와 filename은 `POL-RAW-01`을 따른다. | H2026E014-44/43에서 구현 완료. |
 | DEC-RAW-02 | NR source는 `resources/templates/NR_Rawdata_.xlsx`, LTE source는 `resources/templates/_CE MAIN Radiation Auto Test Rawdata(3G,4G).xlsx`다. | H2026E014-41/42에서 추적·dev/frozen lookup·패키징 검증 완료. |
 | DEC-MAN-01 | Filter Box와 같은 전역 배타 장비 operation 정책을 적용한다. | 경쟁 command 차단과 busy 안내를 고정 입력으로 사용하고 구현 방식은 설계에서 정한다. |
-| DEC-MAN-03 | Screenshot 목록은 현재 앱 실행 세션에서 성공한 파일만 표시한다. | 폴더 전체 scan 요구를 제거한다. |
-| DEC-MAN-04 | Range 7~9는 v3.0 필수 범위에서 제외한다. | Range 7~9 구현 Story를 만들지 않는다. |
-| DEC-PLAN-01 | NSA를 먼저 개발하고 Manual 상세 command/workflow 계약은 Manual 착수 시 확정한다. | Manual 구현 Issue의 Refinement 범위로 두고 NSA 선행 조건으로 연결하지 않는다. |
+| DEC-MAN-02 | FSV40 preset은 Range 1~9를 사용하고 Detector Mode 9종을 제공하며 기본값은 `RMS`다. `Next Peak Search Level`은 기존 `Excursion` parameter로 사용한다. | 명백한 입력 오류만 UI에서 차단하고 장비별 상세 제한은 LV/FSV40 오류로 처리하며 기존 Marker mapping을 재사용한다. |
+| DEC-MAN-03 | Capture는 저장 폴더와 기준 파일명을 입력받고 기존 파일을 덮어쓰지 않는다. Screenshot 목록은 현재 앱 실행 세션의 성공 파일만 표시한다. | Single/N-Capture 충돌 경고, N-Capture 순번, 부분 성공 보존과 최신순 목록을 적용한다. |
+| DEC-MAN-04 | Range 7~9는 확정된 Start/Stop Frequency와 RBW/VBW로 Manual preset에 포함하되 정식 TestCase Range에는 매핑하지 않는다. | 미확정 Range 속성은 추가하지 않고 기존 Manual 설정 Story에서 처리한다. |
+| DEC-MAN-05 | Saturation Time은 FSV40 설정의 Set으로 적용한다. Semi Auto는 별도 입력 없이 적용된 값을 사용하고 `현재 각도 <= 180° → 0°`, `> 180° → 360°`, 속도 6으로 초기 정렬하며 전 과정에서 Stop할 수 있다. | Continuous Sweep 후 적용값만큼 대기한다. Stop 후 남은 단계는 실행하지 않고 회전 중이면 Turntable을 정지한다. |
+| DEC-PLAN-01 | Manual Test의 제품 요구사항은 4.4로 확정하고 기술 인터페이스만 후속 계약으로 남긴다. | command명·payload·Python/LV 책임 경계를 Interface Contract에서 확정한다. |
 
 ### 8.2 추가 제품 결정 상태
 
@@ -683,7 +702,7 @@ H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결�
 | 첫 NSA TC 연결 순서 | `NSA-05` | 목표 Anchor가 사전 준비됐다고 간주하고 기존 `NR Call` 사용 |
 | Recall+Anchor 동시 변경 내부 순서 | `RCL-02-LV` | 목표 Recall·Anchor 적용 후 NSA 최종 연결 상태 복구 |
 | Anchor CSV 필드와 결과 cell mapping | `NSA-01`, `NSA-06` | NSA TC에 Anchor 필수, 결과는 NR Band 옆 셀에 `B*` 형식으로 기록 |
-| Manual command/API/UX 세부 계약 | 각 `MAN-*` 구현 Issue | Manual Test 착수 시 확정 요구사항을 만족하도록 Refinement |
+| Manual command·payload·Python/LV 책임 경계 | Manual Test Interface Contract | 4.4의 확정 요구사항을 바꾸지 않는 기술 계약으로 작성 |
 
 ### 8.3 구현 Issue의 기술 설계·검증 산출물
 
@@ -692,7 +711,7 @@ H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결�
 | MT8000A TCP/JSON command·Params·응답 계약 | `NSA-04-PY/LV`, `RCL-02-PY/LV` | 고수준 workflow 경계와 command별 Default Response/오류 계약을 정의 |
 | timeout·polling·retry 값과 벤치 결과 | `NSA-04-LV`, `RCL-02-LV`, 통합 인수 | 무한 대기 없이 terminal 상태 또는 명시적 실패로 종료되도록 구현·검증 |
 | RawData resolver와 배포 resource 검증(완료) | `H2026E014-41/44/45/43/42` | dev/frozen source, copy/reuse 실패, FSM/UI와 패키징 결과 검증 완료 |
-| Manual Test interface contract | 관련 `MAN-*` Python/LV Issue | NSA 개발 이후 Manual Test 착수 시 구현팀과 함께 Refinement |
+| Manual Test Interface Contract | 관련 `MAN-*` Python/LV Issue | command명·payload·Result/Error와 Python/LV workflow 책임을 구현 전에 합의 |
 
 위 항목은 독립적인 ‘결정용 Issue’가 아니다. 구현에 별도 실장비 검증이 필요하면 해당 Story의 subtask 또는 DoD로 관리한다. terminal 성공은 4.2의 최종 상태 polling으로 판정하며, 근거 없는 추가 유지 시간 기준은 요구하지 않는다.
 
@@ -700,10 +719,10 @@ H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결�
 
 - MT8000A 외부 경계는 의미 기반 고수준 LV workflow로 확정됐다. Python FSM은 LV helper primitive의 순서를 직접 제어하지 않는다.
 - 각 LV workflow는 단계마다 `REM_DEST`를 명시하고 terminal 상태를 polling한다. `NSA Handover`의 외부 응답 판정은 `DEC-MT-03`을 따른다.
-- Manual의 N-Capture/Semi Auto Python workflow와 LV 복합 명령 경계는 Manual Refinement에서 결정한다.
+- Manual의 N-Capture/Semi Auto Python workflow와 LV 복합 명령 경계는 Manual Test Interface Contract에서 결정한다.
 - v3.0 장비 동시성 정책은 전역 배타 동작으로 확정하되 기존 guard 확장과 신규 coordinator 중 구현 방식은 설계에서 정한다.
-- Range 7~9는 이번 백로그에서 제외한다.
-- Manual Capture의 기존 파일 충돌 시 시작 금지 정책은 유지하되 세부 file contract는 Manual Refinement에서 확정한다.
+- Range 7~9는 Manual preset에 포함하고 정식 TestCase Range 매핑에서는 제외한다.
+- Manual Capture의 저장 폴더·기준 파일명·순번·덮어쓰기 금지는 확정값으로 사용하고 Screenshot 전달과 오류 응답만 Interface Contract에서 정한다.
 
 ## 9. 권장 개발 순서와 의존성
 
@@ -729,14 +748,13 @@ H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결�
   ├─ RawData asset/resolver/lifecycle/FSM/UI 통합 완료 (H2026E014-41/44/45/43/42)
   └─ 확정된 고수준 Recall Change 기반 Recall FSM
 
-후속 Track: Standalone Manual Test
-  Manual 구현 Issue Refinement
-    ├─ command/payload/Python-LV workflow 경계
-    └─ Capture/Marker/Sweep 세부 계약
+현재 계획 Track: Manual Test
+  구현 전 Interface Contract
+    └─ command/payload/Python-LV workflow 경계
   구현
     ├─ 확정된 전역 배타 operation 정책 적용
     ├─ 현재 세션 Screenshot 목록 적용
-    └─ Range 7~9 제외
+    └─ Range 7~9 Manual preset 적용, TestCase 매핑 제외
 
 각 Track: Mock/정적 계약 검증 → 승인된 LV/실장비 인수 → 문서/배포 동기화
 ```
@@ -748,7 +766,7 @@ H2026E014-41/44/45/43/42 구현과 검증으로 닫혔다. 다음 사항은 결�
 | NSA Domain/UI/Report | 확정된 Anchor property·allowlist·결과 위치를 사용해 바로 착수하고 CSV/writer 세부 mapping은 Issue 안에서 완성 | `test_case.py`, `test_manager_panel.py`, `excel_writer.py` |
 | NSA/Recall FSM | 확정된 고수준 workflow와 terminal 상태를 기준으로 착수하고 Python/LV wire contract는 양쪽 Issue가 함께 작성 | `session.py`, `transition.py`, `commands.py` |
 | RawData(완료) | H2026E014-41/44/45/43/42에서 source/path/lifecycle/FSM/UI/회귀·패키징 검증 완료 | `run_preparer.py`, `runner.py`, `test_run_settings.py`, report 계층 |
-| Manual Test | NSA 우선순위를 해치지 않는 착수 시점에 각 기능 Issue에서 FSV/CO3000 계약을 Refinement | `main_window.py`, `commands.py`, mock |
+| Manual Test | 4.4를 요구사항 기준으로 사용하고 구현 전 Python/LV Interface Contract를 합의 | `main_window.py`, `commands.py`, mock |
 | LabVIEW | Python counterpart와 같은 interface contract를 사용하고 벤치 결과를 해당 Issue에 첨부 | 외부 LV source/release |
 
 NSA와 Recall은 `session.py`, `transition.py`, `commands.py`, Mock LV를 공유하므로 서로 다른 브랜치에서 독립 구현하지 않는 편이 안전하다. RawData 자동화는 H2026E014-41/44/45/43/42에서 `run_preparer.py`, `runner.py`, `excel_writer.py`와 report lifecycle 조정을 완료했다. Manual Test 역시 command catalog와 Mock LV를 확장하므로 공통 파일 담당자 또는 순차 merge 계획이 필요하다.
@@ -762,7 +780,7 @@ NSA와 Recall은 `session.py`, `transition.py`, `commands.py`, Mock LV를 공유
 NSA/Recall은 현재 확정사항으로 구현 Story를 작성한다. RawData Story는
 H2026E014-41/44/45/43/42로 구현·검증 완료됐으며 별도 Discovery/Spike를 추가하지 않는다.
 
-Manual Test의 상세 command/API/UX 계약도 지금 별도의 미결정 Issue로 만들지 않는다. NSA 우선 개발 후 각 Manual 구현 Story를 Refinement할 때 필요한 계약 작업을 함께 등록한다.
+Manual Test의 확정 UX를 별도의 미결정 Issue로 만들지 않는다. command명·payload·Python/LV 책임 경계는 구현 전 Interface Contract 작업으로 등록한다.
 
 ### 10.2 NSA 정식 지원 후보 패키지
 
@@ -797,27 +815,27 @@ Manual Test의 상세 command/API/UX 계약도 지금 별도의 미결정 Issue�
 
 | 후보 ID | Outcome | 의존성 | 예상 주 영향 |
 |---|---|---|---|
-| MAN-01 | Manual 설정/Capture 모델과 validation, 착수 시 필요한 필드 Refinement | NSA 우선순위 반영 | models/core |
-| MAN-02-PY | FSV/Marker 신규 Python facade, interface contract와 Mock | MAN-01 | net/mock |
+| MAN-01 | 확정된 Manual 설정/Capture 입력과 Range 1~9 preset 모델, 명백한 입력 오류 validation | 4.4 | models/core |
+| MAN-02-PY | FSV40/Marker 신규 Python facade, Interface Contract와 Mock | MAN-01 | net/mock |
 | MAN-02-LV | Python counterpart와 합의한 실제 LV command/API 구현 | MAN-02-PY와 공동 Refinement | 외부 LV |
 | MAN-03 | ManualTestService worker lifecycle과 cancel/error/progress | MAN-01, MAN-02-PY | core |
 | MAN-04 | Filter Box와 같은 전역 배타 operation 적용과 busy 처리 | POL-MAN-01 | MainWindow/services. 기존 guard 확장/신규 coordinator는 설계 선택 |
 | MAN-05 | 장비 capability별 Manual Panel 활성화 | MAN-03/04 | UI |
-| MAN-06 | SA Set/Preset/Single/Continuous UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
-| MAN-07 | Marker 6종 UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
+| MAN-06 | Range 1~9를 포함한 FSV40 Set/Preset/Single/Continuous Sweep UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
+| MAN-07 | Next Peak Search Level→`Excursion` mapping을 포함한 Marker UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
 | MAN-08 | Turntable/1m/3m Horn/Bilog UI+service | MAN-03/05 | UI/core |
-| MAN-09 | Semi Auto 기능 통합과 Stop/timeout/failure 처리 | MAN-02-PY/LV, MAN-03, MAN-04, MAN-08 | Python/LV 공동. sequence 소유권은 Manual 착수 시 Refinement |
+| MAN-09 | Set으로 적용된 Saturation Time과 기존 `<= 180° → 0°`, `> 180° → 360°`, 속도 6 기준점 판정을 사용하는 Semi Auto 및 Stop/timeout/failure 처리 | MAN-02-PY/LV, MAN-03, MAN-04, MAN-08 | Python/LV 공동. sequence 소유권은 Interface Contract에서 확정 |
 | MAN-10 | strict no-overwrite Single Capture store/workflow | MAN-03 | report/core/UI |
-| MAN-11 | N-Capture 반복 수행, preflight와 부분 성공 보존 통합 | MAN-02-PY/LV, MAN-03, MAN-10 | Python/LV/report/UI. 반복 sequence 소유권은 Manual 착수 시 Refinement |
+| MAN-11 | N-Capture 반복 수행, preflight와 부분 성공 보존 통합 | MAN-02-PY/LV, MAN-03, MAN-10 | Python/LV/report/UI. 반복 sequence 소유권은 Interface Contract에서 확정 |
 | MAN-12 | 현재 세션 최신순 Screenshot 목록과 viewer | POL-MAN-03, MAN-10/11 | UI |
 | MAN-14 | 실제 LV를 포함한 Mock/실장비 통합 인수와 운영 문서 | MAN-02-LV, MAN-05~12 | tests/docs/release |
 
-Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 요구가 생기기 전에는 `MAN-13` 또는 이에 준하는 Jira Issue를 생성하지 않는다.
+Range 7~9는 별도 결정 Issue를 만들지 않고 `MAN-01`의 preset 모델과 `MAN-06`의 FSV40 preset UI에 포함한다. 정식 TestCase Range 매핑은 변경하지 않는다.
 
 ### 10.5 Jira 구성 권고
 
 - 사용자의 세 분류를 상위 Epic으로 유지한다.
-- NSA 정식 지원 Epic을 우선순위 1로 두고 확정 요구사항에서 `NSA-*`와 `RCL-*` 구현 패키지를 바로 Refinement한다.
+- NSA/운영 편의의 남은 검증과 Manual Test 계획·개발을 각각의 Track으로 관리한다.
 - 기술 설계·벤치 검증은 별도 결정용 Spike로 분리하기보다 관련 구현 Story의 subtask/DoD로 연결한다. 실장비 접근 자체가 독립 일정이면 검증 subtask만 분리한다.
 - 실제 LabVIEW 작업은 Python facade 작업과 별도 Issue로 만들고 같은 protocol ADR을 첨부한다.
 - command Issue는 이름만 적지 말고 target, Params, Result, unit, timeout, failure와 Mock까지 범위에 포함한다.
@@ -825,8 +843,8 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 - 과도 상태 `8000A 7/9`, `8821C 13` 관측을 Acceptance Criteria로 요구하지 않는다. 명시적 `REM_DEST`와 terminal 상태 polling을 검증한다.
 - UI Story는 연결 상태만이 아니라 worker 진행/중단/오류/lock 상태를 Acceptance Criteria에 포함한다.
 - 외부에서 확인 가능한 Outcome과 Acceptance Criteria가 있으면 구현 Issue를 Ready로 만들 수 있다. 내부 command 이름·순서·timeout 값은 Ready 선행 제품 결정으로 취급하지 않는다.
-- Manual 상세 command/workflow는 Manual 개발 착수 시 관련 Story 안에서 Refinement하고 NSA Issue의 blocker로 연결하지 않는다.
-- Range 7~9 구현 Issue는 만들지 않으며, Screenshot 목록 source와 전역 배타 동작은 미결정 질문으로 되돌리지 않는다.
+- Manual command명·payload·Python/LV 책임 경계는 구현 전 Interface Contract에서 확정하고, 4.4의 UX를 다시 미결정으로 올리지 않는다.
+- Range 7~9는 기존 Manual 설정 Story에 포함하고 TestCase Range 매핑에는 추가하지 않는다. Screenshot 목록 source와 전역 배타 동작도 미결정 질문으로 되돌리지 않는다.
 - broad regression test 실행을 백로그 정리 단계의 자동 활동으로 두지 않는다. 구현별 검증 범위와 승인 장비 인수는 별도 명시한다.
 
 ## 11. 요구사항 관리 Agent 인수인계
@@ -853,7 +871,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 | NSA Anchor | `LTE Anchor Band` | 값은 `B1` 형식 |
 | SCG Addiation | `NR SCG Addition` | 오탈자 정정 |
 | Rawdata/RawData | `RawData workbook` | source template과 result workbook 구분 |
-| Manual Test | `Standalone Manual Test` | 기존 `Manual Marker`와 구분 |
+| Spectrum Analyzer 관련 Manual 기능 | `FSV40 설정`, `FSV40 Sweep` | `NR SA`와 구분 |
 | Cont Sweep | `Continuous Sweep` | UI label은 별도 가능 |
 | Mkr→Center | `Marker to Center` | protocol command 이름은 계약에서 확정 |
 
@@ -863,8 +881,8 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 - LV helper 순서, 실제 wire field 이름, timeout·retry 수치와 path 정규화 알고리즘은 제품 미결정으로 만들지 않는다. 관련 구현 Issue의 설계·검증 산출물로 연결한다.
 - terminal 상태 polling 외의 추가 stable-state 유지 시간은 요구하지 않는다. 실장비에서 필요성이 확인될 때만 결함 보강 또는 기술 subtask로 추가한다.
 - RawData 기존 파일 재사용과 미존재 시 source 복사는 구현 완료된 동작이다. 열림·손상·권한·경로 오류의 safe-failure 회귀는 H2026E014-42가 보유한다.
-- Manual 세부 계약은 Manual Test 착수 시 관련 구현 Issue에서 Refinement하며, 현재 NSA SRS나 완료된 RawData 범위의 미결정 목록으로 복사하지 않는다.
-- 모든 NR–Anchor 조합 허용, SA/NSA/LTE 혼합 시작 차단, `REM_DEST`별 상태 의미, 고수준 NSA Handover/Recall Change API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 두 source template mapping, 전역 배타 operation 동작, 현재 세션 Screenshot 목록, Range 7~9 제외는 다시 미결정 항목으로 올리지 않는다.
+- Manual Test의 제품 동작은 4.4를 사용하며 command명·payload·Python/LV 책임 경계만 후속 Interface Contract에서 정한다.
+- 모든 NR–Anchor 조합 허용, SA/NSA/LTE 혼합 시작 차단, `REM_DEST`별 상태 의미, 고수준 NSA Handover/Recall Change API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 두 source template mapping, 전역 배타 operation 동작, 현재 세션 Screenshot 목록, Range 7~9의 Manual preset 전용 정책은 다시 미결정 항목으로 올리지 않는다.
 
 ## 12. 검증 시나리오 작성 시 포함할 관점
 
@@ -913,16 +931,19 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 ### Manual Test
 
-- 장비별 연결 조합의 capability 활성화
+- 장비별 연결 조합의 capability 활성화와 TestCase·Call·Filter 비종속
 - 연결 해제/실패 중 진행 operation 정리
-- FSV field validation, 단위, 기본 RMS
-- Turntable 0/360, 180° 경계, Stop/timeout/error
+- Manual preset Range 1~9, Custom 입력, Detector Mode 9종과 기본 `RMS`
+- 명백한 입력 오류 차단과 LV/FSV40 상세 오류 표시
+- Next Peak Search Level→`Excursion` mapping을 포함한 Marker 전체 기능
+- Turntable 기준점 `현재 각도 <= 180° → 0°`, `> 180° → 360°`와 Stop
 - 1m/3m Horn/Bilog target mapping과 높이 제어 부재
-- Semi Auto에 Single Sweep/Capture가 호출되지 않고 Max Hold가 유지됨
-- Single/N-Capture 충돌 시 장비 command 미호출
+- Semi Auto에서 별도 입력 없이 Set으로 적용된 Saturation Time 대기, 전 과정 Stop, Single Sweep/Capture 미실행과 Max Hold 유지
+- 저장 폴더·기준 파일명·순번 적용과 Single/N-Capture 충돌 시 장비 command 미호출·경고
 - N-Capture 중간 실패 시 성공 파일 보존과 이후 중단
 - 현재 실행 세션의 성공 파일만 최신순 목록에 표시하고 선택 이미지 표시
 - 자동시험/Manual/Connect/Set/TDF/RF 장비 operation 배타 동작과 busy 안내
+- Range 7~9의 네 확정값 반영과 정식 TestCase Range 미매핑
 
 ## 13. 근거 파일 지도
 
@@ -941,7 +962,7 @@ Range 7~9는 `POL-MAN-02`에 따라 후보 패키지에서 제외했다. 후속 
 
 ## 14. PM 결론
 
-v3.0은 세 Epic으로 관리하되 NSA 정식 지원을 우선한다. 이번 검토로 NR–Anchor 조합과 고정값, Generation 혼합 차단, `REM_DEST`별 상태 의미, 같은/다른 Anchor routing, 고수준 `NSA Handover`·`Recall Change` API 경계, 첫 TC Recall lifecycle, RawData 논리 경로·filename과 source asset, Manual 장비 배타 정책, Screenshot 목록 source, Range 7~9 범위가 확정됐다. 후속 Agent는 이 항목을 다시 Discovery 질문으로 되돌리지 않는다.
+v3.0은 세 Epic으로 관리한다. 사용자 일정 기준으로 NSA 정식 지원과 시험 운영 편의 개선은 테스트 대기 중이며, 현재 계획 대상은 Manual Test다. 이번 검토로 Manual Test의 장비별 활성화와 배타 정책, FSV40 입력·Detector Mode, `Next Peak Search Level`→`Excursion`, Turntable/Mast, Semi Auto의 기존 기준점 판정, Capture와 현재 세션 목록, Range 7~9의 Manual preset 전용 적용이 확정됐다. 후속 Agent는 이를 다시 Discovery 질문으로 되돌리지 않는다.
 
 현재 확정사항으로 NSA/Recall SRS 및 Jira Issue를 작성할 수 있으며, 추가 제품 결정 blocker는 없다. RawData는 H2026E014-41/44/45/43/42에서 구현·검증 완료됐다. 첫 NSA TC에는 별도 NSA 순서가 없고 기존 `NR Call`을 사용한다. Recall+Anchor 동시 변경의 자동 적용 순서와 실제 TCP/JSON 표현, timeout·retry 값은 각각의 Python/LV 구현 Issue에서 설계하고 벤치 검증한다. 이를 별도 ‘결정을 위한 Issue’로 만들지 않는다.
 
@@ -949,4 +970,4 @@ v3.0은 세 Epic으로 관리하되 NSA 정식 지원을 우선한다. 이번 �
 
 RawData source는 Git에 추적된 `resources/templates`의 NR/LTE workbook을 사용한다. dev/frozen 전용 lookup, EUT별 결과 생성·재사용, 오류 rollback, `PrepareReport` FSM 통합, Excel 선택 제거, 결과·Screenshot의 EUT 중심 배치와 패키징 검증까지 완료됐다.
 
-NSA FSM과 Recall FSM은 확정된 고수준 MT8000A workflow와 하나의 승인된 TCP/JSON 계약 아래에서 통합한다. Python과 실제 LabVIEW Issue는 분리하되, Python이 LV 내부 primitive sequencing을 다시 구현하지 않는다. Manual Test의 상세 계약은 NSA 개발과 분리해 Manual 착수 시 논의한다.
+NSA FSM과 Recall FSM은 확정된 고수준 MT8000A workflow와 하나의 승인된 TCP/JSON 계약 아래에서 통합한다. Python과 실제 LabVIEW Issue는 분리하되, Python이 LV 내부 primitive sequencing을 다시 구현하지 않는다. Manual Test는 4.4를 제품 요구사항 기준으로 사용하고 command명·payload·Python/LV 책임 경계만 후속 Interface Contract에서 확정한다.
