@@ -11,6 +11,7 @@
 | 검토 기준일 | 2026-08-24 (Asia/Seoul) |
 | Anchor/Command 계약 정정 | 2026-08-24 — MID/5 MHz/RB Size 1/RB Offset 0/QPSK, Band→UL/DL lookup, `DLCHAN` 전용 HO, LV 내부 NR Call helper 재사용 단일 composite 반영 |
 | 구현 상태 동기화 | 2026-08-31 — `H2026E014-41/44/45/43/42` 기준, RawData source·결과 lifecycle·FSM 준비·수동 선택 제거·회귀 검증 반영 |
+| Recall ID 정정 동기화 | 2026-09-03 — `H2026E014-47`, 코드 커밋 `0f475e7`, NR SA/NSA×FDD/TDD 네 ID와 `.PRM` 제외 계약 반영. 대상 `407 passed`, 기본 전체 `915 passed, 380 skipped` |
 | 초기 저장소 기준 | `main` / `7a80d3cdead2b46ac7f7f1fc4055a0ed1b8d31ca` |
 | 작업 트리 | 검토 시작 시 clean |
 | 검토 방식 | 코드, 문서, 테스트 코드, Git 이력의 정적 검토 |

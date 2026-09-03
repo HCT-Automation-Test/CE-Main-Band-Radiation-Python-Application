@@ -1,5 +1,11 @@
 # 차기 버전 SRS 및 Jira 백로그
 
+> **문서 상태:** 이 문서는 2026-07-22 작성된 초기 기안 이력이다. 현행 v3.0 개발
+> 정본은 Confluence의 [CE Main Band Radiation Test Engine v3.0 소프트웨어 요구사항
+> 명세서(SRS)](https://hctste.atlassian.net/wiki/spaces/H2026E014/pages/18448386)를
+> 따른다. 본문의 Recall ID 파일명은 H2026E014-47 정정에 맞춰 동기화했지만, 첫 TC
+> Recall 등 lifecycle 정책이 현행 정본과 충돌하면 Confluence 정본을 우선한다.
+
 ## 1. 문서 개요
 
 | 항목 | 내용 |
