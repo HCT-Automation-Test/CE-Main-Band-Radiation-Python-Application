@@ -325,7 +325,7 @@ def test_mock_lv_client_nsa_handover_command(qtbot, tmp_path) -> None:
 
         assert console.execute_line(
             "nsa-handover band=78 bw=100 modulation=QPSK "
-            "rb_size=135 rb_offset=67 channel=640000 anchor_dl_channel=300 "
+            "rb_size=135 rb_offset=67 channel=640000 anchor_ul_channel=18300 "
             "max_retry_count=9 waiting_time=12"
         )
 
@@ -340,7 +340,7 @@ def test_mock_lv_client_nsa_handover_command(qtbot, tmp_path) -> None:
                 "RB Size": 135,
                 "RB Offset": 67,
                 "Modulation": "QPSK",
-                "Anchor DL Channel": 300,
+                "Anchor UL Channel": 18300,
                 "Max Retry Count": 9,
                 "Waiting Time": 12,
             },
@@ -395,6 +395,6 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "lte-handover bw=20 dl_channel=350" in text
     assert "handover band=78" in text
     assert "nsa-handover band=78" in text
-    assert "anchor_dl_channel=300" in text
+    assert "anchor_ul_channel=18300" in text
     assert "[max_retry_count=3] [waiting_time=5]" in text
     assert "check-call-status (alias: check-call)" in text

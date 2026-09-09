@@ -674,7 +674,7 @@ def test_mock_lv_server_nsa_handover_loopback(qtbot, tmp_path) -> None:
             rb_size=135,
             rb_offset=67,
             channel=636666,
-            anchor_dl_channel=2525,
+            anchor_ul_channel=20525,
         )
 
         request = server.received_requests[-1]
@@ -688,7 +688,7 @@ def test_mock_lv_server_nsa_handover_loopback(qtbot, tmp_path) -> None:
                 "RB Size": 135,
                 "RB Offset": 67,
                 "Modulation": "PI/2 BPSK",
-                "Anchor DL Channel": 2525,
+                "Anchor UL Channel": 20525,
                 "Max Retry Count": 3,
                 "Waiting Time": 5,
             },
@@ -725,7 +725,7 @@ def test_mock_lv_server_nsa_handover_error_loopback(qtbot, tmp_path) -> None:
                 rb_size=135,
                 rb_offset=67,
                 channel=636666,
-                anchor_dl_channel=300,
+                anchor_ul_channel=18300,
             )
 
         assert server.state.call_state_by_rem_dest == {"8000A": 6, "8821C": 13}

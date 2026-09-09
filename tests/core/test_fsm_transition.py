@@ -645,7 +645,7 @@ def test_nsa_handover_calls_composite_with_current_nr_and_anchor_params() -> Non
                 "rb_size": 135,
                 "rb_offset": 67,
                 "channel": 636666,
-                "anchor_dl_channel": 1575,
+                "anchor_ul_channel": 19575,
                 "waiting_time": 5,
             },
         )

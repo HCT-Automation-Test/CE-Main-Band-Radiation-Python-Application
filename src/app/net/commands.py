@@ -173,7 +173,7 @@ def _build_nsa_handover_params(
     rb_size: int,
     rb_offset: int,
     channel: int,
-    anchor_dl_channel: int,
+    anchor_ul_channel: int,
     max_retry_count: int,
     waiting_time: int,
 ) -> dict[str, Any]:
@@ -184,7 +184,7 @@ def _build_nsa_handover_params(
         "RB Size": int(rb_size),
         "RB Offset": int(rb_offset),
         "Modulation": _normalize_modulation(modulation),
-        "Anchor DL Channel": int(anchor_dl_channel),
+        "Anchor UL Channel": int(anchor_ul_channel),
         "Max Retry Count": int(max_retry_count),
         "Waiting Time": int(waiting_time),
     }
@@ -406,7 +406,7 @@ def nsa_handover(
     rb_size: int,
     rb_offset: int,
     channel: int,
-    anchor_dl_channel: int,
+    anchor_ul_channel: int,
     max_retry_count: int = 3,
     waiting_time: int = 5,
 ) -> bool:
@@ -423,7 +423,7 @@ def nsa_handover(
             rb_size=rb_size,
             rb_offset=rb_offset,
             channel=channel,
-            anchor_dl_channel=anchor_dl_channel,
+            anchor_ul_channel=anchor_ul_channel,
             max_retry_count=max_retry_count,
             waiting_time=waiting_time,
         ),

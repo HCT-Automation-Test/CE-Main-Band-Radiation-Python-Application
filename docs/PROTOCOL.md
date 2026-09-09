@@ -65,7 +65,7 @@
 | --- | --- | --- |
 | `setup_mt8000` | `NR Call` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation(`pi/2 BPSK`→와이어 `PI/2 BPSK`), Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `call_handover` | `NR Handover` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation, Max Retry Count(기본 3), Waiting Time(기본 5) |
-| `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor DL Channel |
+| `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor UL Channel |
 | `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `lte_call_handover` | `LTE Handover` | BandWidth(문자열), DL Channel, UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `recall_param` | `Recall Param` | `{"Recall Name": "<TestCase.mt8000_recall>"}` 단일 필드 → Result `{ok, connected}` |
@@ -106,7 +106,7 @@ SCG Release, Anchor Handover, 내부 NR Call 및 최종 상태 확인은 LV comp
 Python이 `NR Call`이나 장비 primitive를 추가로 조합하지 않는다.
 
 정확한 `Params`는 다음 9개다. 앞의 8개는 기존 `NR Call`과 같은 필드이며,
-신규 wire 필드는 `Anchor DL Channel` 하나뿐이다. `Max Retry Count=3`과
+신규 wire 필드는 `Anchor UL Channel` 하나뿐이다. `Max Retry Count=3`과
 `Waiting Time=5`도 기존 기본값을 그대로 사용한다.
 
 ```json
@@ -117,31 +117,31 @@ Python이 `NR Call`이나 장비 primitive를 추가로 조합하지 않는다.
   "RB Size": 135,
   "RB Offset": 67,
   "Modulation": "QPSK",
-  "Anchor DL Channel": 300,
+  "Anchor UL Channel": 18300,
   "Max Retry Count": 3,
   "Waiting Time": 5
 }
 ```
 
-다음 Anchor 정보는 보내지 않는다: `Anchor Band`, `UL Channel`, Anchor `BandWidth`,
+다음 Anchor 정보는 보내지 않는다: `Anchor Band`, `DL Channel`, Anchor `BandWidth`,
 `RB Size`, `RB Offset`, `Modulation`, `Test Channel`. Anchor는 MID/5 MHz 고정 기준이며
 지원 Band와 채널은 다음과 같다.
 
-| Anchor Band | Anchor DL Channel | Anchor UL Channel |
-| --- | ---: | ---: |
-| B1 | 300 | 18300 |
-| B3 | 1575 | 19575 |
-| B7 | 3100 | 21100 |
-| B5 | 2525 | 20525 |
-| B8 | 3625 | 21625 |
-| B20 | 6300 | 24300 |
-| B28 | 9385 | 27385 |
-| B38 | 38000 | 38000 |
-| B40 | 39150 | 39150 |
-| B41 | 40620 | 40620 |
+| Anchor Band | Anchor UL Channel |
+| --- | ---: |
+| B1 | 18300 |
+| B3 | 19575 |
+| B7 | 21100 |
+| B5 | 20525 |
+| B8 | 21625 |
+| B20 | 24300 |
+| B28 | 27385 |
+| B38 | 38000 |
+| B40 | 39150 |
+| B41 | 40620 |
 
 `B34`와 표에 없는 Band는 지원하지 않는다. Python lookup의 UL/DL 값은 기존 LTE
-MID/5 MHz lookup과 일치해야 한다. Wire에는 위 DL 값만 넣고 UL 값은 전송하지 않는다.
+MID/5 MHz lookup과 일치해야 한다. Wire에는 위 UL 값만 넣고 DL 값은 전송하지 않는다.
 
 응답은 Default Response 계약을 사용한다. Python은 최종 `status`만 판정하며 `Result`가
 없거나 어떤 형식으로 존재하더라도 무시한다. 성공 시 `status="ok"`, 실패 시
@@ -256,7 +256,7 @@ lv> check-call-status
 NSA Handover 수동 검증 예:
 
 ```text
-lv> nsa-handover band=78 bw=100 modulation=QPSK rb_size=135 rb_offset=67 channel=636666 anchor_dl_channel=300
+lv> nsa-handover band=78 bw=100 modulation=QPSK rb_size=135 rb_offset=67 channel=636666 anchor_ul_channel=18300
 ```
 
 Mock은 외부 primitive command를 추가하지 않고 composite 내부 상태만 재현한다. 정상 완료는

@@ -93,7 +93,7 @@ LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결�
 | --- | --- | --- | --- |
 | `RecallChange` | 현재 TC의 `mt8000_recall`이 `last_applied_recall_id`와 다름 | Call Check 결과 `{ok, connected}`를 포함하는 `commands.recall_param` 호출. 별도 `check_call_status` 없이 연결 성공 시에만 적용 ID 갱신 | OK→`next_transition_or(ApplyTdf)` / FAIL→종료 |
 | `Handover` | Recall 변경이 없고 NR Call 설정(Band/BW/Channel/RB/Modulation)이 다름 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `NSAHandover` | 연속 NSA TC의 `anchor_band`가 다름. Recall도 바뀌면 `RecallChange` 직후 실행 | 현재 TC의 NR 목적지 파라미터와 Anchor DL Channel로 `commands.nsa_handover` 한 번 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `NSAHandover` | 연속 NSA TC의 `anchor_band`가 다름. Recall도 바뀌면 `RecallChange` 직후 실행 | 현재 TC의 NR 목적지 파라미터와 Anchor UL Channel로 `commands.nsa_handover` 한 번 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `LTEHandover` | Recall 변경이 없고 LTE Call 설정(Band/BW/Channel/RB)이 다름 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |

@@ -468,7 +468,7 @@ def test_nsa_handover_sends_exact_default_params() -> None:
         rb_size=135,
         rb_offset=67,
         channel=636666,
-        anchor_dl_channel=300,
+        anchor_ul_channel=18300,
     ) is True
     assert client.calls == [
         (
@@ -481,7 +481,7 @@ def test_nsa_handover_sends_exact_default_params() -> None:
                 "RB Size": 135,
                 "RB Offset": 67,
                 "Modulation": "QPSK",
-                "Anchor DL Channel": 300,
+                "Anchor UL Channel": 18300,
                 "Max Retry Count": 3,
                 "Waiting Time": 5,
             },
@@ -500,7 +500,7 @@ def test_nsa_handover_normalizes_modulation_and_sends_explicit_options() -> None
         rb_size=135,
         rb_offset=67,
         channel=640000,
-        anchor_dl_channel=2525,
+        anchor_ul_channel=20525,
         max_retry_count=7,
         waiting_time=11,
     ) is True
@@ -515,7 +515,7 @@ def test_nsa_handover_normalizes_modulation_and_sends_explicit_options() -> None
         "RB Size",
         "RB Offset",
         "Modulation",
-        "Anchor DL Channel",
+        "Anchor UL Channel",
         "Max Retry Count",
         "Waiting Time",
     }
@@ -533,7 +533,7 @@ def test_nsa_handover_accepts_any_result_when_status_is_ok(result: Any) -> None:
         rb_size=135,
         rb_offset=67,
         channel=636666,
-        anchor_dl_channel=300,
+        anchor_ul_channel=18300,
     ) is True
 
 
@@ -555,7 +555,7 @@ def test_nsa_handover_raises_when_status_is_error() -> None:
             rb_size=135,
             rb_offset=67,
             channel=636666,
-            anchor_dl_channel=300,
+            anchor_ul_channel=18300,
         )
 
 

@@ -17,7 +17,7 @@ def _nsa_request(**overrides: Any) -> Request:
         "RB Size": 135,
         "RB Offset": 67,
         "Modulation": "QPSK",
-        "Anchor DL Channel": 300,
+        "Anchor UL Channel": 18300,
         "Max Retry Count": 3,
         "Waiting Time": 5,
     }
@@ -153,7 +153,8 @@ def test_mock_nsa_handover_failure_preserves_partial_rem_dest_state(
 @pytest.mark.parametrize(
     "nsa_request",
     [
-        _nsa_request(**{"Anchor DL Channel": 36275}),
+        _nsa_request(**{"Anchor UL Channel": 36275}),
+        _nsa_request(**{"Anchor DL Channel": 300}),
         _nsa_request(**{"BandWidth": "100"}),
         _nsa_request(**{"Unexpected Anchor Field": 1}),
     ],

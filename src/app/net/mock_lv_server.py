@@ -122,12 +122,12 @@ _NSA_HANDOVER_REQUIRED_PARAMS = {
     "RB Size",
     "RB Offset",
     "Modulation",
-    "Anchor DL Channel",
+    "Anchor UL Channel",
     "Max Retry Count",
     "Waiting Time",
 }
-_NSA_ANCHOR_CHANNELS_BY_DL: dict[int, NSAAnchorChannels] = {
-    channels.dl_channel: channels
+_NSA_ANCHOR_CHANNELS_BY_UL: dict[int, NSAAnchorChannels] = {
+    channels.ul_channel: channels
     for band in SUPPORTED_NSA_ANCHOR_BANDS
     for channels in (resolve_nsa_anchor_channels(band),)
 }
@@ -307,15 +307,15 @@ class MockLvServer:
                 "Max Retry Count": _required_int(request.params, "Max Retry Count"),
                 "Waiting Time": _required_int(request.params, "Waiting Time"),
             }
-            anchor_dl_channel = _required_int(request.params, "Anchor DL Channel")
+            anchor_ul_channel = _required_int(request.params, "Anchor UL Channel")
         except ValueError as exc:
             return _error(request, str(exc))
 
-        anchor_channels = _NSA_ANCHOR_CHANNELS_BY_DL.get(anchor_dl_channel)
+        anchor_channels = _NSA_ANCHOR_CHANNELS_BY_UL.get(anchor_ul_channel)
         if anchor_channels is None:
             return _error(
                 request,
-                f"unsupported NSA Anchor DL Channel: {anchor_dl_channel}",
+                f"unsupported NSA Anchor UL Channel: {anchor_ul_channel}",
             )
 
         self.state.call_connected = False
