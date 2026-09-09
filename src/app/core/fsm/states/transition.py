@@ -217,7 +217,7 @@ class NSAHandoverState(State):
                 rb_size=test_case.rb_size,
                 rb_offset=test_case.rb_offset,
                 channel=channel,
-                anchor_dl_channel=anchor_channels.dl_channel,
+                anchor_ul_channel=anchor_channels.ul_channel,
                 waiting_time=waiting_time,
             )
         except Exception as exc:

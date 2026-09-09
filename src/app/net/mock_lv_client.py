@@ -179,7 +179,7 @@ class MockLvClientConsole:
                 rb_size=_int_arg(args, "rb_size"),
                 rb_offset=_int_arg(args, "rb_offset"),
                 channel=_int_arg(args, "channel"),
-                anchor_dl_channel=_int_arg(args, "anchor_dl_channel"),
+                anchor_ul_channel=_int_arg(args, "anchor_ul_channel"),
                 max_retry_count=_int_arg(args, "max_retry_count", default=3),
                 waiting_time=_int_arg(args, "waiting_time", default=5),
             )
@@ -467,7 +467,7 @@ class MockLvClientConsole:
                     (
                         "  nsa-handover band=78 bw=100 "
                         "modulation=QPSK rb_size=135 rb_offset=67 channel=640000 "
-                        "anchor_dl_channel=300 "
+                        "anchor_ul_channel=18300 "
                         "[max_retry_count=3] [waiting_time=5]"
                     ),
                     (
