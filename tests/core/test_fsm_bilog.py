@@ -59,7 +59,7 @@ def test_bilog_test_type_change_from_inband(tmp_path: Path) -> None:
     first_check_next_case = events.state_changed.values.index("CheckNextCase")
     assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 7] == [
         "AntPolChange",
-        "TestTypeChange",
+        "CallCheck",
         "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",
@@ -74,6 +74,7 @@ def test_bilog_test_type_change_from_inband(tmp_path: Path) -> None:
         {"pol": inband_case.antenna_pol, "input_path": InputPath.INPUT2},
         {"pol": bilog_case.antenna_pol, "input_path": InputPath.INPUT1},
     ]
+    assert _call_names(commands).count("check_call_status") == 1
     assert "measure_inband" in _call_names(commands)
     assert "measure_bilog" in _call_names(commands)
     assert _writer_call_names(writer) == ["write_inband", "write_bilog"]

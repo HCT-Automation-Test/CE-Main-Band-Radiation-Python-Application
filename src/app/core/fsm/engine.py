@@ -197,12 +197,12 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     from app.core.fsm.states.tdf import ApplyTdfState
     from app.core.fsm.states.transition import (
         AntPolChangeState,
+        CallCheckState,
         DUTAxisChangeState,
         HandoverState,
         LTEHandoverState,
         NSAHandoverState,
         RecallChangeState,
-        TestTypeChangeState,
     )
 
     engine = FSMEngine(ctx)
@@ -227,7 +227,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
     engine.register(LTEHandoverState())
     engine.register(RecallChangeState())
     engine.register(DUTAxisChangeState())
-    engine.register(TestTypeChangeState())
+    engine.register(CallCheckState())
     engine.register(ApplyTdfState())
 
     # 측정 공유 스텝 (Harmonic / InBand / Bilog 공통)

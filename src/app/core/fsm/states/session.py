@@ -96,15 +96,18 @@ def _transition_states_for(
     elif call_config_changed:
         transition_states.append(handover_entry_state_for_case(current_case))
 
+    ant_pol_setup_required = _antenna_pol_setup_required(prev_case, current_case)
+    test_type_changed = prev_case.test_type != current_case.test_type
+
     if prev_case.dut_axis != current_case.dut_axis:
         transition_states.append("DUTAxisChange")
-    if _antenna_pol_setup_required(prev_case, current_case):
+    if ant_pol_setup_required:
         transition_states.append("AntPolChange")
     if prev_case.generation != current_case.generation:
         # TODO(spec): generation 변경 시 SA/NSA call 재설정 정책 확정 필요.
         pass
-    if prev_case.test_type != current_case.test_type:
-        transition_states.append("TestTypeChange")
+    if ant_pol_setup_required or test_type_changed:
+        transition_states.append("CallCheck")
 
     return transition_states
 

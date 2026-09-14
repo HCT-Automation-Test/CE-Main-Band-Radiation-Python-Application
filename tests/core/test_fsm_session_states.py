@@ -492,7 +492,45 @@ def test_check_next_case_advances_and_routes_by_test_type() -> None:
     assert events.tc_finished.values == [0]
     assert events.current_case_changed.values == [next_case]
     assert events.tc_started.values == [1]
-    assert state.next_state(ctx, result) == "TestTypeChange"
+    assert state.next_state(ctx, result) == "CallCheck"
+
+
+def test_check_next_case_queues_call_check_after_ant_pol_change() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(antenna_pol=AntennaPol.H),
+            _make_case(antenna_pol=AntennaPol.V),
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = _prepared_check_next_state(ctx)
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
+
+
+def test_check_next_case_queues_call_check_after_dut_axis_and_ant_pol() -> None:
+    events = _Events()
+    ctx = SessionContext(
+        queue=[
+            _make_case(dut_axis=DUTAxis.X, antenna_pol=AntennaPol.H),
+            _make_case(dut_axis=DUTAxis.Y, antenna_pol=AntennaPol.V),
+        ],
+        commands=object(),
+        events=events,  # type: ignore[arg-type]
+    )
+    state = _prepared_check_next_state(ctx)
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "DUTAxisChange"
+    assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
 
 
 def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
@@ -512,6 +550,7 @@ def test_check_next_case_routes_co3000_to_mast3_as_ant_pol_change() -> None:
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
 
 
 def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
@@ -531,9 +570,10 @@ def test_check_next_case_routes_mast3_to_co3000_as_ant_pol_change() -> None:
     assert next_case.range_definition.input_path is InputPath.INPUT1
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
 
 
-def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None:
+def test_check_next_case_queues_handover_ant_pol_and_single_call_check() -> None:
     events = _Events()
     prev_case = _make_case(TestType.BILOG, band=NRBand.N77)
     next_case = _make_case(TestType.HARMONIC, band=NRBand.N78)
@@ -550,10 +590,10 @@ def test_check_next_case_queues_handover_ant_pol_and_test_type_changes() -> None
     assert next_case.range_definition.input_path is InputPath.INPUT3
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "Handover"
-    assert ctx.pending_transition_states == ["AntPolChange", "TestTypeChange"]
+    assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
 
 
-def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
+def test_check_next_case_queues_recall_ant_pol_and_single_call_check() -> None:
     events = _Events()
     prev_case = _make_case(TestType.BILOG, band=NRBand.N1, bandwidth=20.0)
     next_case = _make_case(
@@ -578,7 +618,7 @@ def test_check_next_case_queues_recall_ant_pol_and_test_type_changes() -> None:
         "NRCallConnect",
         "DUTAxisChange",
         "AntPolChange",
-        "TestTypeChange",
+        "CallCheck",
     ]
 
 
@@ -599,6 +639,7 @@ def test_check_next_case_treats_co3000_mast_change_as_ant_pol_change() -> None:
     assert next_case.range_definition.input_path is InputPath.INPUT1
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
 
 
 def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() -> None:
@@ -615,6 +656,7 @@ def test_check_next_case_routes_band_change_to_handover_when_recall_is_same() ->
 
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "Handover"
+    assert ctx.pending_transition_states == []
 
 
 @pytest.mark.parametrize(
@@ -776,7 +818,7 @@ def test_check_next_case_compares_target_recall_to_applied_id_not_previous_case(
     assert result is StateResult.OK
     assert previous_case.mt8000_recall != current_case.mt8000_recall
     assert state.next_state(ctx, result) == "Handover"
-    assert ctx.pending_transition_states == ["AntPolChange"]
+    assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
 
 
 def test_check_next_case_routes_nsa_recall_change_to_nr_call() -> None:

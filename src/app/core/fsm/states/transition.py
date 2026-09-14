@@ -376,16 +376,16 @@ class DUTAxisChangeState(State):
         return call_entry_state_for(ctx)
 
 
-class TestTypeChangeState(State):
-    """같은 Band/AntPol/DUT Axis에서 test_type만 변경된 경우.
+class CallCheckState(State):
+    """시험 간 전환의 마지막에 현재 Call 연결 상태를 확인한다.
 
-    장비 재설정 없이 현재 Call 연결 상태만 확인한 뒤 TDF 적용을 거쳐
-    test_type에 맞는 측정 시작 state로 진입한다.
+    Ant Pol 설정 또는 Test Type 변경 후 장비 재설정 없이 Call 연결 상태만
+    확인한 뒤 TDF 적용을 거쳐 현재 Test Type의 측정 시작 state로 진입한다.
     - Call 유지 시 → TDF 적용 state
     - Call 끊김 시 → Generation별 CallDisconnected
     """
 
-    name = "TestTypeChange"
+    name = "CallCheck"
 
     def run(self, ctx: "SessionContext") -> StateResult:
         generation_label = (

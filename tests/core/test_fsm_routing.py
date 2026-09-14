@@ -267,7 +267,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "NSAHandover",
         "RecallChange",
         "DUTAxisChange",
-        "TestTypeChange",
+        "CallCheck",
         "InitialTurntableZero",
         "SetupSpectrumAnalyzerStartupLevel",
         "PrepareFundamentalSwitchBoxBeforeCall",

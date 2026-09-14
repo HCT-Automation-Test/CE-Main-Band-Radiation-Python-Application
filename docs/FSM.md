@@ -97,11 +97,11 @@ LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결�
 | `LTEHandover` | Recall 변경이 없고 LTE Call 설정(Band/BW/Channel/RB)이 다름 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
-| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
+| `CallCheck` | Ant Pol 설정 또는 `test_type` 변경 후 전환 queue의 마지막 단계 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
 
 주의: `AntPolChange`는 필요 장비(CO3000/3D Controller) 미연결 시 FAIL이 아니라
 **에러 로그 후 OK(스킵)** 로 계속 진행한다. 반면 NR/LTE CallConnect, Handover,
-TestTypeChange는 MT8000A 미연결 시 FAIL이다.
+CallCheck는 MT8000A 미연결 시 FAIL이다.
 
 Recall 변경 시 Python은 LV의 고수준 `Recall Param`만 호출한다. LV가 Call 정리, Recall 적용,
 재연결과 최종 Call Check를 내부 처리하고 `{ok, connected}` Result를 반환한다. Python은
@@ -227,7 +227,7 @@ SessionInit ──OK──► Idle ──Start──► PrepareReport ──OK�
                         CheckNextCase ──큐 끝──► TestEnd ──► Idle
                                │ 다음 TC 있음
                                ▼
-        (적용 Recall ID + diff 기반 전환: RecallChange | Handover | DUTAxisChange | AntPolChange | TestTypeChange)
+        (적용 Recall ID + diff 기반 전환: RecallChange | Handover | DUTAxisChange | AntPolChange | CallCheck)
                                │ 전환 모두 소비 후
                                ▼
                   ApplyTdf ──► 측정 진입 상태 (전환 불필요 시 ApplyTdf 직행)
@@ -247,7 +247,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 4. `dut_axis` 다름 → `DUTAxisChange`
 5. 편파 셋업 필요(편파 값 또는 input_path→mast 매핑 변화) → `AntPolChange`
 6. generation 다름 → TODO(spec), 현재 no-op
-7. `test_type` 다름 → `TestTypeChange`
+7. Ant Pol 설정 필요 또는 `test_type` 다름 → queue 마지막에 `CallCheck` 1회
 
 첫 항목으로 전이하고 나머지는 `ctx.pending_transition_states`에 저장한다. 이후 각 전환
 상태의 `next_state`가 [transition_flow.py](../src/app/core/fsm/transition_flow.py)의
