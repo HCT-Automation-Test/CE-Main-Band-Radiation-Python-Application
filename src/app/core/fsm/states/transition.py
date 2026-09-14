@@ -299,7 +299,11 @@ class RecallChangeState(State):
 
     name = "RecallChange"
 
+    def __init__(self) -> None:
+        self._call_disconnected = False
+
     def run(self, ctx: "SessionContext") -> StateResult:
+        self._call_disconnected = False
         if not is_equipment_connected(ctx, "MT8000A"):
             _emit_error(ctx, "Recall 변경 실패: MT8000A가 연결되어 있지 않습니다.")
             return StateResult.FAIL
@@ -314,14 +318,15 @@ class RecallChangeState(State):
             _emit_error(ctx, f"Recall 변경 실패: {exc}")
             return StateResult.FAIL
 
-        if not recalled:
-            _emit_error(
-                ctx,
-                "Recall 변경 실패: recall_param returned disconnected",
-            )
-            return StateResult.FAIL
-
         ctx.last_applied_recall_id = recall_id
+        if not recalled:
+            self._call_disconnected = True
+            call_connect_state = call_entry_state_for(ctx)
+            if (
+                ctx.pending_transition_states
+                and ctx.pending_transition_states[0] == call_connect_state
+            ):
+                ctx.pop_pending_transition_state()
         return StateResult.OK
 
     def next_state(
@@ -329,6 +334,8 @@ class RecallChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
+        if self._call_disconnected:
+            return call_disconnected_state_for(ctx)
         return next_transition_or(ctx, "ApplyTdf")
 
 
