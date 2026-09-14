@@ -8,13 +8,17 @@ import pytest
 
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
+from app.core.fsm.states.nr_setup import (
+    NRCallConnectState,
+    NRCallDisconnectedState,
+)
 from app.core.fsm.states.transition import (
     AntPolChangeState,
+    CallCheckState,
     DUTAxisChangeState,
     HandoverState,
     NSAHandoverState,
     RecallChangeState,
-    TestTypeChangeState,
 )
 from app.models.enums import (
     AntennaPol,
@@ -212,10 +216,10 @@ def test_handover_continues_to_pending_transition_before_measurement() -> None:
         queue=[prev_case, current_case],
         current_index=1,
     )
-    ctx.pending_transition_states = ["AntPolChange", "TestTypeChange"]
+    ctx.pending_transition_states = ["AntPolChange", "CallCheck"]
 
     assert HandoverState().next_state(ctx, StateResult.OK) == "AntPolChange"
-    assert ctx.pending_transition_states == ["TestTypeChange"]
+    assert ctx.pending_transition_states == ["CallCheck"]
 
 
 def test_ant_pol_change_continues_to_pending_transition_before_measurement() -> None:
@@ -226,17 +230,17 @@ def test_ant_pol_change_continues_to_pending_transition_before_measurement() -> 
         queue=[prev_case, current_case],
         current_index=1,
     )
-    ctx.pending_transition_states = ["TestTypeChange"]
+    ctx.pending_transition_states = ["CallCheck"]
 
-    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "TestTypeChange"
+    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "CallCheck"
     assert ctx.pending_transition_states == []
 
 
-def test_test_type_change_continues_to_measurement_after_pending_transitions() -> None:
+def test_call_check_continues_to_measurement_after_pending_transitions() -> None:
     ctx, _, _, _ = _make_ctx(_make_case(test_type=NRTestType.INBAND))
     ctx.pending_transition_states = []
 
-    assert TestTypeChangeState().next_state(ctx, StateResult.OK) == "ApplyTdf"
+    assert CallCheckState().next_state(ctx, StateResult.OK) == "ApplyTdf"
 
 
 def test_ant_pol_change_restarted_case_routes_to_initial_setup() -> None:
@@ -833,26 +837,10 @@ def test_recall_and_anchor_change_runs_nsa_handover_without_call_check() -> None
     ]
 
 
-@pytest.mark.parametrize(
-    ("commands", "error_message"),
-    [
-        (
-            _Commands(recall_configured=False),
-            "Recall 변경 실패: recall_param returned disconnected",
-        ),
-        (
-            _Commands(recall_exception=RuntimeError("recall timeout")),
-            "Recall 변경 실패: recall timeout",
-        ),
-    ],
-    ids=["recall-disconnected", "recall-error"],
-)
-def test_recall_change_failure_keeps_applied_id_and_blocks_next_state(
-    commands: _Commands,
-    error_message: str,
-) -> None:
+def test_recall_change_disconnected_updates_id_and_uses_single_recovery_call() -> None:
     prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
     current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    commands = _Commands(recall_configured=False)
     ctx, _, events, _ = _make_ctx(
         current_case,
         commands=commands,
@@ -860,17 +848,119 @@ def test_recall_change_failure_keeps_applied_id_and_blocks_next_state(
         current_index=1,
     )
     ctx.last_applied_recall_id = prev_case.mt8000_recall
-    ctx.pending_transition_states = ["NRCallConnect", "AntPolChange"]
+    ctx.pending_transition_states = [
+        "NRCallConnect",
+        "AntPolChange",
+        "CallCheck",
+    ]
+    state = RecallChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.last_applied_recall_id == current_case.mt8000_recall
+    assert events.error.messages == []
+    assert events.user_action_required.messages == []
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
+    assert (
+        NRCallDisconnectedState().next_state(ctx, StateResult.OK)
+        == "NRCallConnect"
+    )
+    assert NRCallConnectState().next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
+    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "CallCheck"
+    assert ctx.pending_transition_states == []
+    assert commands.call_status_calls == []
+
+
+def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N7,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B1,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N38,
+        bandwidth=20.0,
+        anchor_band=LTEBand.B3,
+    )
+    commands = _Commands(recall_configured=False)
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = ["NSAHandover"]
+    state = RecallChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.last_applied_recall_id == current_case.mt8000_recall
+    assert events.error.messages == []
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert ctx.pending_transition_states == ["NSAHandover"]
+
+
+def test_recall_change_resets_disconnected_result_between_runs() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    commands = _Commands(recall_configured=False)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.pending_transition_states = ["NRCallConnect"]
+    state = RecallChangeState()
+
+    disconnected_result = state.run(ctx)
+
+    assert state.next_state(ctx, disconnected_result) == "NRCallDisconnected"
+
+    commands.recall_configured = True
+    ctx.pending_transition_states = ["NRCallConnect"]
+    connected_result = state.run(ctx)
+
+    assert state.next_state(ctx, connected_result) == "NRCallConnect"
+
+
+def test_recall_change_error_keeps_applied_id_and_blocks_next_state() -> None:
+    prev_case = _make_case(band=NRBand.N7, bandwidth=20.0)
+    current_case = _make_case(band=NRBand.N38, bandwidth=20.0)
+    commands = _Commands(recall_exception=RuntimeError("recall timeout"))
+    ctx, _, events, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = [
+        "NRCallConnect",
+        "AntPolChange",
+        "CallCheck",
+    ]
     state = RecallChangeState()
 
     result = state.run(ctx)
 
     assert result is StateResult.FAIL
     assert ctx.last_applied_recall_id == prev_case.mt8000_recall
-    assert events.error.messages == [error_message]
+    assert events.error.messages == ["Recall 변경 실패: recall timeout"]
     assert events.user_action_required.messages == []
     assert state.next_state(ctx, result) is None
-    assert ctx.pending_transition_states == ["NRCallConnect", "AntPolChange"]
+    assert ctx.pending_transition_states == [
+        "NRCallConnect",
+        "AntPolChange",
+        "CallCheck",
+    ]
     assert commands.call_status_calls == []
 
 
@@ -904,12 +994,12 @@ def test_recall_change_fails_before_commands_when_mt8000a_is_disconnected() -> N
         (NRTestType.BILOG, "ApplyTdf"),
     ],
 )
-def test_test_type_change_checks_call_status_and_routes_to_test_type_measurement(
+def test_call_check_checks_status_and_routes_to_test_type_measurement(
     test_type: NRTestType,
     expected: str,
 ) -> None:
     ctx, commands, events, client = _make_ctx(_make_case(test_type=test_type))
-    state = TestTypeChangeState()
+    state = CallCheckState()
 
     result = state.run(ctx)
 
@@ -919,10 +1009,10 @@ def test_test_type_change_checks_call_status_and_routes_to_test_type_measurement
     assert events.error.messages == []
 
 
-def test_test_type_change_skips_when_mt8000a_is_not_connected() -> None:
+def test_call_check_fails_when_mt8000a_is_not_connected() -> None:
     ctx, commands, events, _ = _make_ctx(_make_case())
     ctx.equipment_state = {"MT8000A": False}
-    state = TestTypeChangeState()
+    state = CallCheckState()
 
     result = state.run(ctx)
 
@@ -932,13 +1022,13 @@ def test_test_type_change_skips_when_mt8000a_is_not_connected() -> None:
     assert events.error.messages
 
 
-def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None:
+def test_call_check_goes_to_nr_call_disconnected_on_false_result() -> None:
     command_facade = _Commands(call_connected=False)
     ctx, commands, events, client = _make_ctx(
         _make_case(),
         commands=command_facade,
     )
-    state = TestTypeChangeState()
+    state = CallCheckState()
 
     result = state.run(ctx)
 
@@ -950,7 +1040,7 @@ def test_test_type_change_goes_to_nr_call_disconnected_on_false_result() -> None
     ]
 
 
-def test_test_type_change_goes_to_nr_call_disconnected_on_exception() -> None:
+def test_call_check_goes_to_nr_call_disconnected_on_exception() -> None:
     command_facade = _Commands(
         call_status_exception=RuntimeError("instrument timeout")
     )
@@ -958,7 +1048,7 @@ def test_test_type_change_goes_to_nr_call_disconnected_on_exception() -> None:
         _make_case(),
         commands=command_facade,
     )
-    state = TestTypeChangeState()
+    state = CallCheckState()
 
     result = state.run(ctx)
 

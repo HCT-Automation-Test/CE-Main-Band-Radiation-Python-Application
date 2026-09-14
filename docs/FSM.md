@@ -36,7 +36,7 @@ class State(ABC):
 | 제어 플래그 | `paused`, `stopped`, `current_case_stop_requested` | UI 스레드가 쓰고 FSM이 폴링 |
 | 측정 진행 | `current_angle`, `fundamental_frequency_mhz`, `harmonic_precision_candidates`, `settings` | 각도는 세션 전체에서 이어짐(0↔360 토글) |
 | TDF 적용 | `last_applied_factor_keyword` | 마지막 적용 성공 Factor. Test Start/TestEnd에서 초기화하며 연속 중복 적용을 생략하는 데 사용 |
-| Recall 적용 | `last_applied_recall_id` | 장비에 적용된 것으로 확인한 Recall ID. `PrepareReport` 성공 시 시작 TC 값으로 초기화하고 Recall 응답의 연결 성공 시 갱신하며 `TestEnd`에서 초기화 |
+| Recall 적용 | `last_applied_recall_id` | 장비에 적용된 것으로 확인한 Recall ID. `PrepareReport` 성공 시 시작 TC 값으로 초기화하고 Recall 명령 성공 시 Call 연결 여부와 관계없이 갱신하며 `TestEnd`에서 초기화 |
 | 장비 상태 | `equipment_state` | 장비명→bool. [equipment.py](../src/app/core/fsm/equipment.py) `is_equipment_connected()`로 조회 |
 | 동기화 게이트 | `equipment_connect_requested`, `test_start_requested`, `user_action_completed` (threading.Event) | UI가 set, FSM이 0.1초 폴링 대기 |
 | 복합 전환 | `pending_transition_states` | CheckNextCase가 채우고 각 전환 상태가 FIFO 소비 |
@@ -91,25 +91,28 @@ LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결�
 
 | 상태 | 트리거 (prev vs current diff) | 동작 | next |
 | --- | --- | --- | --- |
-| `RecallChange` | 현재 TC의 `mt8000_recall`이 `last_applied_recall_id`와 다름 | Call Check 결과 `{ok, connected}`를 포함하는 `commands.recall_param` 호출. 별도 `check_call_status` 없이 연결 성공 시에만 적용 ID 갱신 | OK→`next_transition_or(ApplyTdf)` / FAIL→종료 |
+| `RecallChange` | 현재 TC의 `mt8000_recall`이 `last_applied_recall_id`와 다름 | Call Check 결과 `{ok, connected}`를 포함하는 `commands.recall_param` 호출. 명령 성공 시 적용 ID 갱신 | Call 연결→`next_transition_or(ApplyTdf)` / Call 단절→Generation별 CallDisconnected / 명령 실패→종료 |
 | `Handover` | Recall 변경이 없고 NR Call 설정(Band/BW/Channel/RB/Modulation)이 다름 | 이전 TC MID 조회 없이 현재 TC의 NR 목적지 파라미터로 `commands.call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `NSAHandover` | 연속 NSA TC의 `anchor_band`가 다름. Recall도 바뀌면 `RecallChange` 직후 실행 | 현재 TC의 NR 목적지 파라미터와 Anchor UL Channel로 `commands.nsa_handover` 한 번 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `LTEHandover` | Recall 변경이 없고 LTE Call 설정(Band/BW/Channel/RB)이 다름 | 이전 TC MID 조회 없이 현재 TC의 DL/UL Channel과 설정으로 `commands.lte_call_handover` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `DUTAxisChange` | `dut_axis` 다름 | "DUT Axis 변경: X→Y" 수동 확인 | OK→`call_entry_state_for` (Generation별 풀 재연결) |
 | `AntPolChange` | 편파가 다르거나 input_path의 **mast 매핑**이 다름 | `commands.set_antenna_pol(pol, input_path)` — INPUT3은 3D Controller, INPUT1/2는 CO3000 mast 2/1 | 첫 TC 초기 셋업 경로→`SetupSpectrumAnalyzerStartupLevel`, 그 외→`next_transition_or(ApplyTdf)` |
-| `TestTypeChange` | `test_type`만 다름 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
+| `CallCheck` | Ant Pol 설정 또는 `test_type` 변경 후 전환 queue의 마지막 단계 | 장비 재설정 없이 `commands.check_call_status`만 확인 | OK→`next_transition_or(ApplyTdf)` / FAIL→Generation별 CallDisconnected |
 
 주의: `AntPolChange`는 필요 장비(CO3000/3D Controller) 미연결 시 FAIL이 아니라
 **에러 로그 후 OK(스킵)** 로 계속 진행한다. 반면 NR/LTE CallConnect, Handover,
-TestTypeChange는 MT8000A 미연결 시 FAIL이다.
+CallCheck는 MT8000A 미연결 시 FAIL이다.
 
 Recall 변경 시 Python은 LV의 고수준 `Recall Param`만 호출한다. LV가 Call 정리, Recall 적용,
 재연결과 최종 Call Check를 내부 처리하고 `{ok, connected}` Result를 반환한다. Python은
 별도 `Check Call Status`를 호출하지 않는다. 연결 성공 후 현재 TC 설정을 NR/LTE Call로
 적용한다. Recall ID와 NSA Anchor가 함께
 바뀐 경우에는 NR Call 대신 기존 `NSA Handover`로 목표 NR 설정과 Anchor를 함께 적용한다.
-Recall 응답 오류 또는 연결 실패 시 적용 ID를 갱신하지 않고 FSM을 종료하므로 TDF와 측정으로
-진입하지 않는다. Call 단절 복구는 기존 CallConnect만 재시도하며 Recall을 재조회·재적용하지 않는다.
+Recall 명령이 성공하면 Call 연결 여부와 관계없이 적용 ID를 갱신한다. Call이 단절된 경우에는
+오류로 종료하지 않고 Generation별 CallDisconnected로 이동한다. pending transition의 첫 항목이
+동일 Generation의 CallConnect이면 복구 과정과 중복되지 않도록 한 번 소비하고, NSAHandover 등
+다른 후속 transition은 유지한다. Recall 응답 오류, timeout, protocol error 또는 예외는 적용 ID를
+갱신하지 않고 FSM을 종료한다. Call 단절 복구는 기존 CallConnect만 수행하며 Recall을 재조회·재적용하지 않는다.
 
 NSA Call 전환 결정표는 다음과 같다.
 
@@ -224,7 +227,7 @@ SessionInit ──OK──► Idle ──Start──► PrepareReport ──OK�
                         CheckNextCase ──큐 끝──► TestEnd ──► Idle
                                │ 다음 TC 있음
                                ▼
-        (적용 Recall ID + diff 기반 전환: RecallChange | Handover | DUTAxisChange | AntPolChange | TestTypeChange)
+        (적용 Recall ID + diff 기반 전환: RecallChange | Handover | DUTAxisChange | AntPolChange | CallCheck)
                                │ 전환 모두 소비 후
                                ▼
                   ApplyTdf ──► 측정 진입 상태 (전환 불필요 시 ApplyTdf 직행)
@@ -244,7 +247,7 @@ TC 간에 여러 파라미터가 동시에 바뀌면 `CheckNextCaseState`가
 4. `dut_axis` 다름 → `DUTAxisChange`
 5. 편파 셋업 필요(편파 값 또는 input_path→mast 매핑 변화) → `AntPolChange`
 6. generation 다름 → TODO(spec), 현재 no-op
-7. `test_type` 다름 → `TestTypeChange`
+7. Ant Pol 설정 필요 또는 `test_type` 다름 → queue 마지막에 `CallCheck` 1회
 
 첫 항목으로 전이하고 나머지는 `ctx.pending_transition_states`에 저장한다. 이후 각 전환
 상태의 `next_state`가 [transition_flow.py](../src/app/core/fsm/transition_flow.py)의

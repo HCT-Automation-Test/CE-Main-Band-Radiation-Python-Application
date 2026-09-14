@@ -804,7 +804,7 @@ def marker_all_off(client: Any) -> bool:
 
 
 def check_call_status(client: Any) -> bool:
-    """현재 NR Call 연결 상태를 확인한다. TestTypeChange 등에서 호출."""
+    """현재 NR/LTE Call 연결 상태를 확인한다. CallCheck 등에서 호출."""
     response = _send_request(client, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     result = _result_dict(response, _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)
     ok = _boolean(result, "ok", _TARGET_MT8000A, _COMMAND_CHECK_CALL_STATUS)

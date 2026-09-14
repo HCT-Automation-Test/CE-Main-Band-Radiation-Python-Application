@@ -505,7 +505,7 @@ NR 연결:
 - `NSAHandover`
 - `RecallChange`
 - `DUTAxisChange`
-- `TestTypeChange`
+- `CallCheck`
 - `ApplyTdf`
 
 공통 측정:

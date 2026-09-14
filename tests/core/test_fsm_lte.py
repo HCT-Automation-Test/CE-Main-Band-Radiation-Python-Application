@@ -22,9 +22,10 @@ from app.core.fsm.states.measurement.common import (
 )
 from app.core.fsm.states.session import CheckNextCaseState
 from app.core.fsm.states.transition import (
+    AntPolChangeState,
+    CallCheckState,
     LTEHandoverState,
     RecallChangeState,
-    TestTypeChangeState,
 )
 from app.models.enums import (
     AntennaPol,
@@ -66,12 +67,14 @@ class _Commands:
         handover_configured: bool = True,
         handover_exception: Exception | None = None,
         status_connected: bool = True,
+        recall_connected: bool = True,
     ) -> None:
         self.call_connected = call_connected
         self.call_exception = call_exception
         self.handover_configured = handover_configured
         self.handover_exception = handover_exception
         self.status_connected = status_connected
+        self.recall_connected = recall_connected
         self.call_calls: list[tuple[Any, dict[str, Any]]] = []
         self.handover_calls: list[tuple[Any, dict[str, Any]]] = []
         self.status_calls: list[Any] = []
@@ -99,7 +102,7 @@ class _Commands:
     def recall_param(self, client: Any, **params: Any) -> bool:
         self.recall_calls.append((client, params))
         self.command_sequence.append("recall_param")
-        return True
+        return self.recall_connected
 
 
 def _make_case(
@@ -416,7 +419,7 @@ def test_lte_combined_changes_preserve_nr_transition_order() -> None:
     assert ctx.pending_transition_states == [
         "DUTAxisChange",
         "AntPolChange",
-        "TestTypeChange",
+        "CallCheck",
     ]
 
 
@@ -447,10 +450,43 @@ def test_lte_recall_change_checks_call_then_runs_lte_call() -> None:
     assert events.user_action_required.values == []
 
 
-def test_lte_test_type_failure_routes_to_lte_recovery_with_lte_message() -> None:
+def test_lte_recall_disconnected_updates_id_and_uses_single_recovery_call() -> None:
+    cases = [_make_case(band=LTEBand.B7), _make_case(band=LTEBand.B38)]
+    commands = _Commands(recall_connected=False)
+    ctx, _, events, _ = _make_ctx(
+        cases[1],
+        commands=commands,
+        queue=cases,
+        current_index=1,
+    )
+    ctx.pending_transition_states = [
+        "LTECallConnect",
+        "AntPolChange",
+        "CallCheck",
+    ]
+    state = RecallChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert ctx.last_applied_recall_id == cases[1].mt8000_recall
+    assert events.error.values == []
+    assert state.next_state(ctx, result) == "LTECallDisconnected"
+    assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
+    assert (
+        LTECallDisconnectedState().next_state(ctx, StateResult.OK)
+        == "LTECallConnect"
+    )
+    assert LTECallConnectState().next_state(ctx, StateResult.OK) == "AntPolChange"
+    assert ctx.pending_transition_states == ["CallCheck"]
+    assert AntPolChangeState().next_state(ctx, StateResult.OK) == "CallCheck"
+    assert ctx.pending_transition_states == []
+
+
+def test_lte_call_check_failure_routes_to_lte_recovery_with_lte_message() -> None:
     commands = _Commands(status_connected=False)
     ctx, _, events, _ = _make_ctx(_make_case(), commands=commands)
-    state = TestTypeChangeState()
+    state = CallCheckState()
 
     result = state.run(ctx)
 

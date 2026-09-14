@@ -53,7 +53,7 @@ def test_inband_test_type_change_from_harmonic(tmp_path: Path) -> None:
 
     first_check_next_case = events.state_changed.values.index("CheckNextCase")
     assert events.state_changed.values[first_check_next_case + 1 : first_check_next_case + 6] == [
-        "TestTypeChange",
+        "CallCheck",
         "ApplyTdf",
         "SetSwitchBox",
         "SetupSpectrumAnalyzer",

@@ -482,7 +482,7 @@ def test_harmonic_measurement_chain(tmp_path: Path) -> None:
         (
             _make_case(MeasurementTestType.HARMONIC),
             _make_case(MeasurementTestType.INBAND),
-            "TestTypeChange",
+            "CallCheck",
         ),
     ],
 )
@@ -510,6 +510,39 @@ def test_check_next_case_transitions(
         assert events.user_action_required.values == []
     else:
         assert "recall_param" not in call_names
+        expected_call_checks = (
+            1 if expected_transition in {"AntPolChange", "CallCheck"} else 0
+        )
+        assert call_names.count("check_call_status") == expected_call_checks
+    assert events.error.values == []
+
+
+def test_handover_and_ant_pol_change_checks_call_after_pol_change(
+    tmp_path: Path,
+) -> None:
+    first_case = _make_case(
+        MeasurementTestType.HARMONIC,
+        band=NRBand.N77,
+        antenna_pol=AntennaPol.H,
+    )
+    second_case = _make_case(
+        MeasurementTestType.HARMONIC,
+        band=NRBand.N78,
+        antenna_pol=AntennaPol.V,
+    )
+    ctx, events, commands, _ = _make_ctx(tmp_path, [first_case, second_case])
+
+    _run_session(ctx)
+
+    first_check_next_case = events.state_changed.values.index("CheckNextCase")
+    assert events.state_changed.values[
+        first_check_next_case + 1 : first_check_next_case + 4
+    ] == [
+        "Handover",
+        "AntPolChange",
+        "CallCheck",
+    ]
+    assert _call_names(commands).count("check_call_status") == 1
     assert events.error.values == []
 
 

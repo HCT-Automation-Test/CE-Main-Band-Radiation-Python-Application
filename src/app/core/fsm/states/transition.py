@@ -299,7 +299,11 @@ class RecallChangeState(State):
 
     name = "RecallChange"
 
+    def __init__(self) -> None:
+        self._call_disconnected = False
+
     def run(self, ctx: "SessionContext") -> StateResult:
+        self._call_disconnected = False
         if not is_equipment_connected(ctx, "MT8000A"):
             _emit_error(ctx, "Recall 변경 실패: MT8000A가 연결되어 있지 않습니다.")
             return StateResult.FAIL
@@ -314,14 +318,15 @@ class RecallChangeState(State):
             _emit_error(ctx, f"Recall 변경 실패: {exc}")
             return StateResult.FAIL
 
-        if not recalled:
-            _emit_error(
-                ctx,
-                "Recall 변경 실패: recall_param returned disconnected",
-            )
-            return StateResult.FAIL
-
         ctx.last_applied_recall_id = recall_id
+        if not recalled:
+            self._call_disconnected = True
+            call_connect_state = call_entry_state_for(ctx)
+            if (
+                ctx.pending_transition_states
+                and ctx.pending_transition_states[0] == call_connect_state
+            ):
+                ctx.pop_pending_transition_state()
         return StateResult.OK
 
     def next_state(
@@ -329,6 +334,8 @@ class RecallChangeState(State):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
+        if self._call_disconnected:
+            return call_disconnected_state_for(ctx)
         return next_transition_or(ctx, "ApplyTdf")
 
 
@@ -369,16 +376,16 @@ class DUTAxisChangeState(State):
         return call_entry_state_for(ctx)
 
 
-class TestTypeChangeState(State):
-    """같은 Band/AntPol/DUT Axis에서 test_type만 변경된 경우.
+class CallCheckState(State):
+    """시험 간 전환의 마지막에 현재 Call 연결 상태를 확인한다.
 
-    장비 재설정 없이 현재 Call 연결 상태만 확인한 뒤 TDF 적용을 거쳐
-    test_type에 맞는 측정 시작 state로 진입한다.
+    Ant Pol 설정 또는 Test Type 변경 후 장비 재설정 없이 Call 연결 상태만
+    확인한 뒤 TDF 적용을 거쳐 현재 Test Type의 측정 시작 state로 진입한다.
     - Call 유지 시 → TDF 적용 state
     - Call 끊김 시 → Generation별 CallDisconnected
     """
 
-    name = "TestTypeChange"
+    name = "CallCheck"
 
     def run(self, ctx: "SessionContext") -> StateResult:
         generation_label = (
