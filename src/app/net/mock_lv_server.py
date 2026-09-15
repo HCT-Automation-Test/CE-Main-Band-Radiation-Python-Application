@@ -42,6 +42,8 @@ MockLvScenario = Literal[
     "nsa-nr-call-error",
     "nsa-nr-call-timeout",
     "nsa-final-status-timeout",
+    "nsa-call-error",
+    "nsa-call-timeout",
     "recall-param-error",
 ]
 
@@ -68,6 +70,7 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_NSA_CALL = "NSA Call"
 _COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
@@ -126,6 +129,7 @@ _NSA_HANDOVER_REQUIRED_PARAMS = {
     "Max Retry Count",
     "Waiting Time",
 }
+_NSA_CALL_PARAM_WRAPPER = "NSA Call Process Param"
 _NSA_ANCHOR_CHANNELS_BY_UL: dict[int, NSAAnchorChannels] = {
     channels.ul_channel: channels
     for band in SUPPORTED_NSA_ANCHOR_BANDS
@@ -276,6 +280,8 @@ class MockLvServer:
             return _ok(request, {"ok": True, "connected": connected})
         if request.command == _COMMAND_NSA_HANDOVER:
             return self._handle_nsa_handover(request)
+        if request.command == _COMMAND_NSA_CALL:
+            return self._handle_nsa_call(request)
         if request.command in {_COMMAND_NR_CALL, _COMMAND_LTE_CALL}:
             self.state.call_connected = True
             return _ok(request)
@@ -289,6 +295,62 @@ class MockLvServer:
             )
             return _ok(request, {"ok": True, "connected": connected})
         return _error(request, "unsupported command")
+
+    def _handle_nsa_call(self, request: Request) -> Response:
+        """첫 NSA TC의 Anchor와 NR Call 설정을 함께 적용한다."""
+
+        if set(request.params) != {_NSA_CALL_PARAM_WRAPPER}:
+            return _error(request, "invalid NSA Call Params")
+        params = request.params.get(_NSA_CALL_PARAM_WRAPPER)
+        if not isinstance(params, dict) or set(params) != _NSA_HANDOVER_REQUIRED_PARAMS:
+            return _error(request, "invalid NSA Call Process Param")
+
+        try:
+            nr_params = {
+                "Band": _required_int(params, "Band", _NSA_CALL_PARAM_WRAPPER),
+                "BandWidth": _required_int(
+                    params, "BandWidth", _NSA_CALL_PARAM_WRAPPER
+                ),
+                "Center Channel": _required_int(
+                    params, "Center Channel", _NSA_CALL_PARAM_WRAPPER
+                ),
+                "RB Size": _required_int(params, "RB Size", _NSA_CALL_PARAM_WRAPPER),
+                "RB Offset": _required_int(
+                    params, "RB Offset", _NSA_CALL_PARAM_WRAPPER
+                ),
+                "Modulation": _required_text(
+                    params, "Modulation", _NSA_CALL_PARAM_WRAPPER
+                ),
+                "Max Retry Count": _required_int(
+                    params, "Max Retry Count", _NSA_CALL_PARAM_WRAPPER
+                ),
+                "Waiting Time": _required_int(
+                    params, "Waiting Time", _NSA_CALL_PARAM_WRAPPER
+                ),
+            }
+            anchor_ul_channel = _required_int(
+                params, "Anchor UL Channel", _NSA_CALL_PARAM_WRAPPER
+            )
+        except ValueError as exc:
+            return _error(request, str(exc))
+
+        anchor_channels = _NSA_ANCHOR_CHANNELS_BY_UL.get(anchor_ul_channel)
+        if anchor_channels is None:
+            return _error(
+                request,
+                f"unsupported NSA Anchor UL Channel: {anchor_ul_channel}",
+            )
+        if self.scenario == "nsa-call-error":
+            return _error(request, "NSA Call failed: equipment error")
+        if self.scenario == "nsa-call-timeout":
+            return _error(request, "NSA Call failed: timeout")
+
+        self.state.call_connected = True
+        self.state.call_state_by_rem_dest = {"8000A": 8, "8821C": 6}
+        self.state.anchor_dl_channel = anchor_channels.dl_channel
+        self.state.anchor_ul_channel = anchor_channels.ul_channel
+        self.state.last_nsa_nr_params = nr_params
+        return _ok(request)
 
     def _handle_nsa_handover(self, request: Request) -> Response:
         """NSA Handover 단일 composite의 REM_DEST별 상태를 재현한다."""
@@ -670,17 +732,25 @@ def _error(request: Request, message: str) -> Response:
     return Response(id=request.id, status="error", error={"message": message})
 
 
-def _required_int(params: dict[str, Any], key: str) -> int:
+def _required_int(
+    params: dict[str, Any],
+    key: str,
+    context: str = "NSA Handover Params",
+) -> int:
     value = params.get(key)
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"NSA Handover Params.{key} must be an integer")
+        raise ValueError(f"{context}.{key} must be an integer")
     return value
 
 
-def _required_text(params: dict[str, Any], key: str) -> str:
+def _required_text(
+    params: dict[str, Any],
+    key: str,
+    context: str = "NSA Handover Params",
+) -> str:
     value = params.get(key)
     if not isinstance(value, str) or not value:
-        raise ValueError(f"NSA Handover Params.{key} must be a non-empty string")
+        raise ValueError(f"{context}.{key} must be a non-empty string")
     return value
 
 
@@ -727,6 +797,8 @@ def main(argv: list[str] | None = None) -> int:
             "nsa-nr-call-error",
             "nsa-nr-call-timeout",
             "nsa-final-status-timeout",
+            "nsa-call-error",
+            "nsa-call-timeout",
             "recall-param-error",
         ],
         default="normal",

@@ -352,6 +352,47 @@ def test_mock_lv_client_nsa_handover_command(qtbot, tmp_path) -> None:
         server.stop()
 
 
+def test_mock_lv_client_nsa_call_command(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert console.execute_line(
+            "setup-nsa-mt8000 band=78 bw=100 modulation=QPSK "
+            "rb_size=135 rb_offset=67 channel=636666 anchor_ul_channel=18300 "
+            "max_retry_count=9 waiting_time=12"
+        )
+
+        request = server.received_requests[-1]
+        assert (request.target, request.command, request.params) == (
+            "MT8000A",
+            "NSA Call",
+            {
+                "NSA Call Process Param": {
+                    "Band": 78,
+                    "BandWidth": 100,
+                    "Center Channel": 636666,
+                    "RB Size": 135,
+                    "RB Offset": 67,
+                    "Modulation": "QPSK",
+                    "Anchor UL Channel": 18300,
+                    "Max Retry Count": 9,
+                    "Waiting Time": 12,
+                }
+            },
+        )
+        assert "REQUEST  MT8000A / NSA Call" in output.getvalue()
+        assert "RETURN   true" in output.getvalue()
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_mock_lv_client_tdf_commands(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
@@ -395,6 +436,7 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "lte-handover bw=20 dl_channel=350" in text
     assert "handover band=78" in text
     assert "nsa-handover band=78" in text
+    assert "setup-nsa-mt8000 band=78" in text
     assert "anchor_ul_channel=18300" in text
     assert "[max_retry_count=3] [waiting_time=5]" in text
     assert "check-call-status (alias: check-call)" in text

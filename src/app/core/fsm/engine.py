@@ -184,6 +184,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
         LTECallDisconnectedState,
     )
     from app.core.fsm.states.nr_setup import (
+        NSACallConnectState,
         NRCallConnectState,
         NRCallDisconnectedState,
     )
@@ -216,6 +217,7 @@ def build_session_engine(ctx: "SessionContext") -> FSMEngine:
 
     # NR 연결 관리 상태
     engine.register(NRCallConnectState())
+    engine.register(NSACallConnectState())
     engine.register(NRCallDisconnectedState())
     engine.register(LTECallConnectState())
     engine.register(LTECallDisconnectedState())

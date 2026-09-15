@@ -24,6 +24,14 @@ def call_entry_state_for(ctx: "SessionContext") -> str:
     return call_entry_state_for_case(ctx.current_case)
 
 
+def initial_call_entry_state_for(ctx: "SessionContext") -> str:
+    """첫 실행 TestCase의 generation에 맞는 Call 진입 state를 반환한다."""
+
+    if ctx.current_case.generation is Generation.NR_NSA:
+        return "NSACallConnect"
+    return call_entry_state_for(ctx)
+
+
 def handover_entry_state_for_case(case: "TestCase") -> str:
     """TestCase generation에 맞는 Handover 진입 state를 반환한다."""
 

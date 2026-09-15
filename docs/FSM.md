@@ -78,14 +78,16 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `NSACallConnect` | 첫 실행 NSA TC의 NR 설정과 Anchor UL Channel로 `commands.setup_nsa_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
 | `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (NR SA/NSA=`NRCallConnect`) |
 | `LTECallConnect` | 현재 TC의 BW/ARFCN/RB Offset으로 `commands.setup_lte_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `LTECallDisconnected` | NR과 같은 "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`LTECallConnect` |
 
 Generation 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다.
-LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결은 동일한 NR Call을
-사용하고, 같은 Anchor의 NR 설정 변경도 기존 NR Handover를 사용한다. 첫 NSA TC의 Anchor는
-장비에 미리 준비되어 있다고 간주한다.
+첫 실행은 NR SA=`NRCallConnect`, NR NSA=`NSACallConnect`, LTE=`LTECallConnect`로
+진입한다. 연속 NSA TC에서 같은 Anchor의 NR 설정 변경은 기존 NR Handover를 사용한다.
+Call Disconnected, Recall 단절, DUT Axis 변경 후 복구는 기존 Generation별 Call 경로를
+유지하므로 NR NSA도 `NRCallConnect`로 재연결한다.
 
 ### 시험 간 전환 — [states/transition.py](../src/app/core/fsm/states/transition.py)
 
@@ -117,7 +119,9 @@ Recall 명령이 성공하면 Call 연결 여부와 관계없이 적용 ID를 �
 NSA Call 전환 결정표는 다음과 같다.
 
 ```text
-첫 실행 TC (start_index 포함)  → Generation별 NR/LTE Call (Recall Param 미호출)
+첫 실행 NR SA TC              → NR Call (Recall Param 미호출)
+첫 실행 NR NSA TC             → NSA Call (start_index 포함, Recall Param 미호출)
+첫 실행 LTE TC                → LTE Call (Recall Param 미호출)
 목표 Recall != 적용 Recall      → RecallChange → NR/LTE Call
 목표 Recall 변경 + Anchor 변경  → RecallChange → NSA Handover
 Recall 동일 + Anchor 변경      → NSA Handover

@@ -30,6 +30,31 @@ def _nsa_request(**overrides: Any) -> Request:
     )
 
 
+def _nsa_call_request(
+    *,
+    wrapper: str = "NSA Call Process Param",
+    **overrides: Any,
+) -> Request:
+    params = {
+        "Band": 78,
+        "BandWidth": 100,
+        "Center Channel": 636666,
+        "RB Size": 135,
+        "RB Offset": 67,
+        "Modulation": "QPSK",
+        "Anchor UL Channel": 18300,
+        "Max Retry Count": 3,
+        "Waiting Time": 5,
+    }
+    params.update(overrides)
+    return Request(
+        id="request-id",
+        target="MT8000A",
+        command="NSA Call",
+        params={wrapper: params},
+    )
+
+
 def _state_snapshot(server: MockLvServer) -> tuple[Any, ...]:
     state = server.state
     return (
@@ -39,6 +64,75 @@ def _state_snapshot(server: MockLvServer) -> tuple[Any, ...]:
         state.anchor_ul_channel,
         deepcopy(state.last_nsa_nr_params),
     )
+
+
+def test_mock_nsa_call_accepts_exact_wrapper_and_connects_both_destinations(
+    tmp_path,
+) -> None:
+    server = MockLvServer(temp_dir=tmp_path)
+
+    response = server._handle_request(_nsa_call_request())
+
+    assert response.status == "ok"
+    assert response.result is None
+    assert server.state.call_connected is True
+    assert server.state.call_state_by_rem_dest == {"8000A": 8, "8821C": 6}
+    assert server.state.anchor_dl_channel == 300
+    assert server.state.anchor_ul_channel == 18300
+    assert server.state.last_nsa_nr_params == {
+        "Band": 78,
+        "BandWidth": 100,
+        "Center Channel": 636666,
+        "RB Size": 135,
+        "RB Offset": 67,
+        "Modulation": "QPSK",
+        "Max Retry Count": 3,
+        "Waiting Time": 5,
+    }
+
+
+@pytest.mark.parametrize(
+    "nsa_call_request",
+    [
+        _nsa_call_request(wrapper="NSA Handover Param"),
+        _nsa_call_request(**{"Anchor UL Channel": 36275}),
+        _nsa_call_request(**{"Anchor DL Channel": 300}),
+        _nsa_call_request(**{"BandWidth": "100"}),
+    ],
+)
+def test_mock_nsa_call_rejects_invalid_wrapper_or_payload_without_state_change(
+    tmp_path,
+    nsa_call_request: Request,
+) -> None:
+    server = MockLvServer(temp_dir=tmp_path)
+    before = _state_snapshot(server)
+
+    response = server._handle_request(nsa_call_request)
+
+    assert response.status == "error"
+    assert set(response.error) == {"message"}
+    assert _state_snapshot(server) == before
+
+
+@pytest.mark.parametrize(
+    ("scenario", "message"),
+    [
+        ("nsa-call-error", "NSA Call failed: equipment error"),
+        ("nsa-call-timeout", "NSA Call failed: timeout"),
+    ],
+)
+def test_mock_nsa_call_returns_default_error_for_failure_scenarios(
+    tmp_path,
+    scenario: str,
+    message: str,
+) -> None:
+    server = MockLvServer(temp_dir=tmp_path, scenario=scenario)
+
+    response = server._handle_request(_nsa_call_request())
+
+    assert response.status == "error"
+    assert response.result is None
+    assert response.error == {"message": message}
 
 
 def test_mock_nsa_handover_completes_anchor_change_from_existing_nsa_state(

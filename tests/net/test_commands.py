@@ -320,6 +320,116 @@ def test_setup_lte_mt8000_raises_on_error_response() -> None:
         )
 
 
+def test_setup_nsa_mt8000_sends_wrapped_process_params() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_nsa_mt8000(
+        client,
+        band=78,
+        bw=100,
+        modulation=Modulation.QPSK,
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        anchor_ul_channel=18300,
+    ) is True
+    assert client.calls == [
+        (
+            "MT8000A",
+            "NSA Call",
+            {
+                "NSA Call Process Param": {
+                    "Band": 78,
+                    "BandWidth": 100,
+                    "Center Channel": 636666,
+                    "RB Size": 135,
+                    "RB Offset": 67,
+                    "Modulation": "QPSK",
+                    "Anchor UL Channel": 18300,
+                    "Max Retry Count": 3,
+                    "Waiting Time": 5,
+                }
+            },
+        )
+    ]
+
+
+def test_setup_nsa_mt8000_normalizes_modulation_and_explicit_options() -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_nsa_mt8000(
+        client,
+        band=78,
+        bw=100,
+        modulation=Modulation.PI_OVER_2_BPSK,
+        rb_size=135,
+        rb_offset=67,
+        channel=640000,
+        anchor_ul_channel=20525,
+        max_retry_count=7,
+        waiting_time=11,
+    ) is True
+    params = client.calls[0][2]["NSA Call Process Param"]
+    assert params["Modulation"] == "PI/2 BPSK"
+    assert params["Max Retry Count"] == 7
+    assert params["Waiting Time"] == 11
+
+
+@pytest.mark.parametrize("result", [None, "ignored", [1, 2], {"ok": False}])
+def test_setup_nsa_mt8000_accepts_any_result_when_status_is_ok(result: Any) -> None:
+    client = _Client(Response(id="response-id", status="ok", result=result))
+
+    assert commands.setup_nsa_mt8000(
+        client,
+        band=78,
+        bw=100,
+        modulation="QPSK",
+        rb_size=135,
+        rb_offset=67,
+        channel=636666,
+        anchor_ul_channel=18300,
+    ) is True
+
+
+def test_setup_nsa_mt8000_raises_on_error_response() -> None:
+    client = _Client(
+        Response(id="response-id", status="error", error={"message": "call failed"})
+    )
+
+    with pytest.raises(commands.CommandError, match="MT8000A / NSA Call failed"):
+        commands.setup_nsa_mt8000(
+            client,
+            band=78,
+            bw=100,
+            modulation="QPSK",
+            rb_size=135,
+            rb_offset=67,
+            channel=636666,
+            anchor_ul_channel=18300,
+        )
+
+
+def test_setup_nsa_mt8000_propagates_transport_timeout() -> None:
+    class _TimeoutClient:
+        def send_request(
+            self, target: str, command: str, params: dict[str, Any]
+        ) -> Response:
+            _ = target, command, params
+            raise TimeoutError("NSA Call timeout")
+
+    with pytest.raises(TimeoutError, match="NSA Call timeout"):
+        commands.setup_nsa_mt8000(
+            _TimeoutClient(),
+            band=78,
+            bw=100,
+            modulation="QPSK",
+            rb_size=135,
+            rb_offset=67,
+            channel=636666,
+            anchor_ul_channel=18300,
+        )
+
+
 def test_recall_param_sends_only_recall_name_and_returns_connected() -> None:
     client = _Client(_ok(ok=True, connected=True))
 

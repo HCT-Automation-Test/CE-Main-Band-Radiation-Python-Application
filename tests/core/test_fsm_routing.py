@@ -105,7 +105,7 @@ def test_rotate_turntable_branches_on_test_type(
 
 
 @pytest.mark.parametrize(("start_index", "current_index"), [(0, 0), (1, 1)])
-def test_first_nsa_case_routes_directly_to_nr_call(
+def test_first_nsa_case_routes_directly_to_nsa_call(
     start_index: int,
     current_index: int,
 ) -> None:
@@ -123,7 +123,19 @@ def test_first_nsa_case_routes_directly_to_nr_call(
 
     assert (
         PrepareFundamentalSwitchBoxBeforeCallState().next_state(ctx, StateResult.OK)
-        == "NRCallConnect"
+        == "NSACallConnect"
+    )
+
+
+@pytest.mark.parametrize("test_type", [TestType.INBAND, TestType.BILOG])
+def test_first_non_harmonic_nsa_case_routes_directly_to_nsa_call(
+    test_type: TestType,
+) -> None:
+    ctx = _make_ctx(test_type, Generation.NR_NSA)
+
+    assert (
+        SetupSpectrumAnalyzerStartupLevelState().next_state(ctx, StateResult.OK)
+        == "NSACallConnect"
     )
 
 
@@ -260,6 +272,7 @@ def test_build_session_engine_registers_all_states_without_duplicates() -> None:
         "CheckNextCase",
         "TestEnd",
         "NRCallConnect",
+        "NSACallConnect",
         "NRCallDisconnected",
         "ApplyTdf",
         "AntPolChange",

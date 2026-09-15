@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 from PySide6.QtCore import Qt
 
 from app.core.fsm.base import State, StateResult
-from app.core.fsm.call_routing import call_entry_state_for
+from app.core.fsm.call_routing import initial_call_entry_state_for
 from app.core.fsm.equipment import is_equipment_connected
 from app.models.enums import FilterPath, InputPath, TestType
 from app.models.switch_box import (
@@ -193,7 +193,7 @@ class SetupSpectrumAnalyzerStartupLevelState(State):
             return None
         if ctx.current_case.test_type is TestType.HARMONIC:
             return "PrepareFundamentalSwitchBoxBeforeCall"
-        return call_entry_state_for(ctx)
+        return initial_call_entry_state_for(ctx)
 
 
 class SetSwitchBoxState(State):
@@ -604,7 +604,7 @@ class PrepareFundamentalSwitchBoxBeforeCallState(_RestoreSafeSwitchBoxState):
     ) -> str | None:
         if result is not StateResult.OK:
             return None
-        return call_entry_state_for(ctx)
+        return initial_call_entry_state_for(ctx)
 
 
 class PrepareFundamentalSwitchBoxState(_RestoreSafeSwitchBoxState):
