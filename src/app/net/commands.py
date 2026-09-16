@@ -37,6 +37,7 @@ _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
+_COMMAND_NSA_CALL = "NSA Call"
 _COMMAND_NSA_HANDOVER = "NSA Handover"
 _COMMAND_LTE_CALL = "LTE Call"
 _COMMAND_LTE_HANDOVER = "LTE Handover"
@@ -342,6 +343,39 @@ def setup_lte_mt8000(
         ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_LTE_CALL)
+
+
+def setup_nsa_mt8000(
+    client: Any,
+    *,
+    band: int,
+    bw: int,
+    modulation: Modulation | str,
+    rb_size: int,
+    rb_offset: int,
+    channel: int,
+    anchor_ul_channel: int,
+    max_retry_count: int = 3,
+    waiting_time: int = 5,
+) -> bool:
+    """LTE Anchor와 NR SCG를 함께 설정하여 NSA Call을 시작한다."""
+    response = _send_request(
+        client,
+        _TARGET_MT8000A,
+        _COMMAND_NSA_CALL,
+        _build_nsa_handover_params(
+            band=band,
+            bw=bw,
+            modulation=modulation,
+            rb_size=rb_size,
+            rb_offset=rb_offset,
+            channel=channel,
+            anchor_ul_channel=anchor_ul_channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
+    )
+    return _action_ok(response, _TARGET_MT8000A, _COMMAND_NSA_CALL)
 
 
 def recall_param(client: Any, *, recall_name: str) -> bool:

@@ -9,6 +9,7 @@ import pytest
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.nr_setup import (
+    NSACallConnectState,
     NRCallConnectState,
     NRCallDisconnectedState,
 )
@@ -169,12 +170,14 @@ def _make_ctx(
     return ctx, command_facade, events, client
 
 
-def _make_axis_change_ctx() -> tuple[SessionContext, _Events]:
+def _make_axis_change_ctx(
+    generation: Generation = Generation.NR_SA,
+) -> tuple[SessionContext, _Events]:
     events = _Events()
     ctx = SessionContext(
         queue=[
-            _make_case(dut_axis=DUTAxis.X),
-            _make_case(dut_axis=DUTAxis.Y),
+            _make_case(dut_axis=DUTAxis.X, generation=generation),
+            _make_case(dut_axis=DUTAxis.Y, generation=generation),
         ],
         commands=_Commands(),
         events=events,  # type: ignore[arg-type]
@@ -433,6 +436,12 @@ def test_dut_axis_change_returns_fail_when_stopped_while_waiting() -> None:
     assert result is StateResult.FAIL
     assert events.user_action_required.messages == ["DUT Axis 변경: X -> Y"]
     assert state.next_state(ctx, result) is None
+
+
+def test_dut_axis_change_routes_nsa_reconnect_to_nsa_call() -> None:
+    ctx, _ = _make_axis_change_ctx(Generation.NR_NSA)
+
+    assert DUTAxisChangeState().next_state(ctx, StateResult.OK) == "NSACallConnect"
 
 
 def test_handover_calls_command_with_current_case_params() -> None:
@@ -761,16 +770,17 @@ def test_nsa_handover_timeout_routes_to_nr_call_disconnected() -> None:
 
 
 @pytest.mark.parametrize(
-    ("generation", "expected_recall"),
+    ("generation", "expected_recall", "expected_call_state"),
     [
-        (Generation.NR_SA, "5GNR_SA_TDD"),
-        (Generation.NR_NSA, "5GNR_NSA_TDD"),
+        (Generation.NR_SA, "5GNR_SA_TDD", "NRCallConnect"),
+        (Generation.NR_NSA, "5GNR_NSA_TDD", "NSACallConnect"),
     ],
     ids=["sa", "nsa"],
 )
 def test_recall_change_uses_generation_recall_without_separate_call_check(
     generation: Generation,
     expected_recall: str,
+    expected_call_state: str,
 ) -> None:
     prev_case = _make_case(
         generation=generation,
@@ -788,7 +798,7 @@ def test_recall_change_uses_generation_recall_without_separate_call_check(
         current_index=1,
     )
     ctx.last_applied_recall_id = prev_case.mt8000_recall
-    ctx.pending_transition_states = ["NRCallConnect"]
+    ctx.pending_transition_states = [expected_call_state]
     state = RecallChangeState()
 
     result = state.run(ctx)
@@ -801,7 +811,7 @@ def test_recall_change_uses_generation_recall_without_separate_call_check(
     assert commands.call_sequence == ["recall_param"]
     assert ctx.last_applied_recall_id == expected_recall
     assert events.user_action_required.messages == []
-    assert state.next_state(ctx, result) == "NRCallConnect"
+    assert state.next_state(ctx, result) == expected_call_state
     assert ctx.pending_transition_states == []
 
 
@@ -874,7 +884,7 @@ def test_recall_change_disconnected_updates_id_and_uses_single_recovery_call() -
     assert commands.call_status_calls == []
 
 
-def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
+def test_recall_change_disconnected_consumes_superseded_nsa_handover() -> None:
     prev_case = _make_case(
         generation=Generation.NR_NSA,
         band=NRBand.N7,
@@ -895,7 +905,7 @@ def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
         current_index=1,
     )
     ctx.last_applied_recall_id = prev_case.mt8000_recall
-    ctx.pending_transition_states = ["NSAHandover"]
+    ctx.pending_transition_states = ["NSAHandover", "CallCheck"]
     state = RecallChangeState()
 
     result = state.run(ctx)
@@ -904,7 +914,46 @@ def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
     assert ctx.last_applied_recall_id == current_case.mt8000_recall
     assert events.error.messages == []
     assert state.next_state(ctx, result) == "NRCallDisconnected"
-    assert ctx.pending_transition_states == ["NSAHandover"]
+    assert ctx.pending_transition_states == ["CallCheck"]
+    assert (
+        NRCallDisconnectedState().next_state(ctx, StateResult.OK)
+        == "NSACallConnect"
+    )
+    assert NSACallConnectState().next_state(ctx, StateResult.OK) == "CallCheck"
+    assert ctx.pending_transition_states == []
+
+
+def test_recall_change_disconnected_routes_nsa_recovery_to_nsa_call() -> None:
+    prev_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N7,
+        bandwidth=20.0,
+    )
+    current_case = _make_case(
+        generation=Generation.NR_NSA,
+        band=NRBand.N38,
+        bandwidth=20.0,
+    )
+    commands = _Commands(recall_configured=False)
+    ctx, _, _, _ = _make_ctx(
+        current_case,
+        commands=commands,
+        queue=[prev_case, current_case],
+        current_index=1,
+    )
+    ctx.last_applied_recall_id = prev_case.mt8000_recall
+    ctx.pending_transition_states = ["NSACallConnect", "CallCheck"]
+    state = RecallChangeState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert ctx.pending_transition_states == ["CallCheck"]
+    assert (
+        NRCallDisconnectedState().next_state(ctx, StateResult.OK)
+        == "NSACallConnect"
+    )
 
 
 def test_recall_change_resets_disconnected_result_between_runs() -> None:

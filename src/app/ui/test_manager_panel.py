@@ -102,7 +102,7 @@ _CSV_DIRECTORY_NAME = "CSV"
 
 _RUN_SETTING_FIELD_DEFAULTS: dict[str, str] = {
     "saturationTimeEdit": "5",
-    "connectionWaitingTimeEdit": "5",
+    "connectionWaitingTimeEdit": "10",
     "attenLevelEdit": "0",
     "nextPeakSearchLevelEdit": "6",
     "customTurnTableSpeedEdit": "5",
@@ -659,7 +659,7 @@ class TestManagerPanel(QWidget):
                 manual_marker_enabled = self._marker_check_box.isChecked()
             else:
                 saturation_time_sec = 5
-                connection_waiting_time_sec = 5
+                connection_waiting_time_sec = 10
                 atten_level_db = 0
                 next_peak_search_level_db = 6
                 custom_turntable_speed = None

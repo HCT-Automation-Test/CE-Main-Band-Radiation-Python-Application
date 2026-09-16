@@ -78,14 +78,16 @@ name→State 레지스트리를 들고 `enter → run → exit → next_state` �
 | 상태 | 역할 | next |
 | --- | --- | --- |
 | `NRCallConnect` | **항상 풀 Setup + 신규 연결.** `resolve_call_channel`로 채널 산출 후 `commands.setup_mt8000(band, bw, mod, rb, channel, waiting_time)` | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
-| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (NR SA/NSA=`NRCallConnect`) |
+| `NSACallConnect` | NSA TC의 NR 설정과 Anchor UL Channel로 `commands.setup_nsa_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`NRCallDisconnected` |
+| `NRCallDisconnected` | "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`call_entry_state_for(ctx)` (NR SA=`NRCallConnect`, NR NSA=`NSACallConnect`) |
 | `LTECallConnect` | 현재 TC의 BW/ARFCN/RB Offset으로 `commands.setup_lte_mt8000` 호출 | OK→`next_transition_or(ApplyTdf)` / FAIL→`LTECallDisconnected` |
 | `LTECallDisconnected` | NR과 같은 "비행기 모드 On/Off 후 확인" 사용자 확인 대기 | OK→`LTECallConnect` |
 
 Generation 분기는 [call_routing.py](../src/app/core/fsm/call_routing.py)에 집중되어 있다.
-LTE는 LTE Call/Handover 상태로 진입한다. NR SA와 NR NSA의 첫 연결은 동일한 NR Call을
-사용하고, 같은 Anchor의 NR 설정 변경도 기존 NR Handover를 사용한다. 첫 NSA TC의 Anchor는
-장비에 미리 준비되어 있다고 간주한다.
+첫 실행과 풀 재연결은 NR SA=`NRCallConnect`, NR NSA=`NSACallConnect`,
+LTE=`LTECallConnect`로 진입한다. 연속 NSA TC에서 같은 Anchor의 NR 설정 변경은 기존
+NR Handover를 사용하고, Call Disconnected, Recall 후 풀 설정·단절 복구, DUT Axis 변경
+후 재연결은 `NSACallConnect`로 Anchor와 NR SCG를 함께 확인한다.
 
 ### 시험 간 전환 — [states/transition.py](../src/app/core/fsm/states/transition.py)
 
@@ -110,15 +112,18 @@ Recall 변경 시 Python은 LV의 고수준 `Recall Param`만 호출한다. LV�
 바뀐 경우에는 NR Call 대신 기존 `NSA Handover`로 목표 NR 설정과 Anchor를 함께 적용한다.
 Recall 명령이 성공하면 Call 연결 여부와 관계없이 적용 ID를 갱신한다. Call이 단절된 경우에는
 오류로 종료하지 않고 Generation별 CallDisconnected로 이동한다. pending transition의 첫 항목이
-동일 Generation의 CallConnect이면 복구 과정과 중복되지 않도록 한 번 소비하고, NSAHandover 등
-다른 후속 transition은 유지한다. Recall 응답 오류, timeout, protocol error 또는 예외는 적용 ID를
-갱신하지 않고 FSM을 종료한다. Call 단절 복구는 기존 CallConnect만 수행하며 Recall을 재조회·재적용하지 않는다.
+동일 Generation의 CallConnect이면 복구 과정과 중복되지 않도록 한 번 소비한다. NSA에서는
+풀 복구가 목표 Anchor와 NR 설정을 함께 적용하므로 예약된 NSAHandover도 소비하고, 그 밖의
+후속 transition은 유지한다. Recall 응답 오류, timeout, protocol error 또는 예외는 적용 ID를
+갱신하지 않고 FSM을 종료한다. Call 단절 복구는 Generation별 CallConnect만 수행하며 Recall을 재조회·재적용하지 않는다.
 
 NSA Call 전환 결정표는 다음과 같다.
 
 ```text
-첫 실행 TC (start_index 포함)  → Generation별 NR/LTE Call (Recall Param 미호출)
-목표 Recall != 적용 Recall      → RecallChange → NR/LTE Call
+첫 실행 NR SA TC              → NR Call (Recall Param 미호출)
+첫 실행 NR NSA TC             → NSA Call (start_index 포함, Recall Param 미호출)
+첫 실행 LTE TC                → LTE Call (Recall Param 미호출)
+목표 Recall != 적용 Recall      → RecallChange → Generation별 Call
 목표 Recall 변경 + Anchor 변경  → RecallChange → NSA Handover
 Recall 동일 + Anchor 변경      → NSA Handover
 Anchor 동일 + NR 설정 변경     → NR Handover
@@ -202,7 +207,7 @@ SessionInit ──OK──► Idle ──Start──► PrepareReport ──OK�
    PrepareFundamentalSwitchBoxBeforeCall      (Generation별 Call 진입)
                      │                                 │
                      ▼                                 ▼
-        NRCallConnect / LTECallConnect ◄── Generation별 CallDisconnected
+ NRCallConnect / NSACallConnect / LTECallConnect ◄── Generation별 CallDisconnected
                      │ OK (pending 전환 우선 소비)          ▲ FAIL 시
                      ▼                                    │
                   ApplyTdf                                │

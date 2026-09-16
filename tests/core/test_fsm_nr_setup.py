@@ -8,6 +8,7 @@ from typing import Any
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.nr_setup import (
+    NSACallConnectState,
     NRCallConnectState,
     NRCallDisconnectedState,
 )
@@ -50,9 +51,16 @@ class _Commands:
         self.connected = connected
         self.exception = exception
         self.calls: list[tuple[Any, dict[str, Any]]] = []
+        self.nsa_calls: list[tuple[Any, dict[str, Any]]] = []
 
     def setup_mt8000(self, client: Any, **params: Any) -> bool:
         self.calls.append((client, params))
+        if self.exception is not None:
+            raise self.exception
+        return self.connected
+
+    def setup_nsa_mt8000(self, client: Any, **params: Any) -> bool:
+        self.nsa_calls.append((client, params))
         if self.exception is not None:
             raise self.exception
         return self.connected
@@ -138,6 +146,57 @@ def test_nr_call_connect_uses_settings_connection_waiting_time(
 
     assert result is StateResult.OK
     assert commands.calls[0][1]["waiting_time"] == 7
+
+
+def test_nsa_call_connect_passes_nr_and_anchor_params() -> None:
+    commands = _Commands(connected=True)
+    client = object()
+    ctx = _connect_mt8000a(SessionContext(
+        queue=[_make_case(Generation.NR_NSA)],
+        commands=commands,
+        events=_Events(),  # type: ignore[arg-type]
+        client=client,
+    ))
+    state = NSACallConnectState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.OK
+    assert state.next_state(ctx, result) == "ApplyTdf"
+    assert commands.calls == []
+    assert commands.nsa_calls == [
+        (
+            client,
+            {
+                "band": 78,
+                "bw": 100,
+                "modulation": Modulation.QPSK,
+                "rb_size": 135,
+                "rb_offset": 67,
+                "channel": 636666,
+                "anchor_ul_channel": 18300,
+                "waiting_time": 5,
+            },
+        )
+    ]
+
+
+def test_nsa_call_connect_failure_stops_before_tdf_and_uses_nsa_recovery() -> None:
+    commands = _Commands(connected=True, exception=TimeoutError("transport timeout"))
+    events = _Events()
+    ctx = _connect_mt8000a(SessionContext(
+        queue=[_make_case(Generation.NR_NSA)],
+        commands=commands,
+        events=events,  # type: ignore[arg-type]
+    ))
+    state = NSACallConnectState()
+
+    result = state.run(ctx)
+
+    assert result is StateResult.FAIL
+    assert state.next_state(ctx, result) == "NRCallDisconnected"
+    assert events.error.messages == ["NSA Call 연결 실패: transport timeout"]
+    assert NRCallDisconnectedState().next_state(ctx, StateResult.OK) == "NSACallConnect"
 
 
 def test_nr_call_connect_skips_when_mt8000a_is_not_connected() -> None:
@@ -236,11 +295,11 @@ def test_nr_call_disconnected_waits_for_user_action_before_reconnect() -> None:
     assert state.next_state(ctx, result) == "NRCallConnect"
 
 
-def test_nr_call_disconnected_routes_nsa_recovery_to_nr_call() -> None:
+def test_nr_call_disconnected_routes_nsa_recovery_to_nsa_call() -> None:
     ctx = SessionContext(
         queue=[_make_case(Generation.NR_NSA)],
         commands=_Commands(connected=True),
         events=_Events(),  # type: ignore[arg-type]
     )
 
-    assert NRCallDisconnectedState().next_state(ctx, StateResult.OK) == "NRCallConnect"
+    assert NRCallDisconnectedState().next_state(ctx, StateResult.OK) == "NSACallConnect"

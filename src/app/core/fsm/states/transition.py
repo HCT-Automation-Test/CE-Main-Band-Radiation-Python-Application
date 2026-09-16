@@ -324,8 +324,16 @@ class RecallChangeState(State):
             call_connect_state = call_entry_state_for(ctx)
             if (
                 ctx.pending_transition_states
-                and ctx.pending_transition_states[0] == call_connect_state
+                and (
+                    ctx.pending_transition_states[0] == call_connect_state
+                    or (
+                        ctx.current_case.generation is Generation.NR_NSA
+                        and ctx.pending_transition_states[0] == "NSAHandover"
+                    )
+                )
             ):
+                # NSA 풀 복구는 목표 Anchor와 NR 설정을 함께 적용하므로
+                # 예약된 NSA Handover를 중복 실행하지 않는다.
                 ctx.pop_pending_transition_state()
         return StateResult.OK
 
