@@ -9,6 +9,7 @@ import pytest
 from app.core.fsm.base import StateResult
 from app.core.fsm.context import SessionContext
 from app.core.fsm.states.nr_setup import (
+    NSACallConnectState,
     NRCallConnectState,
     NRCallDisconnectedState,
 )
@@ -883,7 +884,7 @@ def test_recall_change_disconnected_updates_id_and_uses_single_recovery_call() -
     assert commands.call_status_calls == []
 
 
-def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
+def test_recall_change_disconnected_consumes_superseded_nsa_handover() -> None:
     prev_case = _make_case(
         generation=Generation.NR_NSA,
         band=NRBand.N7,
@@ -904,7 +905,7 @@ def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
         current_index=1,
     )
     ctx.last_applied_recall_id = prev_case.mt8000_recall
-    ctx.pending_transition_states = ["NSAHandover"]
+    ctx.pending_transition_states = ["NSAHandover", "CallCheck"]
     state = RecallChangeState()
 
     result = state.run(ctx)
@@ -913,7 +914,13 @@ def test_recall_change_disconnected_preserves_nsa_handover_transition() -> None:
     assert ctx.last_applied_recall_id == current_case.mt8000_recall
     assert events.error.messages == []
     assert state.next_state(ctx, result) == "NRCallDisconnected"
-    assert ctx.pending_transition_states == ["NSAHandover"]
+    assert ctx.pending_transition_states == ["CallCheck"]
+    assert (
+        NRCallDisconnectedState().next_state(ctx, StateResult.OK)
+        == "NSACallConnect"
+    )
+    assert NSACallConnectState().next_state(ctx, StateResult.OK) == "CallCheck"
+    assert ctx.pending_transition_states == []
 
 
 def test_recall_change_disconnected_routes_nsa_recovery_to_nsa_call() -> None:

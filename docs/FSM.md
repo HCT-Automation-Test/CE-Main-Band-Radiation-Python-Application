@@ -112,8 +112,9 @@ Recall 변경 시 Python은 LV의 고수준 `Recall Param`만 호출한다. LV�
 바뀐 경우에는 NR Call 대신 기존 `NSA Handover`로 목표 NR 설정과 Anchor를 함께 적용한다.
 Recall 명령이 성공하면 Call 연결 여부와 관계없이 적용 ID를 갱신한다. Call이 단절된 경우에는
 오류로 종료하지 않고 Generation별 CallDisconnected로 이동한다. pending transition의 첫 항목이
-동일 Generation의 CallConnect이면 복구 과정과 중복되지 않도록 한 번 소비하고, NSAHandover 등
-다른 후속 transition은 유지한다. Recall 응답 오류, timeout, protocol error 또는 예외는 적용 ID를
+동일 Generation의 CallConnect이면 복구 과정과 중복되지 않도록 한 번 소비한다. NSA에서는
+풀 복구가 목표 Anchor와 NR 설정을 함께 적용하므로 예약된 NSAHandover도 소비하고, 그 밖의
+후속 transition은 유지한다. Recall 응답 오류, timeout, protocol error 또는 예외는 적용 ID를
 갱신하지 않고 FSM을 종료한다. Call 단절 복구는 Generation별 CallConnect만 수행하며 Recall을 재조회·재적용하지 않는다.
 
 NSA Call 전환 결정표는 다음과 같다.
@@ -122,7 +123,7 @@ NSA Call 전환 결정표는 다음과 같다.
 첫 실행 NR SA TC              → NR Call (Recall Param 미호출)
 첫 실행 NR NSA TC             → NSA Call (start_index 포함, Recall Param 미호출)
 첫 실행 LTE TC                → LTE Call (Recall Param 미호출)
-목표 Recall != 적용 Recall      → RecallChange → NR/LTE Call
+목표 Recall != 적용 Recall      → RecallChange → Generation별 Call
 목표 Recall 변경 + Anchor 변경  → RecallChange → NSA Handover
 Recall 동일 + Anchor 변경      → NSA Handover
 Anchor 동일 + NR 설정 변경     → NR Handover
