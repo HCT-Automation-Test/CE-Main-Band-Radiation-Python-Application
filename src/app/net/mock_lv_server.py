@@ -853,7 +853,13 @@ def _required_text(
 
 
 def _validated_manual_sa_params(params: dict[str, Any]) -> dict[str, Any]:
-    if set(params) != _MANUAL_SA_REQUIRED_PARAMS:
+    if set(params) != {"SA Manual Param"}:
+        raise ValueError("invalid Load SA Manual Setting Params")
+
+    manual_params = params["SA Manual Param"]
+    if not isinstance(manual_params, dict):
+        raise ValueError("invalid Load SA Manual Setting Params")
+    if set(manual_params) != _MANUAL_SA_REQUIRED_PARAMS:
         raise ValueError("invalid Load SA Manual Setting Params")
 
     number_fields = {
@@ -866,22 +872,22 @@ def _validated_manual_sa_params(params: dict[str, Any]) -> dict[str, Any]:
         "Limit",
     }
     for key in number_fields:
-        value = params[key]
+        value = manual_params[key]
         if isinstance(value, bool) or not isinstance(value, int | float):
             raise ValueError(f"Load SA Manual Setting Params.{key} must be a number")
 
-    sweep_point = params["Sweep Point"]
+    sweep_point = manual_params["Sweep Point"]
     if isinstance(sweep_point, bool) or not isinstance(sweep_point, int):
         raise ValueError(
             "Load SA Manual Setting Params.Sweep Point must be an integer"
         )
 
-    detector_mode = params["Detector Mode"]
+    detector_mode = manual_params["Detector Mode"]
     if detector_mode not in _MANUAL_DETECTOR_MODES:
         raise ValueError(
             "Load SA Manual Setting Params.Detector Mode is unsupported"
         )
-    return dict(params)
+    return dict(manual_params)
 
 
 def _validated_marker_params(params: dict[str, Any]) -> tuple[int, float]:

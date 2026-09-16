@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from app.net.mock_lv_server import MockLvServer
 from app.net.protocol import Request
 
@@ -34,7 +36,11 @@ def test_mock_lv_server_manual_contract_updates_state_without_transport() -> Non
         "Limit": -36.0,
     }
     requests = [
-        _manual_request("Load SA Manual Setting", manual_params, request_id="set"),
+        _manual_request(
+            "Load SA Manual Setting",
+            {"SA Manual Param": manual_params},
+            request_id="set",
+        ),
         _manual_request("Preset", request_id="preset"),
         _manual_request(
             "Marker Auto Max",
@@ -71,11 +77,31 @@ def test_mock_lv_server_manual_contract_updates_state_without_transport() -> Non
     assert server.state.max_hold_enabled is True
 
 
-def test_mock_lv_server_manual_contract_rejects_invalid_payload_without_state() -> None:
+@pytest.mark.parametrize(
+    "params",
+    [
+        {
+            "Start Frequency": 30.0,
+            "Stop Frequency": 1000.0,
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "Sweep Point": 10001,
+            "Sweep Time": 0.1,
+            "Atten Level": 10.0,
+            "Detector Mode": "RMS",
+            "Limit": -36.0,
+        },
+        {"SA Range Param": {}},
+        {"SA Manual Param": "invalid"},
+    ],
+)
+def test_mock_lv_server_manual_contract_rejects_invalid_payload_without_state(
+    params: dict[str, Any],
+) -> None:
     server = MockLvServer()
 
     response = server._handle_request(
-        _manual_request("Load SA Manual Setting", {"SA Range Param": {}})
+        _manual_request("Load SA Manual Setting", params)
     )
 
     assert response is not None

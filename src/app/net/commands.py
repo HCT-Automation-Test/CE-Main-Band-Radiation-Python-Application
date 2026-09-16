@@ -678,15 +678,17 @@ def setup_sa_manual(
         _TARGET_FSV40,
         _COMMAND_LOAD_SA_MANUAL_SETTING,
         {
-            "Start Frequency": float(start_frequency_mhz),
-            "Stop Frequency": float(stop_frequency_mhz),
-            "RBW": float(rbw_mhz),
-            "VBW": float(vbw_mhz),
-            "Sweep Point": sweep_point,
-            "Sweep Time": float(sweep_time_sec),
-            "Atten Level": float(atten_level_db),
-            "Detector Mode": detector_mode,
-            "Limit": float(limit_dbm),
+            "SA Manual Param": {
+                "Start Frequency": float(start_frequency_mhz),
+                "Stop Frequency": float(stop_frequency_mhz),
+                "RBW": float(rbw_mhz),
+                "VBW": float(vbw_mhz),
+                "Sweep Point": sweep_point,
+                "Sweep Time": float(sweep_time_sec),
+                "Atten Level": float(atten_level_db),
+                "Detector Mode": detector_mode,
+                "Limit": float(limit_dbm),
+            },
         },
     )
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_MANUAL_SETTING)

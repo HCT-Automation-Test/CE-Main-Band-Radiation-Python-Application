@@ -999,7 +999,27 @@ def test_mock_lv_server_tracks_manual_test_contract_state(qtbot, tmp_path) -> No
         server.stop()
 
 
-def test_mock_lv_server_rejects_invalid_manual_params(qtbot, tmp_path) -> None:
+@pytest.mark.parametrize(
+    "params",
+    [
+        {
+            "Start Frequency": 30.0,
+            "Stop Frequency": 1000.0,
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "Sweep Point": 10001,
+            "Sweep Time": 0.1,
+            "Atten Level": 10.0,
+            "Detector Mode": "RMS",
+            "Limit": -36.0,
+        },
+        {"SA Range Param": {}},
+        {"SA Manual Param": "invalid"},
+    ],
+)
+def test_mock_lv_server_rejects_invalid_manual_params(
+    qtbot, tmp_path, params: dict[str, object]
+) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()
     client = TcpClient()
@@ -1009,7 +1029,7 @@ def test_mock_lv_server_rejects_invalid_manual_params(qtbot, tmp_path) -> None:
         response = client.send_request(
             "FSV40",
             "Load SA Manual Setting",
-            {"SA Range Param": {}},
+            params,
             timeout=1.0,
         )
 

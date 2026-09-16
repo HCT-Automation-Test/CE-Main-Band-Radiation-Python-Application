@@ -207,7 +207,7 @@ CO3000 또는 Mast command는 새로 만들지 않는다.
 
 | facade | command | Params |
 | --- | --- | --- |
-| `setup_sa_manual` | `Load SA Manual Setting` | 아래 9개 설정 필드의 flat object |
+| `setup_sa_manual` | `Load SA Manual Setting` | `SA Manual Param` 아래 9개 설정 필드 |
 | `preset_sa` | `Preset` | `{}` |
 | `marker_auto_max` | `Marker Auto Max` | Marker Index, Excursion(기본 `0.0`) |
 | `marker_set_center` | `Marker set Center` | Marker Index, Excursion(기본 `0.0`) |
@@ -215,7 +215,8 @@ CO3000 또는 Mast command는 새로 만들지 않는다.
 
 `Load SA Manual Setting`의 정확한 요청은 다음과 같다. Start/Stop Frequency, RBW,
 VBW는 MHz, Sweep Time은 초, Atten Level은 dB, Limit은 dBm 단위다. Sweep Point는
-integer다. 기존 자동시험의 `SA Range Param` wrapper와 단위는 변경하지 않는다.
+integer다. Manual Test 설정은 `SA Manual Param` wrapper를 사용하며, 기존 자동시험의
+`SA Range Param` wrapper와 단위는 변경하지 않는다.
 
 ```json
 {
@@ -224,15 +225,17 @@ integer다. 기존 자동시험의 `SA Range Param` wrapper와 단위는 변경�
   "target": "FSV40",
   "command": "Load SA Manual Setting",
   "Params": {
-    "Start Frequency": 30.0,
-    "Stop Frequency": 1000.0,
-    "RBW": 0.1,
-    "VBW": 0.3,
-    "Sweep Point": 10001,
-    "Sweep Time": 0.1,
-    "Atten Level": 10.0,
-    "Detector Mode": "RMS",
-    "Limit": -36.0
+    "SA Manual Param": {
+      "Start Frequency": 30.0,
+      "Stop Frequency": 1000.0,
+      "RBW": 0.1,
+      "VBW": 0.3,
+      "Sweep Point": 10001,
+      "Sweep Time": 0.1,
+      "Atten Level": 10.0,
+      "Detector Mode": "RMS",
+      "Limit": -36.0
+    }
   }
 }
 ```
