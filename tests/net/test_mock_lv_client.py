@@ -373,17 +373,15 @@ def test_mock_lv_client_nsa_call_command(qtbot, tmp_path) -> None:
             "MT8000A",
             "NSA Call",
             {
-                "NSA Call Process Param": {
-                    "Band": 78,
-                    "BandWidth": 100,
-                    "Center Channel": 636666,
-                    "RB Size": 135,
-                    "RB Offset": 67,
-                    "Modulation": "QPSK",
-                    "Anchor UL Channel": 18300,
-                    "Max Retry Count": 9,
-                    "Waiting Time": 12,
-                }
+                "Band": 78,
+                "BandWidth": 100,
+                "Center Channel": 636666,
+                "RB Size": 135,
+                "RB Offset": 67,
+                "Modulation": "QPSK",
+                "Anchor UL Channel": 18300,
+                "Max Retry Count": 9,
+                "Waiting Time": 12,
             },
         )
         assert "REQUEST  MT8000A / NSA Call" in output.getvalue()

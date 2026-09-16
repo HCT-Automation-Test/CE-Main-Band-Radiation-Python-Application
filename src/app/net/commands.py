@@ -363,19 +363,17 @@ def setup_nsa_mt8000(
         client,
         _TARGET_MT8000A,
         _COMMAND_NSA_CALL,
-        {
-            "NSA Call Process Param": _build_nsa_handover_params(
-                band=band,
-                bw=bw,
-                modulation=modulation,
-                rb_size=rb_size,
-                rb_offset=rb_offset,
-                channel=channel,
-                anchor_ul_channel=anchor_ul_channel,
-                max_retry_count=max_retry_count,
-                waiting_time=waiting_time,
-            )
-        },
+        _build_nsa_handover_params(
+            band=band,
+            bw=bw,
+            modulation=modulation,
+            rb_size=rb_size,
+            rb_offset=rb_offset,
+            channel=channel,
+            anchor_ul_channel=anchor_ul_channel,
+            max_retry_count=max_retry_count,
+            waiting_time=waiting_time,
+        ),
     )
     return _action_ok(response, _TARGET_MT8000A, _COMMAND_NSA_CALL)
 

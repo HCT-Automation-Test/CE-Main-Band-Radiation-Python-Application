@@ -320,7 +320,7 @@ def test_setup_lte_mt8000_raises_on_error_response() -> None:
         )
 
 
-def test_setup_nsa_mt8000_sends_wrapped_process_params() -> None:
+def test_setup_nsa_mt8000_sends_flat_process_params() -> None:
     client = _Client(_default_ok())
 
     assert commands.setup_nsa_mt8000(
@@ -338,17 +338,15 @@ def test_setup_nsa_mt8000_sends_wrapped_process_params() -> None:
             "MT8000A",
             "NSA Call",
             {
-                "NSA Call Process Param": {
-                    "Band": 78,
-                    "BandWidth": 100,
-                    "Center Channel": 636666,
-                    "RB Size": 135,
-                    "RB Offset": 67,
-                    "Modulation": "QPSK",
-                    "Anchor UL Channel": 18300,
-                    "Max Retry Count": 3,
-                    "Waiting Time": 5,
-                }
+                "Band": 78,
+                "BandWidth": 100,
+                "Center Channel": 636666,
+                "RB Size": 135,
+                "RB Offset": 67,
+                "Modulation": "QPSK",
+                "Anchor UL Channel": 18300,
+                "Max Retry Count": 3,
+                "Waiting Time": 5,
             },
         )
     ]
@@ -369,10 +367,21 @@ def test_setup_nsa_mt8000_normalizes_modulation_and_explicit_options() -> None:
         max_retry_count=7,
         waiting_time=11,
     ) is True
-    params = client.calls[0][2]["NSA Call Process Param"]
+    params = client.calls[0][2]
     assert params["Modulation"] == "PI/2 BPSK"
     assert params["Max Retry Count"] == 7
     assert params["Waiting Time"] == 11
+    assert set(params) == {
+        "Band",
+        "BandWidth",
+        "Center Channel",
+        "RB Size",
+        "RB Offset",
+        "Modulation",
+        "Anchor UL Channel",
+        "Max Retry Count",
+        "Waiting Time",
+    }
 
 
 @pytest.mark.parametrize("result", [None, "ignored", [1, 2], {"ok": False}])

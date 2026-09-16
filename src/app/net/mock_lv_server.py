@@ -129,7 +129,6 @@ _NSA_HANDOVER_REQUIRED_PARAMS = {
     "Max Retry Count",
     "Waiting Time",
 }
-_NSA_CALL_PARAM_WRAPPER = "NSA Call Process Param"
 _NSA_ANCHOR_CHANNELS_BY_UL: dict[int, NSAAnchorChannels] = {
     channels.ul_channel: channels
     for band in SUPPORTED_NSA_ANCHOR_BANDS
@@ -299,37 +298,31 @@ class MockLvServer:
     def _handle_nsa_call(self, request: Request) -> Response:
         """첫 NSA TC의 Anchor와 NR Call 설정을 함께 적용한다."""
 
-        if set(request.params) != {_NSA_CALL_PARAM_WRAPPER}:
+        params = request.params
+        if set(params) != _NSA_HANDOVER_REQUIRED_PARAMS:
             return _error(request, "invalid NSA Call Params")
-        params = request.params.get(_NSA_CALL_PARAM_WRAPPER)
-        if not isinstance(params, dict) or set(params) != _NSA_HANDOVER_REQUIRED_PARAMS:
-            return _error(request, "invalid NSA Call Process Param")
 
         try:
             nr_params = {
-                "Band": _required_int(params, "Band", _NSA_CALL_PARAM_WRAPPER),
-                "BandWidth": _required_int(
-                    params, "BandWidth", _NSA_CALL_PARAM_WRAPPER
-                ),
+                "Band": _required_int(params, "Band", _COMMAND_NSA_CALL),
+                "BandWidth": _required_int(params, "BandWidth", _COMMAND_NSA_CALL),
                 "Center Channel": _required_int(
-                    params, "Center Channel", _NSA_CALL_PARAM_WRAPPER
+                    params, "Center Channel", _COMMAND_NSA_CALL
                 ),
-                "RB Size": _required_int(params, "RB Size", _NSA_CALL_PARAM_WRAPPER),
-                "RB Offset": _required_int(
-                    params, "RB Offset", _NSA_CALL_PARAM_WRAPPER
-                ),
+                "RB Size": _required_int(params, "RB Size", _COMMAND_NSA_CALL),
+                "RB Offset": _required_int(params, "RB Offset", _COMMAND_NSA_CALL),
                 "Modulation": _required_text(
-                    params, "Modulation", _NSA_CALL_PARAM_WRAPPER
+                    params, "Modulation", _COMMAND_NSA_CALL
                 ),
                 "Max Retry Count": _required_int(
-                    params, "Max Retry Count", _NSA_CALL_PARAM_WRAPPER
+                    params, "Max Retry Count", _COMMAND_NSA_CALL
                 ),
                 "Waiting Time": _required_int(
-                    params, "Waiting Time", _NSA_CALL_PARAM_WRAPPER
+                    params, "Waiting Time", _COMMAND_NSA_CALL
                 ),
             }
             anchor_ul_channel = _required_int(
-                params, "Anchor UL Channel", _NSA_CALL_PARAM_WRAPPER
+                params, "Anchor UL Channel", _COMMAND_NSA_CALL
             )
         except ValueError as exc:
             return _error(request, str(exc))

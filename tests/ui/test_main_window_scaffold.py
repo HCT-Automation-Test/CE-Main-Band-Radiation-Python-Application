@@ -1297,7 +1297,7 @@ def test_test_manager_panel_run_setting_defaults_and_label(qtbot) -> None:
     qtbot.addWidget(panel)
 
     assert panel.findChild(QLineEdit, "saturationTimeEdit").text() == "5"
-    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "5"
+    assert panel.findChild(QLineEdit, "connectionWaitingTimeEdit").text() == "10"
     assert panel.findChild(QLineEdit, "attenLevelEdit").text() == "0"
     assert panel.findChild(QLineEdit, "nextPeakSearchLevelEdit").text() == "6"
     assert panel.findChild(QLineEdit, "customTurnTableSpeedEdit").text() == "5"
@@ -2828,7 +2828,7 @@ def test_test_manager_panel_builds_default_settings_when_custom_option_unchecked
 
     assert settings is not None
     assert settings.saturation_time_sec == 5
-    assert settings.connection_waiting_time_sec == 5
+    assert settings.connection_waiting_time_sec == 10
     assert settings.atten_level_db == 0
     assert settings.next_peak_search_level_db == 6
     assert settings.custom_turntable_speed is None

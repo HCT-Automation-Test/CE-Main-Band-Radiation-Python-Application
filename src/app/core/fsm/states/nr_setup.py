@@ -143,7 +143,7 @@ class NRCallDisconnectedState(State):
     """시험 중 NR Call이 끊어진 경우. 시험원의 수동 조작을 요청한다.
 
     시험원이 DUT 비행기 모드 On/Off 후 시험을 재개하면
-    NRCallConnect로 전이하여 재연결한다.
+    현재 Generation의 CallConnect로 전이하여 재연결한다.
     """
 
     name = "NRCallDisconnected"

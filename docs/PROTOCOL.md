@@ -64,7 +64,7 @@
 | facade | command | Params 요점 |
 | --- | --- | --- |
 | `setup_mt8000` | `NR Call` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation(`pi/2 BPSK`→와이어 `PI/2 BPSK`), Max Retry Count(기본 3), Waiting Time(기본 5) |
-| `setup_nsa_mt8000` | `NSA Call` | `NSA Call Process Param` wrapper 내부의 NR Call 8개 필드 + Anchor UL Channel |
+| `setup_nsa_mt8000` | `NSA Call` | NR Call 8개 필드 + Anchor UL Channel을 flat Params로 전송 |
 | `call_handover` | `NR Handover` | Band, BandWidth, Center Channel, RB Size/Offset, Modulation, Max Retry Count(기본 3), Waiting Time(기본 5) |
 | `nsa_handover` | `NSA Handover` | 기존 NR Call 8개 필드 + Anchor UL Channel |
 | `setup_lte_mt8000` | `LTE Call` | BandWidth(문자열), UL Channel, RB Offset, Max Retry Count(기본 3), Waiting Time(기본 5) |
@@ -101,28 +101,25 @@ LTE `BandWidth`는 LabVIEW enum 변환을 위해 단위 없는 문자열 `"1.4"`
 #### NSA Call Interface Contract (H2026E014-66)
 
 첫 실행 Test Case가 NR NSA이면 Python은 `MT8000A / NSA Call` request 하나를 보낸다.
-`start_index > 0`에서 선택한 첫 실행 NSA TC에도 같은 정책을 적용한다. `Params` 최상위에는
-전용 `NSA Call Process Param` wrapper를 사용하며, 내부 필드 구성은 현재
-`NSA Handover`와 동일한 9개다.
+`start_index > 0`에서 선택한 첫 실행 NSA TC와 NSA 풀 재연결에도 같은 정책을 적용한다.
+`Params`는 다른 MT8000A command와 동일하게 wrapper 없는 flat 구조이며, 필드 구성은
+현재 `NSA Handover`와 동일한 9개다.
 
 ```json
 {
-  "NSA Call Process Param": {
-    "Band": 78,
-    "BandWidth": 100,
-    "Center Channel": 636666,
-    "RB Size": 135,
-    "RB Offset": 67,
-    "Modulation": "QPSK",
-    "Anchor UL Channel": 18300,
-    "Max Retry Count": 3,
-    "Waiting Time": 5
-  }
+  "Band": 78,
+  "BandWidth": 100,
+  "Center Channel": 636666,
+  "RB Size": 135,
+  "RB Offset": 67,
+  "Modulation": "QPSK",
+  "Anchor UL Channel": 18300,
+  "Max Retry Count": 3,
+  "Waiting Time": 5
 }
 ```
 
-`NSA Call`과 `NSA Handover`는 내부 필드만 같고 wrapper를 공유하지 않는다. 기존
-`NSA Handover`의 flat Params 계약은 유지한다. Anchor UL Channel은 아래의 기존
+`NSA Call`과 `NSA Handover`는 동일한 flat Params 필드 구성을 사용한다. Anchor UL Channel은 아래의 기존
 MID/5 MHz lookup을 재사용하며 Anchor Band나 DL Channel 등 추가 Anchor 필드는 보내지 않는다.
 
 응답은 Default Response 계약을 사용한다. Python은 `status`만 판정하고 `Result`의

@@ -15,6 +15,8 @@ def call_entry_state_for_case(case: "TestCase") -> str:
 
     if case.generation is Generation.LTE:
         return "LTECallConnect"
+    if case.generation is Generation.NR_NSA:
+        return "NSACallConnect"
     return "NRCallConnect"
 
 

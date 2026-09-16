@@ -821,7 +821,7 @@ def test_check_next_case_compares_target_recall_to_applied_id_not_previous_case(
     assert ctx.pending_transition_states == ["AntPolChange", "CallCheck"]
 
 
-def test_check_next_case_routes_nsa_recall_change_to_nr_call() -> None:
+def test_check_next_case_routes_nsa_recall_change_to_nsa_call() -> None:
     events = _Events()
     previous_case = _make_case(
         generation=Generation.NR_NSA,
@@ -847,7 +847,7 @@ def test_check_next_case_routes_nsa_recall_change_to_nr_call() -> None:
 
     assert result is StateResult.OK
     assert state.next_state(ctx, result) == "RecallChange"
-    assert ctx.pending_transition_states == ["NRCallConnect"]
+    assert ctx.pending_transition_states == ["NSACallConnect"]
 
 
 

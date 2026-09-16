@@ -30,11 +30,7 @@ def _nsa_request(**overrides: Any) -> Request:
     )
 
 
-def _nsa_call_request(
-    *,
-    wrapper: str = "NSA Call Process Param",
-    **overrides: Any,
-) -> Request:
+def _nsa_call_request(**overrides: Any) -> Request:
     params = {
         "Band": 78,
         "BandWidth": 100,
@@ -51,7 +47,7 @@ def _nsa_call_request(
         id="request-id",
         target="MT8000A",
         command="NSA Call",
-        params={wrapper: params},
+        params=params,
     )
 
 
@@ -66,7 +62,7 @@ def _state_snapshot(server: MockLvServer) -> tuple[Any, ...]:
     )
 
 
-def test_mock_nsa_call_accepts_exact_wrapper_and_connects_both_destinations(
+def test_mock_nsa_call_accepts_exact_flat_params_and_connects_both_destinations(
     tmp_path,
 ) -> None:
     server = MockLvServer(temp_dir=tmp_path)
@@ -94,13 +90,19 @@ def test_mock_nsa_call_accepts_exact_wrapper_and_connects_both_destinations(
 @pytest.mark.parametrize(
     "nsa_call_request",
     [
-        _nsa_call_request(wrapper="NSA Handover Param"),
+        Request(
+            id="request-id",
+            target="MT8000A",
+            command="NSA Call",
+            params={"NSA Call Process Param": _nsa_call_request().params},
+        ),
+        _nsa_call_request(**{"Unexpected Param": 1}),
         _nsa_call_request(**{"Anchor UL Channel": 36275}),
         _nsa_call_request(**{"Anchor DL Channel": 300}),
         _nsa_call_request(**{"BandWidth": "100"}),
     ],
 )
-def test_mock_nsa_call_rejects_invalid_wrapper_or_payload_without_state_change(
+def test_mock_nsa_call_rejects_invalid_payload_without_state_change(
     tmp_path,
     nsa_call_request: Request,
 ) -> None:
