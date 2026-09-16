@@ -8,6 +8,7 @@ from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import RANGE_6
 from app.net import commands
 from app.net.protocol import Response
+from app.net.tcp_client import TcpClientTimeoutError
 
 
 class _Client:
@@ -1262,3 +1263,152 @@ def test_measure_harmonic_precision_rejects_missing_amplitude() -> None:
         match=r"Result\.Amplitude must be a number",
     ):
         commands.measure_harmonic_precision(client)
+
+
+def test_manual_sa_and_action_facades_use_exact_protocol() -> None:
+    client = _Client(*[_default_ok() for _ in range(5)])
+
+    assert commands.setup_sa_manual(
+        client,
+        start_frequency_mhz=30.0,
+        stop_frequency_mhz=1000.0,
+        rbw_mhz=0.1,
+        vbw_mhz=0.3,
+        sweep_point=10001,
+        sweep_time_sec=0.1,
+        atten_level_db=10.0,
+        detector_mode="RMS",
+        limit_dbm=-36.0,
+    )
+    assert commands.preset_sa(client)
+    assert commands.marker_auto_max(client, marker_index=1)
+    assert commands.marker_set_center(client, marker_index=2)
+    assert commands.clear_trace(client)
+
+    assert client.calls == [
+        (
+            "FSV40",
+            "Load SA Manual Setting",
+            {
+                "Start Frequency": 30.0,
+                "Stop Frequency": 1000.0,
+                "RBW": 0.1,
+                "VBW": 0.3,
+                "Sweep Point": 10001,
+                "Sweep Time": 0.1,
+                "Atten Level": 10.0,
+                "Detector Mode": "RMS",
+                "Limit": -36.0,
+            },
+        ),
+        ("FSV40", "Preset", {}),
+        ("FSV40", "Marker Auto Max", {"Marker Index": 1, "Excursion": 0.0}),
+        ("FSV40", "Marker set Center", {"Marker Index": 2, "Excursion": 0.0}),
+        ("FSV40", "Clear Trace", {}),
+    ]
+
+
+@pytest.mark.parametrize(
+    "detector_mode",
+    [
+        "Auto Peak",
+        "Positive Peak",
+        "Negative Peak",
+        "Sample",
+        "RMS",
+        "Average",
+        "Quasipeak",
+        "CISPR Average",
+        "RMS Average",
+    ],
+)
+def test_setup_sa_manual_accepts_contract_detector_modes(detector_mode: str) -> None:
+    client = _Client(_default_ok())
+
+    assert commands.setup_sa_manual(
+        client,
+        start_frequency_mhz=30,
+        stop_frequency_mhz=1000,
+        rbw_mhz=0.1,
+        vbw_mhz=0.3,
+        sweep_point=10001,
+        sweep_time_sec=0.1,
+        atten_level_db=10,
+        detector_mode=detector_mode,
+        limit_dbm=-36,
+    )
+
+
+def test_setup_sa_manual_rejects_invalid_sweep_point_and_detector_mode() -> None:
+    client = _Client()
+    kwargs = {
+        "start_frequency_mhz": 30.0,
+        "stop_frequency_mhz": 1000.0,
+        "rbw_mhz": 0.1,
+        "vbw_mhz": 0.3,
+        "sweep_time_sec": 0.1,
+        "atten_level_db": 10.0,
+        "limit_dbm": -36.0,
+    }
+
+    with pytest.raises(ValueError, match="sweep_point must be an integer"):
+        commands.setup_sa_manual(
+            client,
+            sweep_point=10001.0,  # type: ignore[arg-type]
+            detector_mode="RMS",
+            **kwargs,
+        )
+    with pytest.raises(ValueError, match="Unsupported detector mode"):
+        commands.setup_sa_manual(
+            client,
+            sweep_point=10001,
+            detector_mode="Peak",
+            **kwargs,
+        )
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        Response(id="response-id", status="ok"),
+        Response(id="response-id", status="ok", result="ignored"),
+        Response(id="response-id", status="ok", result={"ok": False}),
+    ],
+)
+def test_manual_action_success_depends_only_on_status(response: Response) -> None:
+    assert commands.clear_trace(_Client(response)) is True
+
+
+def test_manual_action_propagates_command_error() -> None:
+    client = _Client(
+        Response(
+            id="response-id",
+            status="error",
+            error={"message": "equipment rejected Clear Trace"},
+        )
+    )
+
+    with pytest.raises(commands.CommandError, match="equipment rejected Clear Trace"):
+        commands.clear_trace(client)
+
+
+def test_manual_action_propagates_transport_timeout_without_retry() -> None:
+    class _TimeoutClient:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def send_request(
+            self,
+            target: str,
+            command: str,
+            params: dict[str, Any],
+        ) -> Response:
+            _ = target, command, params
+            self.calls += 1
+            raise TcpClientTimeoutError("TCP response timeout")
+
+    client = _TimeoutClient()
+    with pytest.raises(TcpClientTimeoutError, match="TCP response timeout"):
+        commands.clear_trace(client)
+    assert client.calls == 1
