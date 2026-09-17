@@ -110,6 +110,38 @@ def test_mock_lv_server_manual_contract_rejects_invalid_payload_without_state(
     assert server.state.last_manual_sa_params is None
 
 
+@pytest.mark.parametrize("detector_mode", [[], {}])
+def test_mock_lv_server_manual_contract_rejects_non_string_detector_mode(
+    detector_mode: object,
+) -> None:
+    server = MockLvServer()
+    manual_params = {
+        "Start Frequency": 30.0,
+        "Stop Frequency": 1000.0,
+        "RBW": 0.1,
+        "VBW": 0.3,
+        "Sweep Point": 10001,
+        "Sweep Time": 0.1,
+        "Atten Level": 10.0,
+        "Detector Mode": detector_mode,
+        "Limit": -36.0,
+    }
+
+    response = server._handle_request(
+        _manual_request(
+            "Load SA Manual Setting",
+            {"SA Manual Param": manual_params},
+        )
+    )
+
+    assert response is not None
+    assert response.status == "error"
+    assert response.error == {
+        "message": "Load SA Manual Setting Params.Detector Mode is unsupported"
+    }
+    assert server.state.last_manual_sa_params is None
+
+
 def test_mock_lv_server_manual_equipment_error_does_not_update_state() -> None:
     server = MockLvServer(scenario="manual-command-error")
 

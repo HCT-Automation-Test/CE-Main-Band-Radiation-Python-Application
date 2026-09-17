@@ -883,7 +883,10 @@ def _validated_manual_sa_params(params: dict[str, Any]) -> dict[str, Any]:
         )
 
     detector_mode = manual_params["Detector Mode"]
-    if detector_mode not in _MANUAL_DETECTOR_MODES:
+    if (
+        not isinstance(detector_mode, str)
+        or detector_mode not in _MANUAL_DETECTOR_MODES
+    ):
         raise ValueError(
             "Load SA Manual Setting Params.Detector Mode is unsupported"
         )
