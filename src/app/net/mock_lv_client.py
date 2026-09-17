@@ -221,6 +221,29 @@ class MockLvClientConsole:
                 self._recording_client,
                 get_test_range(_str_arg(args, "range")),
             )
+        if name == "setup-sa-manual":
+            return commands.setup_sa_manual(
+                self._recording_client,
+                start_frequency_mhz=_float_arg(
+                    args,
+                    "start",
+                    "start_frequency_mhz",
+                ),
+                stop_frequency_mhz=_float_arg(
+                    args,
+                    "stop",
+                    "stop_frequency_mhz",
+                ),
+                rbw_mhz=_float_arg(args, "rbw", "rbw_mhz"),
+                vbw_mhz=_float_arg(args, "vbw", "vbw_mhz"),
+                sweep_point=_int_arg(args, "sweep_point"),
+                sweep_time_sec=_float_arg(args, "sweep_time", "sweep_time_sec"),
+                atten_level_db=_float_arg(args, "atten", "atten_level_db"),
+                detector_mode=_str_arg(args, "detector", "detector_mode"),
+                limit_dbm=_float_arg(args, "limit", "limit_dbm"),
+            )
+        if name == "preset-sa":
+            return commands.preset_sa(self._recording_client)
         if name == "measure-fundamental":
             return commands.measure_fundamental(
                 self._recording_client,
@@ -268,6 +291,20 @@ class MockLvClientConsole:
             )
         if name == "marker-all-off":
             return commands.marker_all_off(self._recording_client)
+        if name == "marker-auto-max":
+            return commands.marker_auto_max(
+                self._recording_client,
+                marker_index=_int_arg(args, "marker", "marker_index"),
+                excursion=_float_arg(args, "excursion", default=0.0),
+            )
+        if name == "marker-set-center":
+            return commands.marker_set_center(
+                self._recording_client,
+                marker_index=_int_arg(args, "marker", "marker_index"),
+                excursion=_float_arg(args, "excursion", default=0.0),
+            )
+        if name == "clear-trace":
+            return commands.clear_trace(self._recording_client)
         if name == "set-switch":
             return commands.set_switch_box(
                 self._recording_client,
@@ -496,6 +533,12 @@ class MockLvClientConsole:
                     ),
                     "  setup-sa-level atten=1.5 next_peak=-20",
                     "  setup-sa range=RANGE_6",
+                    (
+                        "  setup-sa-manual start=30 stop=1000 rbw=0.1 vbw=0.3 "
+                        "sweep_point=10001 sweep_time=0.1 atten=10 "
+                        'detector="RMS" limit=-36'
+                    ),
+                    "  preset-sa",
                     "  measure-fundamental target_freq=3550",
                     "  measure-harmonics fundamental=3550.25",
                     "  measure-harmonic-manual fundamental=3550.25",
@@ -506,6 +549,9 @@ class MockLvClientConsole:
                     "  marker-next marker=1 excursion=6",
                     "  marker-off marker=1 excursion=6",
                     "  marker-all-off",
+                    "  marker-auto-max marker=1 [excursion=0]",
+                    "  marker-set-center marker=1 [excursion=0]",
+                    "  clear-trace",
                     "  set-switch input_path=3 filter_path=6",
                     "  rotate angle=360 speed=4 [wait=true] [timeout=30]",
                     "  stop-rotate",
