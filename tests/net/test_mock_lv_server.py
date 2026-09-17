@@ -9,7 +9,7 @@ from app.models.enums import AntennaPol, FilterPath, InputPath, Modulation
 from app.models.test_range import RANGE_6
 from app.net import commands
 from app.net.mock_lv_server import MOCK_TDF_FILE_LIST, MockLvServer, _MINIMAL_PNG
-from app.net.tcp_client import TcpClient
+from app.net.tcp_client import TcpClient, TcpClientTimeoutError
 
 
 def _connect(client: TcpClient, server: MockLvServer, qtbot) -> None:
@@ -940,6 +940,164 @@ def test_mock_lv_server_handles_manual_screenshot_and_marker_commands(
             ("FSV40", "Marker OFF", {"Marker Index": 4, "Excursion": 8.5}),
             ("FSV40", "Marker ALL OFF", {}),
         ]
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_tracks_manual_test_contract_state(qtbot, tmp_path) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+
+        assert commands.setup_sa_manual(
+            client,
+            start_frequency_mhz=30.0,
+            stop_frequency_mhz=1000.0,
+            rbw_mhz=0.1,
+            vbw_mhz=0.3,
+            sweep_point=10001,
+            sweep_time_sec=0.1,
+            atten_level_db=10.0,
+            detector_mode="RMS",
+            limit_dbm=-36.0,
+        )
+        assert commands.preset_sa(client)
+        assert commands.marker_auto_max(client, marker_index=1)
+        assert commands.marker_set_center(client, marker_index=2)
+        assert commands.clear_trace(client)
+        assert commands.clear_trace(client)
+
+        assert server.state.last_manual_sa_params == {
+            "Start Frequency": 30.0,
+            "Stop Frequency": 1000.0,
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "Sweep Point": 10001,
+            "Sweep Time": 0.1,
+            "Atten Level": 10.0,
+            "Detector Mode": "RMS",
+            "Limit": -36.0,
+        }
+        assert server.state.preset_count == 1
+        assert server.state.manual_marker_state == {
+            1: {"action": "Marker Auto Max", "Excursion": 0.0},
+            2: {"action": "Marker set Center", "Excursion": 0.0},
+        }
+        assert server.state.trace_clear_count == 2
+        assert server.state.max_hold_enabled is True
+
+        commands_seen = [request.command for request in server.received_requests]
+        assert "Single Sweep" not in commands_seen
+        assert "Continuous Sweep" not in commands_seen
+        assert "Sweep Cont" not in commands_seen
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    "params",
+    [
+        {
+            "Start Frequency": 30.0,
+            "Stop Frequency": 1000.0,
+            "RBW": 0.1,
+            "VBW": 0.3,
+            "Sweep Point": 10001,
+            "Sweep Time": 0.1,
+            "Atten Level": 10.0,
+            "Detector Mode": "RMS",
+            "Limit": -36.0,
+        },
+        {"SA Range Param": {}},
+        {"SA Manual Param": "invalid"},
+    ],
+)
+def test_mock_lv_server_rejects_invalid_manual_params(
+    qtbot, tmp_path, params: dict[str, object]
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+        response = client.send_request(
+            "FSV40",
+            "Load SA Manual Setting",
+            params,
+            timeout=1.0,
+        )
+
+        assert response.status == "error"
+        assert response.error == {"message": "invalid Load SA Manual Setting Params"}
+        assert server.state.last_manual_sa_params is None
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+def test_mock_lv_server_manual_equipment_error_keeps_state(qtbot, tmp_path) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        scenario="manual-command-error",
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+        with pytest.raises(commands.CommandError, match="equipment error"):
+            commands.clear_trace(client)
+
+        assert server.state.trace_clear_count == 0
+        assert server.state.max_hold_enabled is False
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
+@pytest.mark.parametrize(
+    ("scenario", "response_delay_sec"),
+    [
+        ("normal", 0.2),
+        ("manual-command-no-response", 0.0),
+    ],
+)
+def test_mock_lv_server_manual_response_timeout_has_no_retry(
+    qtbot,
+    tmp_path,
+    scenario,
+    response_delay_sec,
+) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        scenario=scenario,
+        manual_response_delay_sec=response_delay_sec,
+    )
+    server.start()
+    client = TcpClient()
+
+    try:
+        _connect(client, server, qtbot)
+        with pytest.raises(TcpClientTimeoutError, match="TCP response timeout"):
+            client.send_request("FSV40", "Clear Trace", {}, timeout=0.05)
+
+        assert [
+            request.command
+            for request in server.received_requests
+            if request.command == "Clear Trace"
+        ] == ["Clear Trace"]
+        assert server.state.trace_clear_count == 1
+        assert server.state.max_hold_enabled is True
+        if response_delay_sec:
+            time.sleep(response_delay_sec)
     finally:
         client.disconnect_from_host()
         server.stop()

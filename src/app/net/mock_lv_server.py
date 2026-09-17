@@ -9,6 +9,7 @@ import shutil
 import signal
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -45,6 +46,8 @@ MockLvScenario = Literal[
     "nsa-call-error",
     "nsa-call-timeout",
     "recall-param-error",
+    "manual-command-error",
+    "manual-command-no-response",
 ]
 
 _TARGET_FSV40 = "FSV40"
@@ -57,6 +60,8 @@ _COMMAND_CONNECT = "Connect"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
+_COMMAND_LOAD_SA_MANUAL_SETTING = "Load SA Manual Setting"
+_COMMAND_PRESET = "Preset"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
 _COMMAND_MEASURE_HARMONIC = "Measure Harmonic"
@@ -68,6 +73,9 @@ _COMMAND_MARKER_PEAK = "Marker Peak"
 _COMMAND_MARKER_NEXT = "Marker Next"
 _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
+_COMMAND_MARKER_AUTO_MAX = "Marker Auto Max"
+_COMMAND_MARKER_SET_CENTER = "Marker set Center"
+_COMMAND_CLEAR_TRACE = "Clear Trace"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_NSA_CALL = "NSA Call"
@@ -129,6 +137,35 @@ _NSA_HANDOVER_REQUIRED_PARAMS = {
     "Max Retry Count",
     "Waiting Time",
 }
+_MANUAL_SA_REQUIRED_PARAMS = {
+    "Start Frequency",
+    "Stop Frequency",
+    "RBW",
+    "VBW",
+    "Sweep Point",
+    "Sweep Time",
+    "Atten Level",
+    "Detector Mode",
+    "Limit",
+}
+_MANUAL_DETECTOR_MODES = {
+    "Auto Peak",
+    "Positive Peak",
+    "Negative Peak",
+    "Sample",
+    "RMS",
+    "Average",
+    "Quasipeak",
+    "CISPR Average",
+    "RMS Average",
+}
+_MANUAL_COMMANDS = {
+    _COMMAND_LOAD_SA_MANUAL_SETTING,
+    _COMMAND_PRESET,
+    _COMMAND_MARKER_AUTO_MAX,
+    _COMMAND_MARKER_SET_CENTER,
+    _COMMAND_CLEAR_TRACE,
+}
 _NSA_ANCHOR_CHANNELS_BY_UL: dict[int, NSAAnchorChannels] = {
     channels.ul_channel: channels
     for band in SUPPORTED_NSA_ANCHOR_BANDS
@@ -167,6 +204,11 @@ class MockLvState:
     last_sa_range_params: dict[str, Any] | None = None
     last_sa_level_params: dict[str, Any] | None = None
     last_sa_precision_params: dict[str, Any] | None = None
+    last_manual_sa_params: dict[str, Any] | None = None
+    preset_count: int = 0
+    manual_marker_state: dict[int, dict[str, Any]] = field(default_factory=dict)
+    trace_clear_count: int = 0
+    max_hold_enabled: bool = False
     turntable_stop_requested: threading.Event = field(default_factory=threading.Event)
 
 
@@ -183,6 +225,7 @@ class MockLvServer:
         turntable_delay_sec: float = 1.0,
         set_reference_delay_sec: float = 15.0,
         self_alignment_delay_sec: float = 15.0,
+        manual_response_delay_sec: float = 0.0,
         screenshot_fixture_dir: Path | str | None = None,
         screenshot_random_seed: int | None = None,
     ) -> None:
@@ -193,6 +236,7 @@ class MockLvServer:
         self.turntable_delay_sec = float(turntable_delay_sec)
         self.set_reference_delay_sec = float(set_reference_delay_sec)
         self.self_alignment_delay_sec = float(self_alignment_delay_sec)
+        self.manual_response_delay_sec = float(manual_response_delay_sec)
         self.screenshot_fixture_dir = (
             Path(screenshot_fixture_dir)
             if screenshot_fixture_dir is not None
@@ -233,7 +277,7 @@ class MockLvServer:
             thread.join(timeout=1.0)
         self._set_event_threads.clear()
 
-    def _handle_request(self, request: Request) -> Response:
+    def _handle_request(self, request: Request) -> Response | None:
         if request.target not in _SUPPORTED_TARGETS:
             return _error(request, "unsupported command")
 
@@ -406,7 +450,9 @@ class MockLvServer:
         self.state.call_connected = True
         return _ok(request)
 
-    def _handle_fsv40(self, request: Request) -> Response:
+    def _handle_fsv40(self, request: Request) -> Response | None:
+        if request.command in _MANUAL_COMMANDS:
+            return self._handle_manual_fsv40(request)
         if request.command == _COMMAND_LOAD_SA_LEVEL_SETTING:
             self.state.last_sa_level_params = dict(request.params)
             return _ok(request)
@@ -474,6 +520,65 @@ class MockLvServer:
         if request.command == _COMMAND_SET_TDF:
             return _ok(request)
         return _error(request, "unsupported command")
+
+    def _handle_manual_fsv40(self, request: Request) -> Response | None:
+        """Manual Test 계약을 검증하고 외부에서 관찰 가능한 최소 상태를 반영한다."""
+        try:
+            update_state = self._manual_state_update(request)
+        except ValueError as exc:
+            return _error(request, str(exc))
+
+        if self.scenario == "manual-command-error":
+            return _error(request, "mock manual command equipment error")
+
+        update_state()
+        if self.manual_response_delay_sec > 0:
+            time.sleep(self.manual_response_delay_sec)
+        if self.scenario == "manual-command-no-response":
+            return None
+        return _ok(request)
+
+    def _manual_state_update(self, request: Request) -> Callable[[], None]:
+        if request.command == _COMMAND_LOAD_SA_MANUAL_SETTING:
+            params = _validated_manual_sa_params(request.params)
+
+            def update_manual_setting() -> None:
+                self.state.last_manual_sa_params = params
+
+            return update_manual_setting
+
+        if request.command == _COMMAND_PRESET:
+            _require_empty_params(request.params, _COMMAND_PRESET)
+
+            def update_preset() -> None:
+                self.state.preset_count += 1
+
+            return update_preset
+
+        if request.command in {
+            _COMMAND_MARKER_AUTO_MAX,
+            _COMMAND_MARKER_SET_CENTER,
+        }:
+            marker_index, excursion = _validated_marker_params(request.params)
+
+            def update_marker() -> None:
+                self.state.manual_marker_state[marker_index] = {
+                    "action": request.command,
+                    "Excursion": excursion,
+                }
+
+            return update_marker
+
+        if request.command == _COMMAND_CLEAR_TRACE:
+            _require_empty_params(request.params, _COMMAND_CLEAR_TRACE)
+
+            def update_trace() -> None:
+                self.state.trace_clear_count += 1
+                self.state.max_hold_enabled = True
+
+            return update_trace
+
+        raise ValueError(f"unsupported Manual command: {request.command}")
 
     def _harmonic_response(self, request: Request) -> Response:
         if self.scenario == "bad-harmonic-result":
@@ -747,6 +852,66 @@ def _required_text(
     return value
 
 
+def _validated_manual_sa_params(params: dict[str, Any]) -> dict[str, Any]:
+    if set(params) != {"SA Manual Param"}:
+        raise ValueError("invalid Load SA Manual Setting Params")
+
+    manual_params = params["SA Manual Param"]
+    if not isinstance(manual_params, dict):
+        raise ValueError("invalid Load SA Manual Setting Params")
+    if set(manual_params) != _MANUAL_SA_REQUIRED_PARAMS:
+        raise ValueError("invalid Load SA Manual Setting Params")
+
+    number_fields = {
+        "Start Frequency",
+        "Stop Frequency",
+        "RBW",
+        "VBW",
+        "Sweep Time",
+        "Atten Level",
+        "Limit",
+    }
+    for key in number_fields:
+        value = manual_params[key]
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            raise ValueError(f"Load SA Manual Setting Params.{key} must be a number")
+
+    sweep_point = manual_params["Sweep Point"]
+    if isinstance(sweep_point, bool) or not isinstance(sweep_point, int):
+        raise ValueError(
+            "Load SA Manual Setting Params.Sweep Point must be an integer"
+        )
+
+    detector_mode = manual_params["Detector Mode"]
+    if (
+        not isinstance(detector_mode, str)
+        or detector_mode not in _MANUAL_DETECTOR_MODES
+    ):
+        raise ValueError(
+            "Load SA Manual Setting Params.Detector Mode is unsupported"
+        )
+    return dict(manual_params)
+
+
+def _validated_marker_params(params: dict[str, Any]) -> tuple[int, float]:
+    if set(params) != {"Marker Index", "Excursion"}:
+        raise ValueError("invalid Manual Marker Params")
+
+    marker_index = params["Marker Index"]
+    if isinstance(marker_index, bool) or not isinstance(marker_index, int):
+        raise ValueError("Manual Marker Params.Marker Index must be an integer")
+
+    excursion = params["Excursion"]
+    if isinstance(excursion, bool) or not isinstance(excursion, int | float):
+        raise ValueError("Manual Marker Params.Excursion must be a number")
+    return marker_index, float(excursion)
+
+
+def _require_empty_params(params: dict[str, Any], command: str) -> None:
+    if params:
+        raise ValueError(f"{command} Params must be empty")
+
+
 def _coerce_float(value: Any, default: float) -> float:
     if isinstance(value, bool):
         return default
@@ -793,12 +958,15 @@ def main(argv: list[str] | None = None) -> int:
             "nsa-call-error",
             "nsa-call-timeout",
             "recall-param-error",
+            "manual-command-error",
+            "manual-command-no-response",
         ],
         default="normal",
     )
     parser.add_argument("--turntable-delay-sec", type=float, default=1.0)
     parser.add_argument("--set-reference-delay-sec", type=float, default=15.0)
     parser.add_argument("--self-alignment-delay-sec", type=float, default=15.0)
+    parser.add_argument("--manual-response-delay-sec", type=float, default=0.0)
     parser.add_argument("--screenshot-fixture-dir", type=Path, default=None)
     parser.add_argument("--screenshot-random-seed", type=int, default=None)
     args = parser.parse_args(argv)
@@ -812,6 +980,7 @@ def main(argv: list[str] | None = None) -> int:
         turntable_delay_sec=args.turntable_delay_sec,
         set_reference_delay_sec=args.set_reference_delay_sec,
         self_alignment_delay_sec=args.self_alignment_delay_sec,
+        manual_response_delay_sec=args.manual_response_delay_sec,
         screenshot_fixture_dir=args.screenshot_fixture_dir,
         screenshot_random_seed=args.screenshot_random_seed,
     )

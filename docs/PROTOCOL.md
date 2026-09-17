@@ -48,8 +48,9 @@
 ## 3. 명령 카탈로그 — [commands.py](../src/app/net/commands.py)
 
 `commands.py`는 FSM이 호출하는 고수준 facade이자 **target/command 문자열과 파라미터 스키마의
-단일 진실 공급원**이다. 응답 status가 "ok"가 아니거나 판정 대상 `Result.ok`가 `false`이면
-`CommandError`를 던진다. 일반 action facade는 성공 시 `True`를 반환하지만,
+단일 진실 공급원**이다. 일반 action facade는 응답 `status`가 `"ok"`가 아니면
+`CommandError`를 던지고, `"ok"`이면 `Result` 유무·타입·내용과 무관하게 `True`를 반환한다.
+조회·측정 facade는 각 계약에서 요구하는 `Result`를 별도로 검증한다.
 `connect_equipment`는 장비별 연결 결과를 bool dict로 반환하고 `check_call_status`와
 `recall_param`은 `Result.connected`에 따른 최종 Call 연결 상태를 bool로 반환한다.
 
@@ -197,6 +198,77 @@ MID/5 MHz lookup과 일치해야 한다. Wire에는 위 UL 값만 넣고 DL 값�
 | `get_screenshot` | `Get Screenshot` | LV가 temp/`screenshot.png` 저장 |
 | `marker_peak/next/off`, `marker_all_off` | `Marker Peak/Next/OFF`, `Marker ALL OFF` | Marker Index, Excursion — 수동 마커 다이얼로그용 |
 | `get_tdf_list` / `tdf_all_off` / `set_tdf` | `Get TDF List` / `TDF All Off` / `Set TDF` | TDF(FSV Factor) 파일 관리 |
+
+#### Manual Test Interface Contract (H2026E014-53)
+
+Manual Test에서 새로 사용하는 wire command는 아래 FSV40 대상 5개뿐이다. 파라미터가
+없는 요청도 `Params: {}`를 보낸다. Single/Continuous/Stop Sweep, Capture workflow,
+CO3000 또는 Mast command는 새로 만들지 않는다.
+
+| facade | command | Params |
+| --- | --- | --- |
+| `setup_sa_manual` | `Load SA Manual Setting` | `SA Manual Param` 아래 9개 설정 필드 |
+| `preset_sa` | `Preset` | `{}` |
+| `marker_auto_max` | `Marker Auto Max` | Marker Index, Excursion(기본 `0.0`) |
+| `marker_set_center` | `Marker set Center` | Marker Index, Excursion(기본 `0.0`) |
+| `clear_trace` | `Clear Trace` | `{}` |
+
+`Load SA Manual Setting`의 정확한 요청은 다음과 같다. Start/Stop Frequency, RBW,
+VBW는 MHz, Sweep Time은 초, Atten Level은 dB, Limit은 dBm 단위다. Sweep Point는
+integer다. Manual Test 설정은 `SA Manual Param` wrapper를 사용하며, 기존 자동시험의
+`SA Range Param` wrapper와 단위는 변경하지 않는다.
+
+```json
+{
+  "type": "request",
+  "id": "<request-id>",
+  "target": "FSV40",
+  "command": "Load SA Manual Setting",
+  "Params": {
+    "SA Manual Param": {
+      "Start Frequency": 30.0,
+      "Stop Frequency": 1000.0,
+      "RBW": 0.1,
+      "VBW": 0.3,
+      "Sweep Point": 10001,
+      "Sweep Time": 0.1,
+      "Atten Level": 10.0,
+      "Detector Mode": "RMS",
+      "Limit": -36.0
+    }
+  }
+}
+```
+
+`Detector Mode`는 `Auto Peak`, `Positive Peak`, `Negative Peak`, `Sample`, `RMS`,
+`Average`, `Quasipeak`, `CISPR Average`, `RMS Average` 중 하나다. wire에는 문자열을
+그대로 보내며 LV enum 번호를 만들지 않는다. UI 기본값은 `RMS`다. Saturation Time,
+Range ID, Custom 여부는 이 payload에 포함하지 않는다.
+
+두 신규 marker command는 기존 per-marker mapping을 유지하기 위해 항상 `Marker Index`와
+`Excursion`을 함께 전송한다. 의미상 사용하지 않는 경우에도 Excursion은 `0.0`이다.
+기존 Marker Next의 Excursion과 Marker ALL OFF의 빈 Params 계약은 바꾸지 않는다.
+
+`Clear Trace` 성공은 Trace 누적값 초기화와 Max Hold 적용이 끝나 다음 단계로 진행할 수
+있음을 뜻한다. Continuous Sweep 운용은 전제이며 Python이 별도의 Sweep command나 상태
+조회, read-back, 완료 Event를 추가하지 않는다.
+
+```jsonc
+// Default Response
+{"type": "response", "id": "<같은 request-id>", "status": "ok"}
+{"type": "response", "id": "<같은 request-id>", "status": "error", "Error": {"message": "..."}}
+```
+
+신규 action은 `status="ok"`만 성공 기준으로 사용한다. `Result`가 없거나 임의 형식이거나
+`{"ok": false}`여도 성공이다. 오류 응답은 `CommandError`, 실제 transport timeout은
+`TcpClientTimeoutError`, 연결·전송 실패는 기존 transport 오류로 전달한다. 기본 timeout은
+30초이며 자동 재시도나 이미 전송한 요청을 취소하는 신규 프로토콜은 없다.
+
+후속 N-Capture는 첫 Screenshot을 바로 저장하고, 이후 반복마다 `Clear Trace` 완료 → 앱의
+Interval 대기 → 기존 `Get Screenshot` 순서를 사용한다. 후속 Semi Auto는 기존 각도 조회·회전
+완료 Event 흐름에서 `Clear Trace` 완료 후 마지막 Set으로 적용된 Saturation Time만큼 앱에서
+대기한다. 두 흐름 모두 Sweep command를 보내지 않으며, 전체 worker/UI 구현은 이 계약의
+범위가 아니다.
 
 ### CO3000 (Turntable) / Switch Box / 편파
 

@@ -24,6 +24,8 @@ _COMMAND_CONNECT = "Connect"
 _COMMAND_LOAD_SA_RANGE_SETTING = "Load SA Range Setting"
 _COMMAND_LOAD_SA_LEVEL_SETTING = "Load SA Level Setting"
 _COMMAND_LOAD_SA_PRECISION_SETTING = "Load SA Precision Setting"
+_COMMAND_LOAD_SA_MANUAL_SETTING = "Load SA Manual Setting"
+_COMMAND_PRESET = "Preset"
 _COMMAND_SEARCH_FUNDAMENTAL_FREQUENCY = "Search Fundamental Frequency"
 _COMMAND_MARK_HARMONIC = "Mark Harmonic"
 _COMMAND_MEASURE_HARMONIC = "Measure Harmonic"
@@ -35,6 +37,9 @@ _COMMAND_MARKER_PEAK = "Marker Peak"
 _COMMAND_MARKER_NEXT = "Marker Next"
 _COMMAND_MARKER_OFF = "Marker OFF"
 _COMMAND_MARKER_ALL_OFF = "Marker ALL OFF"
+_COMMAND_MARKER_AUTO_MAX = "Marker Auto Max"
+_COMMAND_MARKER_SET_CENTER = "Marker set Center"
+_COMMAND_CLEAR_TRACE = "Clear Trace"
 _COMMAND_NR_CALL = "NR Call"
 _COMMAND_NR_HANDOVER = "NR Handover"
 _COMMAND_NSA_CALL = "NSA Call"
@@ -65,6 +70,19 @@ _LTE_BANDWIDTH_WIRE_VALUES = {
     15.0: "15",
     20.0: "20",
 }
+_MANUAL_DETECTOR_MODES = frozenset(
+    {
+        "Auto Peak",
+        "Positive Peak",
+        "Negative Peak",
+        "Sample",
+        "RMS",
+        "Average",
+        "Quasipeak",
+        "CISPR Average",
+        "RMS Average",
+    }
+)
 
 _CONNECT_TARGETS = (
     _TARGET_FSV40,
@@ -628,6 +646,66 @@ def setup_sa(client: Any, test_range: TestRange) -> bool:
     return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_RANGE_SETTING)
 
 
+def setup_sa_manual(
+    client: Any,
+    *,
+    start_frequency_mhz: float,
+    stop_frequency_mhz: float,
+    rbw_mhz: float,
+    vbw_mhz: float,
+    sweep_point: int,
+    sweep_time_sec: float,
+    atten_level_db: float,
+    detector_mode: str,
+    limit_dbm: float,
+) -> bool:
+    """Manual Test용 FSV40 설정을 적용한다.
+
+    주파수와 RBW/VBW는 MHz, Sweep Time은 초, Atten Level은 dB,
+    Limit은 dBm 단위다.
+    """
+    if isinstance(sweep_point, bool) or not isinstance(sweep_point, int):
+        raise ValueError("sweep_point must be an integer")
+    if detector_mode not in _MANUAL_DETECTOR_MODES:
+        supported = ", ".join(sorted(_MANUAL_DETECTOR_MODES))
+        raise ValueError(
+            f"Unsupported detector mode: {detector_mode!r}. "
+            f"Supported detector modes: {supported}"
+        )
+
+    response = _send_request(
+        client,
+        _TARGET_FSV40,
+        _COMMAND_LOAD_SA_MANUAL_SETTING,
+        {
+            "SA Manual Param": {
+                "Start Frequency": float(start_frequency_mhz),
+                "Stop Frequency": float(stop_frequency_mhz),
+                "RBW": float(rbw_mhz),
+                "VBW": float(vbw_mhz),
+                "Sweep Point": sweep_point,
+                "Sweep Time": float(sweep_time_sec),
+                "Atten Level": float(atten_level_db),
+                "Detector Mode": detector_mode,
+                "Limit": float(limit_dbm),
+            },
+        },
+    )
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_LOAD_SA_MANUAL_SETTING)
+
+
+def preset_sa(client: Any) -> bool:
+    """FSV40을 Preset 상태로 초기화한다."""
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_PRESET, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_PRESET)
+
+
+def clear_trace(client: Any) -> bool:
+    """FSV40 Trace 누적값을 지우고 Max Hold 적용 완료를 기다린다."""
+    response = _send_request(client, _TARGET_FSV40, _COMMAND_CLEAR_TRACE, {})
+    return _action_ok(response, _TARGET_FSV40, _COMMAND_CLEAR_TRACE)
+
+
 def setup_sa_startup_levels(
     client: Any,
     *,
@@ -835,6 +913,34 @@ def marker_off(client: Any, *, marker_index: int, excursion: float) -> bool:
 def marker_all_off(client: Any) -> bool:
     response = _send_request(client, _TARGET_FSV40, _COMMAND_MARKER_ALL_OFF, {})
     return _action_ok(response, _TARGET_FSV40, _COMMAND_MARKER_ALL_OFF)
+
+
+def marker_auto_max(
+    client: Any,
+    *,
+    marker_index: int,
+    excursion: float = 0.0,
+) -> bool:
+    return _send_marker_command(
+        client,
+        _COMMAND_MARKER_AUTO_MAX,
+        marker_index=marker_index,
+        excursion=excursion,
+    )
+
+
+def marker_set_center(
+    client: Any,
+    *,
+    marker_index: int,
+    excursion: float = 0.0,
+) -> bool:
+    return _send_marker_command(
+        client,
+        _COMMAND_MARKER_SET_CENTER,
+        marker_index=marker_index,
+        excursion=excursion,
+    )
 
 
 def check_call_status(client: Any) -> bool:
