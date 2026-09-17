@@ -57,6 +57,22 @@ class _StaticClient:
         return Response(id="response-id", status="ok", result={"Amplitude": -42.1})
 
 
+class _RecordingStaticClient:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def send_request(
+        self,
+        target: str,
+        command: str,
+        params: dict[str, Any] | None = None,
+        timeout: float = 10.0,
+    ) -> Response:
+        _ = timeout
+        self.calls.append((target, command, params or {}))
+        return Response(id="response-id", status="ok")
+
+
 def test_unknown_command_keeps_console_alive() -> None:
     output = io.StringIO()
     console = MockLvClientConsole(_NoopClient(), output=output)
@@ -211,6 +227,53 @@ def test_mock_lv_client_manual_commands(qtbot, tmp_path) -> None:
     finally:
         client.disconnect_from_host()
         server.stop()
+
+
+def test_mock_lv_client_manual_test_contract_commands() -> None:
+    client = _RecordingStaticClient()
+    output = io.StringIO()
+    console = MockLvClientConsole(client, output=output, auto_events=False)
+
+    assert console.execute_line(
+        "setup-sa-manual start=30 stop=1000 rbw=0.1 vbw=0.3 "
+        "sweep_point=10001 sweep_time=0.1 atten=10 detector=RMS limit=-36"
+    )
+    assert console.execute_line("preset-sa")
+    assert console.execute_line("marker-auto-max marker=1")
+    assert console.execute_line("marker-set-center marker=2 excursion=1.5")
+    assert console.execute_line("clear-trace")
+
+    assert client.calls == [
+        (
+            "FSV40",
+            "Load SA Manual Setting",
+            {
+                "SA Manual Param": {
+                    "Start Frequency": 30.0,
+                    "Stop Frequency": 1000.0,
+                    "RBW": 0.1,
+                    "VBW": 0.3,
+                    "Sweep Point": 10001,
+                    "Sweep Time": 0.1,
+                    "Atten Level": 10.0,
+                    "Detector Mode": "RMS",
+                    "Limit": -36.0,
+                },
+            },
+        ),
+        ("FSV40", "Preset", {}),
+        ("FSV40", "Marker Auto Max", {"Marker Index": 1, "Excursion": 0.0}),
+        (
+            "FSV40",
+            "Marker set Center",
+            {"Marker Index": 2, "Excursion": 1.5},
+        ),
+        ("FSV40", "Clear Trace", {}),
+    ]
+
+    text = output.getvalue()
+    assert text.count("STATUS   ok") == 5
+    assert text.count("RETURN   true") == 5
 
 
 def test_mock_lv_client_lte_call_handover_and_status_aliases(qtbot, tmp_path) -> None:
@@ -438,3 +501,8 @@ def test_mock_lv_client_help_includes_tdf_commands() -> None:
     assert "anchor_ul_channel=18300" in text
     assert "[max_retry_count=3] [waiting_time=5]" in text
     assert "check-call-status (alias: check-call)" in text
+    assert "setup-sa-manual start=30 stop=1000" in text
+    assert "preset-sa" in text
+    assert "marker-auto-max marker=1 [excursion=0]" in text
+    assert "marker-set-center marker=1 [excursion=0]" in text
+    assert "clear-trace" in text
