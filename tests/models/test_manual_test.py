@@ -21,6 +21,14 @@ def test_manual_frequency_presets_define_expected_ranges() -> None:
     assert get_manual_frequency_preset(9).start_frequency_mhz == 3000.0
 
 
+def test_manual_frequency_preset_labels_use_display_units_without_ids() -> None:
+    assert get_manual_frequency_preset(1).label == "30 MHz ~ 1 GHz"
+    assert get_manual_frequency_preset(3).label == "1 GHz ~ 12.75 GHz"
+    assert get_manual_frequency_preset(6).label == "6 GHz ~ 18 GHz"
+    assert get_manual_frequency_preset(2).label == "1 GHz ~ 3 GHz"
+    assert get_manual_frequency_preset(7).label == "1 GHz ~ 3 GHz"
+
+
 def test_manual_mast_maps_to_existing_input_contract() -> None:
     assert ManualMast.BILOG_3M.input_path is InputPath.INPUT1
     assert ManualMast.HORN_3M.input_path is InputPath.INPUT2

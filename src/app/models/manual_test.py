@@ -52,9 +52,15 @@ class ManualFrequencyPreset:
     @property
     def label(self) -> str:
         return (
-            f"{self.id.label}  "
-            f"{self.start_frequency_mhz:g}~{self.stop_frequency_mhz:g} MHz"
+            f"{_format_frequency(self.start_frequency_mhz)} ~ "
+            f"{_format_frequency(self.stop_frequency_mhz)}"
         )
+
+
+def _format_frequency(frequency_mhz: float) -> str:
+    if frequency_mhz >= 1000.0:
+        return f"{frequency_mhz / 1000.0:g} GHz"
+    return f"{frequency_mhz:g} MHz"
 
 
 MANUAL_FREQUENCY_PRESETS: tuple[ManualFrequencyPreset, ...] = (
