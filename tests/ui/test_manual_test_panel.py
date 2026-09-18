@@ -302,3 +302,19 @@ def test_manual_panel_adds_new_screenshot_first_and_displays_it(
     assert screenshot_list.count() == 2
     assert screenshot_list.item(0).text() == "second.png"
     assert screenshot_list.currentRow() == 0
+
+
+def test_manual_panel_does_not_scan_existing_capture_directory(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    existing = tmp_path / "existing.png"
+    image = QImage(8, 8, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFF)
+    assert image.save(str(existing))
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+
+    panel.findChild(QLineEdit, "captureDirectoryEdit").setText(str(tmp_path))
+
+    assert panel.findChild(QListWidget, "manualScreenshotListWidget").count() == 0

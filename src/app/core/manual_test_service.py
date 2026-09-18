@@ -443,6 +443,12 @@ class ManualTestService(QObject):
     def capture_single(self, *, directory: Path, base_name: str) -> bool:
         """현재 FSV40 화면을 한 장 저장한다."""
 
+        if not self._ensure_capability(
+            operation="Single Capture",
+            available=self._capabilities.capture,
+            equipment="FSV40",
+        ):
+            return False
         paths = build_manual_screenshot_paths(
             directory=directory,
             base_name=base_name,
@@ -464,6 +470,12 @@ class ManualTestService(QObject):
     ) -> bool:
         """충돌을 먼저 확인한 뒤 N장의 Screenshot을 순차 저장한다."""
 
+        if not self._ensure_capability(
+            operation="N-Capture",
+            available=self._capabilities.capture,
+            equipment="FSV40",
+        ):
+            return False
         if (
             isinstance(interval_sec, bool)
             or not isinstance(interval_sec, int | float)

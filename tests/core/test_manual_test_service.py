@@ -228,6 +228,8 @@ class _ManualCommands:
         self.emit_turntable_complete = True
         self.current_angle = 90.0
         self.clear_trace_result = True
+        self.screenshot_call_count = 0
+        self.fail_screenshot_at: int | None = None
 
     def setup_sa_manual(self, _client, **params) -> bool:
         self.calls.append(("setup_sa_manual", params))
@@ -278,7 +280,10 @@ class _ManualCommands:
         return True
 
     def get_screenshot(self, _client) -> bool:
+        self.screenshot_call_count += 1
         self.calls.append(("get_screenshot",))
+        if self.screenshot_call_count == self.fail_screenshot_at:
+            raise RuntimeError("screenshot failed")
         self.temp_dir.mkdir(parents=True, exist_ok=True)
         (self.temp_dir / "screenshot.png").write_bytes(
             b"\x89PNG\r\n\x1a\nfixture"
@@ -541,6 +546,7 @@ def test_manual_service_capture_many_preserves_order(
     output_dir.mkdir()
     commands = _ManualCommands(client, temp_dir)
     service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    service.set_equipment_state({"FSV40": True})
     saved: list[str] = []
     service.screenshot_saved.connect(saved.append)
 
@@ -577,6 +583,7 @@ def test_manual_service_capture_preflight_sends_no_command_on_collision(
     (output_dir / "capture_002.png").write_bytes(b"existing")
     commands = _ManualCommands(client, temp_dir)
     service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    service.set_equipment_state({"FSV40": True})
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -592,6 +599,114 @@ def test_manual_service_capture_preflight_sends_no_command_on_collision(
 
     assert commands.calls == []
     assert failures and "capture_002.png" in failures[0][1]
+
+
+def test_manual_capture_requires_fsv40_before_filesystem_or_command(
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+
+    assert not service.capture_single(directory=output_dir, base_name="capture")
+    assert not service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=0,
+        shot_count=2,
+    )
+
+    assert commands.calls == []
+
+
+def test_manual_n_capture_with_one_shot_sends_only_screenshot(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    commands = _ManualCommands(client, temp_dir)
+    service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    service.set_equipment_state({"FSV40": True})
+
+    assert service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=10,
+        shot_count=1,
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [("get_screenshot",)]
+    assert (output_dir / "capture_001.png").is_file()
+
+
+def test_manual_n_capture_failure_preserves_only_successful_files(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    commands = _ManualCommands(client, temp_dir)
+    commands.fail_screenshot_at = 3
+    service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    service.set_equipment_state({"FSV40": True})
+    saved: list[str] = []
+    service.screenshot_saved.connect(saved.append)
+
+    assert service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=0,
+        shot_count=4,
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert [Path(path).name for path in saved] == [
+        "capture_001.png",
+        "capture_002.png",
+    ]
+    assert (output_dir / "capture_001.png").is_file()
+    assert (output_dir / "capture_002.png").is_file()
+    assert not (output_dir / "capture_003.png").exists()
+    assert not (output_dir / "capture_004.png").exists()
+
+
+def test_manual_n_capture_stop_during_interval_keeps_first_file_only(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    commands = _ManualCommands(client, temp_dir)
+    service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    service.set_equipment_state({"FSV40": True})
+
+    assert service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=5,
+        shot_count=3,
+    )
+    qtbot.waitUntil(
+        lambda: commands.calls == [("get_screenshot",), ("clear_trace",)],
+        timeout=1000,
+    )
+    service.request_stop()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [("get_screenshot",), ("clear_trace",)]
+    assert (output_dir / "capture_001.png").is_file()
+    assert not (output_dir / "capture_002.png").exists()
+    assert not (output_dir / "capture_003.png").exists()
 
 
 def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
