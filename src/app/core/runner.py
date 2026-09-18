@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 EngineFactory = Callable[[SessionContext], FSMEngine]
 InstrumentConnectionBlocker = Callable[[], str | None]
+StartBlocker = Callable[[], str | None]
 
 _TEMP_DIR = Path("temp")
 _START_READY_STATE = "Idle"
@@ -164,6 +165,7 @@ class Runner(QObject):
         self._shutdown_finished_emitted = False
         self._client_closed = False
         self._instrument_connection_blockers: list[InstrumentConnectionBlocker] = []
+        self._start_blockers: list[StartBlocker] = []
         self._instrument_connection_service = (
             instrument_connection_service
             if instrument_connection_service is not None
@@ -222,6 +224,12 @@ class Runner(QObject):
 
         return self._commands
 
+    @property
+    def temp_dir(self) -> Path:
+        """보조 서비스와 공유하는 LV 임시 파일 경로를 반환한다."""
+
+        return self._temp_dir
+
 
     @property
     def equipment_state(self) -> dict[str, bool]:
@@ -260,6 +268,11 @@ class Runner(QObject):
         """Instrument Check/Set 요청 직전 추가 차단 사유를 등록한다."""
 
         self._instrument_connection_blockers.append(provider)
+
+    def add_start_blocker(self, provider: StartBlocker) -> None:
+        """시험 시작 요청 직전 추가 차단 사유를 등록한다."""
+
+        self._start_blockers.append(provider)
 
     def initialize(self) -> None:
         """앱 시작 시 SessionInit 상태로 FSM worker를 기동한다."""
@@ -349,6 +362,11 @@ class Runner(QObject):
         if self.is_measurement_active:
             self._emit_error("시험 시작 실패: Runner is not idle")
             return
+        for provider in self._start_blockers:
+            block_reason = provider()
+            if block_reason:
+                self._emit_error(f"시험 시작 실패: {block_reason}")
+                return
         if not self.is_equipment_ready:
             self._emit_error("시험 시작 실패: Instrument Check 연결을 완료하세요")
             return

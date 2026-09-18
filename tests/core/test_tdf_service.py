@@ -67,6 +67,23 @@ def test_tdf_service_rejects_duplicate_operation(qtbot) -> None:
     assert blocker.args == [TDF_OPERATION_IN_PROGRESS_MESSAGE]
 
 
+def test_tdf_service_guard_rejects_before_command() -> None:
+    commands = _Commands()
+    service = TdfService(
+        client=object(),
+        commands=commands,
+        operation_guard=lambda: "다른 장비 작업이 진행 중입니다.",
+    )
+    failures: list[str] = []
+    service.operation_failed.connect(failures.append)
+
+    service.get_tdf_list()
+
+    assert commands.calls == []
+    assert failures == ["다른 장비 작업이 진행 중입니다."]
+    assert not service.is_running
+
+
 def test_tdf_service_set_tdf_passes_file_name(qtbot) -> None:
     client = object()
     commands = _Commands()

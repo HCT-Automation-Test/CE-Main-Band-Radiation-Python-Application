@@ -1557,6 +1557,164 @@ def test_main_window_blocks_start_while_rf_switch_running(qtbot, monkeypatch) ->
         window._rf_switch_box_service._running = False
 
 
+def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
+    qtbot,
+    monkeypatch,
+) -> None:
+    """Manual worker가 끝나기 전에는 경쟁 command를 하나도 보내지 않는다."""
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(window, "_show_warning", lambda _title, _message: None)
+    entered = threading.Event()
+    release = threading.Event()
+    calls: list[str] = []
+
+    class Commands:
+        def get_tdf_list(self, _client):
+            calls.append("tdf")
+            return []
+
+        def set_switch_filter(self, _client, *, filter_path):
+            calls.append(f"rf:{filter_path}")
+            return True
+
+    window._tdf_service._commands = Commands()
+    window._rf_switch_box_service._commands = Commands()
+    config = build_equipment_connection_config(
+        mt8000a_visa_resource="MT",
+        fsv40_visa_resource="FS",
+        co3000_visa_resource="CO",
+        controller_3d_visa_resource="3D",
+        switch_box_ip_address="192.168.0.10",
+        switch_box_port=5000,
+    )
+
+    def manual_operation(_context) -> None:
+        entered.set()
+        release.wait(2.0)
+
+    assert window._manual_test_service.start_operation(
+        "Manual blocking",
+        manual_operation,
+    )
+    qtbot.waitUntil(entered.is_set, timeout=1000)
+    try:
+        window._runner.start([], settings=object())
+        window._runner.instrument_connection_service.connect_equipment(config)
+        window._runner.instrument_connection_service.set_equipment({"FSV40": True})
+        window._tdf_service.get_tdf_list()
+        window._rf_switch_box_service.set_thru()
+
+        assert calls == []
+        assert not window._runner.is_measurement_active
+        assert not window._runner.instrument_connection_service.is_connecting
+        assert not window._runner.instrument_connection_service.is_setting
+        assert not window._tdf_service.is_running
+        assert not window._rf_switch_box_service.is_running
+        assert window._manual_test_service.is_running
+
+        window._manual_test_service.request_stop()
+        assert window._manual_test_service.is_running
+    finally:
+        release.set()
+    qtbot.waitUntil(
+        lambda: not window._manual_test_service.is_running,
+        timeout=1000,
+    )
+
+
+def test_main_window_blocks_manual_before_command_for_every_competing_operation(
+    qtbot,
+    monkeypatch,
+) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    monkeypatch.setattr(
+        window._manual_test_panel,
+        "_show_warning",
+        lambda _title, _message: None,
+    )
+    calls: list[str] = []
+    connection_service = window._runner.instrument_connection_service
+
+    active_states = [
+        (
+            lambda: window._runner._set_measurement_active(True),
+            lambda: window._runner._set_measurement_active(False),
+        ),
+        (
+            lambda: setattr(connection_service, "_connection_thread", object()),
+            lambda: setattr(connection_service, "_connection_thread", None),
+        ),
+        (
+            lambda: setattr(connection_service, "_set_thread", object()),
+            lambda: setattr(connection_service, "_set_thread", None),
+        ),
+        (
+            lambda: setattr(window, "_tdf_operation_active", True),
+            lambda: setattr(window, "_tdf_operation_active", False),
+        ),
+        (
+            lambda: setattr(window._rf_switch_box_service, "_running", True),
+            lambda: setattr(window._rf_switch_box_service, "_running", False),
+        ),
+    ]
+
+    for activate, clear in active_states:
+        activate()
+        try:
+            accepted = window._manual_test_service.start_operation(
+                "경쟁 Manual",
+                lambda _context: calls.append("command"),
+            )
+            assert not accepted
+            assert not window._manual_test_service.is_running
+        finally:
+            clear()
+
+    assert calls == []
+
+
+def test_main_window_shares_tdf_list_with_manual_panel(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    manual_list = window._manual_test_panel.findChild(
+        QListWidget,
+        "manualTdfListWidget",
+    )
+    assert manual_list is not None
+    assert [manual_list.item(index).text() for index in range(manual_list.count())] == [
+        "a.tdf",
+        "b.tdf",
+    ]
+
+
+def test_main_window_locks_manual_commands_during_automatic_test(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._manual_test_service.set_equipment_state(
+        {"FSV40": True, "CO3000": True},
+    )
+    set_button = window._manual_test_panel.findChild(
+        QPushButton,
+        "manualSetButton",
+    )
+    assert set_button is not None
+    assert set_button.isEnabled()
+
+    window._runner._set_measurement_active(True)
+
+    assert not set_button.isEnabled()
+    assert window._manual_test_panel.findChild(
+        QPushButton,
+        "manualStopButton",
+    ).isEnabled() is False
+
+
 def test_main_window_allows_start_without_active_tdf(
     qtbot,
     monkeypatch,
@@ -2181,6 +2339,15 @@ def test_main_window_populates_tdf_list_from_automatic_apply_signals(qtbot) -> N
     assert tdf_list.item(0).background().style() == Qt.BrushStyle.NoBrush
     assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
     assert tdf_list.selectedItems() == []
+
+    manual_tdf_list = window.findChild(QListWidget, "manualTdfListWidget")
+    assert manual_tdf_list is not None
+    assert [
+        manual_tdf_list.item(row).text()
+        for row in range(manual_tdf_list.count())
+    ] == ["a.tdf", "b.tdf"]
+    assert not manual_tdf_list.item(0).font().bold()
+    assert manual_tdf_list.item(1).font().bold()
 
 
 def test_main_window_marks_tdf_active_from_automatic_apply_signal(qtbot) -> None:

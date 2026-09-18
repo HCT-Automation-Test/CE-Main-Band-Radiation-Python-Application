@@ -4,7 +4,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PySide6.QtCore import QObject, QRectF, QSize, Qt, Signal, Slot
 from PySide6.QtGui import QPainter, QPen, QPixmap
@@ -24,6 +24,8 @@ from app.models.enums import FilterPath, InputPath
 from app.net import commands as default_commands
 
 logger = logging.getLogger(__name__)
+
+OperationGuard = Callable[[], str | None]
 
 def _resource_root() -> Path:
     if getattr(sys, "frozen", False):
@@ -174,10 +176,12 @@ class RFSwitchBoxService(QObject):
         *,
         client: Any,
         commands: Any = default_commands,
+        operation_guard: OperationGuard | None = None,
     ) -> None:
         super().__init__(parent)
         self._client = client
         self._commands = commands
+        self._operation_guard = operation_guard
         self._running = False
         self._shutting_down = False
 
@@ -233,6 +237,11 @@ class RFSwitchBoxService(QObject):
         if self._running:
             self.operation_failed.emit("Switch Box 작업이 이미 진행 중입니다.")
             return False
+        if self._operation_guard is not None:
+            block_reason = self._operation_guard()
+            if block_reason:
+                self.operation_failed.emit(block_reason)
+                return False
         self._running = True
         self.operation_started.emit()
         return True

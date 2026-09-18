@@ -284,6 +284,23 @@ def test_rf_switch_box_service_reports_failure_and_releases_running_flag(qtbot) 
     assert not service.is_running
 
 
+def test_rf_switch_box_service_guard_rejects_before_command(qtbot) -> None:
+    command_facade = _Commands()
+    service = RFSwitchBoxService(
+        client=object(),
+        commands=command_facade,
+        operation_guard=lambda: "다른 장비 작업이 진행 중입니다.",
+    )
+    failures: list[str] = []
+    service.operation_failed.connect(failures.append)
+
+    service.set_thru()
+
+    assert command_facade.filter_calls == []
+    assert failures == ["다른 장비 작업이 진행 중입니다."]
+    assert not service.is_running
+
+
 def test_rf_switch_box_service_repeated_operations_with_tcp_client(qtbot, tmp_path) -> None:
     server = MockLvServer(port=0, temp_dir=tmp_path)
     server.start()

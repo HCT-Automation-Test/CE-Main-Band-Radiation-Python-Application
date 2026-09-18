@@ -84,9 +84,11 @@ class LogPanel(QWidget):
         self.setStyleSheet(
             """
             QPlainTextEdit#logTextEdit {
-                border: 1px solid #3f73a8;
-                background: #ffffff;
-                color: #111111;
+                border: 1px solid #4e86bd;
+                background: palette(base);
+                color: palette(text);
+                selection-background-color: palette(highlight);
+                selection-color: palette(highlighted-text);
                 font-family: Consolas, "Courier New", monospace;
                 font-size: 12px;
             }
