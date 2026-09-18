@@ -2340,6 +2340,15 @@ def test_main_window_populates_tdf_list_from_automatic_apply_signals(qtbot) -> N
     assert tdf_list.item(1).background().style() != Qt.BrushStyle.NoBrush
     assert tdf_list.selectedItems() == []
 
+    manual_tdf_list = window.findChild(QListWidget, "manualTdfListWidget")
+    assert manual_tdf_list is not None
+    assert [
+        manual_tdf_list.item(row).text()
+        for row in range(manual_tdf_list.count())
+    ] == ["a.tdf", "b.tdf"]
+    assert not manual_tdf_list.item(0).font().bold()
+    assert manual_tdf_list.item(1).font().bold()
+
 
 def test_main_window_marks_tdf_active_from_automatic_apply_signal(qtbot) -> None:
     window = MainWindow()

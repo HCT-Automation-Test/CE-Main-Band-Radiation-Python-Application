@@ -251,8 +251,14 @@ class MainWindow(QMainWindow):
         self._runner.events.tdf_file_list_changed.connect(
             self._test_manager_panel.set_tdf_file_list,
         )
+        self._runner.events.tdf_file_list_changed.connect(
+            self._manual_test_panel.set_tdf_file_list,
+        )
         self._runner.events.active_tdf_file_changed.connect(
             self._test_manager_panel.set_active_tdf_file_name,
+        )
+        self._runner.events.active_tdf_file_changed.connect(
+            self._manual_test_panel.set_active_tdf_file_name,
         )
         self._runner.events.tc_finished.connect(
             self.on_test_case_finished,

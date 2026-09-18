@@ -390,6 +390,12 @@ def test_manual_service_stop_stops_active_turntable(qtbot, tmp_path: Path) -> No
         temp_dir=tmp_path,
         turntable_timeout_sec=5.0,
     )
+    cancelled: list[str] = []
+    failures: list[tuple[str, str]] = []
+    service.operation_cancelled.connect(cancelled.append)
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
 
     assert service.move_turntable(angle=360.0, speed=6)
     qtbot.waitUntil(
@@ -400,3 +406,98 @@ def test_manual_service_stop_stops_active_turntable(qtbot, tmp_path: Path) -> No
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert ("stop_turntable",) in commands.calls
+    assert cancelled == ["Turntable 360°"]
+    assert failures == []
+
+
+def test_manual_service_reports_stop_command_failure(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(
+        client=client,
+        commands=commands,
+        temp_dir=tmp_path,
+        turntable_timeout_sec=5.0,
+    )
+    cancelled: list[str] = []
+    failures: list[tuple[str, str]] = []
+    service.operation_cancelled.connect(cancelled.append)
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    def fail_stop(_client) -> None:
+        commands.calls.append(("stop_turntable",))
+        raise RuntimeError("transport disconnected")
+
+    commands.stop_turntable = fail_stop
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(
+        lambda: any(call[0] == "rotate_turntable" for call in commands.calls),
+        timeout=1000,
+    )
+    service.request_stop()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert cancelled == []
+    assert failures == [
+        ("Turntable 360°", "Turntable 정지 실패: transport disconnected"),
+    ]
+
+
+def test_manual_service_timeout_stops_turntable_and_reports_failure(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(
+        client=client,
+        commands=commands,
+        temp_dir=tmp_path,
+        turntable_timeout_sec=0.01,
+    )
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert ("stop_turntable",) in commands.calls
+    assert failures == [("Turntable 360°", "Turntable 회전 타임아웃")]
+
+
+def test_manual_service_stop_during_angle_query_skips_rotation(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+
+    query_started = threading.Event()
+    release_query = threading.Event()
+
+    def get_turntable_angle(_client) -> float:
+        commands.calls.append(("get_turntable_angle",))
+        query_started.set()
+        release_query.wait(2.0)
+        return 90.0
+
+    commands.get_turntable_angle = get_turntable_angle
+
+    assert service.run_semi_auto(speed=6)
+    qtbot.waitUntil(query_started.is_set, timeout=1000)
+    service.request_stop()
+    release_query.set()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [("get_turntable_angle",)]

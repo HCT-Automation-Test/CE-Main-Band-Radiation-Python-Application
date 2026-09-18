@@ -37,6 +37,10 @@ _TURNTABLE_EVENT_COMMANDS = {
 _DETACHED_THREADS: list[QThread] = []
 
 
+class _ManualStopError(RuntimeError):
+    """Stop 요청 실패를 일반 취소와 구분한다."""
+
+
 @dataclass(frozen=True)
 class ManualTestCapabilities:
     """장비 연결 상태로만 계산하는 Manual Test 기능 집합."""
@@ -148,6 +152,9 @@ class _ManualOperationWorker(QObject):
                 self.cancelled.emit(self._operation_name)
             else:
                 self.finished.emit(self._operation_name)
+        except _ManualStopError as exc:
+            logger.exception("Manual Test Stop 실패: %s", self._operation_name)
+            self.failed.emit(self._operation_name, str(exc))
         except Exception as exc:
             if self._cancel_event.is_set():
                 self.cancelled.emit(self._operation_name)
@@ -592,6 +599,8 @@ class ManualTestService(QObject):
         event_signal.connect(handle_event, Qt.ConnectionType.DirectConnection)
         try:
             context.report_step(f"Turntable {angle:g}° 이동 중")
+            if context.cancel_requested:
+                return
             self._commands.rotate_turntable(client, angle=angle, turntable_speed=speed)
             self.turntable_info_changed.emit(
                 {"target_angle": angle, "current_angle": None, "speed": speed}
@@ -599,10 +608,10 @@ class ManualTestService(QObject):
             deadline = time.monotonic() + self._turntable_timeout_sec
             while not completed.wait(_TURNTABLE_POLL_SEC):
                 if context.cancel_requested:
-                    self._commands.stop_turntable(client)
+                    self._stop_turntable(client)
                     return
                 if time.monotonic() >= deadline:
-                    self._commands.stop_turntable(client)
+                    self._stop_turntable(client)
                     raise TimeoutError("Turntable 회전 타임아웃")
             if failed_reason:
                 raise RuntimeError(f"Turntable 회전 실패: {failed_reason[-1]}")
@@ -611,6 +620,12 @@ class ManualTestService(QObject):
             )
         finally:
             _disconnect_safely(event_signal, handle_event)
+
+    def _stop_turntable(self, client: Any) -> None:
+        try:
+            self._commands.stop_turntable(client)
+        except Exception as exc:
+            raise _ManualStopError(f"Turntable 정지 실패: {exc}") from exc
 
     def _require_client(self) -> Any:
         if self._client is None:
