@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
 
@@ -12,6 +12,7 @@ from app.net import commands as default_commands
 logger = logging.getLogger(__name__)
 
 TdfOperation = Literal["get_list", "all_off", "set_tdf"]
+OperationGuard = Callable[[], str | None]
 TDF_OPERATION_IN_PROGRESS_MESSAGE = "TDF 작업이 이미 진행 중입니다."
 _DETACHED_THREADS: list[QThread] = []
 
@@ -124,10 +125,12 @@ class TdfService(QObject):
         *,
         client: Any,
         commands: Any = default_commands,
+        operation_guard: OperationGuard | None = None,
     ) -> None:
         super().__init__(parent)
         self._client = client
         self._commands = commands
+        self._operation_guard = operation_guard
         self._thread: QThread | None = None
         self._worker: _TdfWorker | None = None
         self._shutting_down = False
@@ -186,6 +189,11 @@ class TdfService(QObject):
         if self._thread is not None:
             self.operation_failed.emit(TDF_OPERATION_IN_PROGRESS_MESSAGE)
             return
+        if self._operation_guard is not None:
+            block_reason = self._operation_guard()
+            if block_reason:
+                self.operation_failed.emit(block_reason)
+                return
 
         thread = QThread(self)
         worker = _TdfWorker(
