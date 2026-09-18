@@ -2,10 +2,21 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtGui import QImage
-from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QListWidget, QPushButton
+from PySide6.QtGui import QColor, QImage, QPalette
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QGridLayout,
+    QGroupBox,
+    QLineEdit,
+    QListWidget,
+    QPlainTextEdit,
+    QPushButton,
+    QWidget,
+)
 
 from app.core.manual_test_service import ManualTestCapabilities, ManualTestService
+from app.ui.log_panel import LogPanel
 from app.ui.manual_test_panel import ManualTestPanel
 
 
@@ -19,6 +30,128 @@ def test_manual_panel_uses_expected_defaults(qtbot) -> None:
     assert panel.findChild(QLineEdit, "manualSweepPointEdit").text() == "30001"
     assert panel.findChild(QLineEdit, "manualSaturationTimeEdit").text() == "5"
     assert panel.findChild(QComboBox, "manualDetectorModeComboBox").currentText() == "RMS"
+
+
+def test_manual_panel_uses_compact_setting_sections_with_readable_inputs(qtbot) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+
+    for object_name in (
+        "manualFrequencyGroup",
+        "manualSweepTraceGroup",
+        "manualOperationGroup",
+        "manualTdfGroup",
+    ):
+        assert panel.findChild(QGroupBox, object_name) is not None
+
+    for object_name in (
+        "manualStartFrequencyEdit",
+        "manualStopFrequencyEdit",
+        "manualRbwEdit",
+        "manualVbwEdit",
+        "manualSweepPointEdit",
+        "manualSweepTimeEdit",
+        "manualSaturationTimeEdit",
+        "manualAttenLevelEdit",
+        "manualLimitEdit",
+    ):
+        assert panel.findChild(QLineEdit, object_name).minimumWidth() >= 88
+
+    assert panel.findChild(QComboBox, "manualPresetComboBox").minimumWidth() >= 120
+    assert panel.findChild(QComboBox, "manualDetectorModeComboBox").minimumWidth() >= 120
+
+
+def test_manual_panel_formats_duplicate_ranges_and_applies_their_bandwidths(qtbot) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+    preset = panel.findChild(QComboBox, "manualPresetComboBox")
+    rbw = panel.findChild(QLineEdit, "manualRbwEdit")
+    vbw = panel.findChild(QLineEdit, "manualVbwEdit")
+
+    assert preset.itemText(1) == "1 GHz ~ 3 GHz"
+    assert preset.itemText(6) == "1 GHz ~ 3 GHz"
+    assert preset.itemData(1) != preset.itemData(6)
+
+    preset.setCurrentIndex(1)
+    assert (rbw.text(), vbw.text()) == ("1", "3")
+    preset.setCurrentIndex(6)
+    assert (rbw.text(), vbw.text()) == ("0.1", "0.3")
+
+
+def test_manual_panel_places_operation_below_settings_and_keeps_log_on_right(qtbot) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+    panel.resize(1578, 898)
+    panel.show()
+    qtbot.wait(1)
+
+    stack = panel.findChild(QWidget, "manualSaControlStack")
+    settings = panel.findChild(QWidget, "manualSettingsContainer")
+    operation = panel.findChild(QGroupBox, "manualOperationGroup")
+    screenshot = panel.findChild(QGroupBox, "manualScreenshotGroup")
+    controls = panel.findChild(QWidget, "manualControlPanel")
+    log_panel = panel.findChild(LogPanel, "manualTestLogPanel")
+
+    assert stack.layout().indexOf(settings) < stack.layout().indexOf(operation)
+    assert operation.y() > settings.y()
+    assert screenshot.width() > controls.width()
+    assert log_panel.width() == 280
+    assert log_panel.x() > controls.x()
+
+
+def test_manual_panel_and_log_follow_dark_palette(qtbot, qapp) -> None:
+    original_palette = QPalette(qapp.palette())
+    dark_palette = QPalette(original_palette)
+    dark_palette.setColor(QPalette.ColorRole.Window, QColor("#20242a"))
+    dark_palette.setColor(QPalette.ColorRole.WindowText, QColor("#f0f2f4"))
+    dark_palette.setColor(QPalette.ColorRole.Base, QColor("#171a1f"))
+    dark_palette.setColor(QPalette.ColorRole.Text, QColor("#f0f2f4"))
+    dark_palette.setColor(QPalette.ColorRole.AlternateBase, QColor("#2b3038"))
+    try:
+        qapp.setPalette(dark_palette)
+        panel = ManualTestPanel(service=ManualTestService())
+        qtbot.addWidget(panel)
+        panel.show()
+        qtbot.wait(1)
+
+        frequency = panel.findChild(QLineEdit, "manualStartFrequencyEdit")
+        log_edit = panel.findChild(QPlainTextEdit, "logTextEdit")
+        assert frequency.palette().color(QPalette.ColorRole.Base) == QColor("#171a1f")
+        assert frequency.palette().color(QPalette.ColorRole.Text) == QColor("#f0f2f4")
+        assert log_edit.palette().color(QPalette.ColorRole.Base) == QColor("#171a1f")
+        assert log_edit.palette().color(QPalette.ColorRole.Text) == QColor("#f0f2f4")
+    finally:
+        qapp.setPalette(original_palette)
+
+
+def test_manual_panel_places_marker_actions_in_three_by_two_grid(qtbot) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+    layout = panel.findChild(QGridLayout, "manualMarkerButtonLayout")
+    object_names = (
+        "manualMarkerPeakButton",
+        "manualMarkerNextButton",
+        "manualMarkerOffButton",
+        "manualMarkerAllOffButton",
+        "manualMarkerAutoMaxButton",
+        "manualMarkerCenterButton",
+    )
+
+    assert layout is not None
+    for index, object_name in enumerate(object_names):
+        button = panel.findChild(QPushButton, object_name)
+        row, column, row_span, column_span = layout.getItemPosition(
+            layout.indexOf(button)
+        )
+        assert (row, column, row_span, column_span) == (
+            index // 3,
+            index % 3,
+            1,
+            1,
+        )
+        assert button.minimumHeight() == 28
+
+    assert panel.findChild(QWidget, "manualStatusLabel").height() == 26
 
 
 def test_manual_panel_custom_toggle_controls_frequency_edits(qtbot) -> None:

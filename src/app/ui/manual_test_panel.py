@@ -1,6 +1,7 @@
 """Manual Test 장비 제어 및 Screenshot 패널."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal, Slot
@@ -37,9 +38,16 @@ from app.models.manual_test import (
     ManualSaSettings,
     get_manual_frequency_preset,
 )
+from app.ui.log_panel import LogPanel
 
 _DEFAULT_PRESET = ManualPresetId.PRESET_3
 _MAX_NEXT_PEAK_SEARCH_LEVEL_DB = 80.0
+_SETTING_INPUT_MIN_WIDTH = 88
+_SETTING_COMBO_MIN_WIDTH = 120
+_CAPTURE_ACTION_WIDTH = 84
+_SCREENSHOT_LIST_WIDTH = 160
+_LOG_PANEL_WIDTH = 280
+_MARKER_BUTTON_HEIGHT = 28
 
 
 class ManualTestPanel(QWidget):
@@ -80,16 +88,24 @@ class ManualTestPanel(QWidget):
     def _build_ui(self) -> None:
         root_layout = QHBoxLayout(self)
         root_layout.setContentsMargins(10, 10, 10, 10)
-        root_layout.setSpacing(12)
+        root_layout.setSpacing(10)
 
-        left_panel = QWidget(self)
+        workspace = QWidget(self)
+        workspace.setObjectName("manualWorkspace")
+        workspace_layout = QHBoxLayout(workspace)
+        workspace_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_layout.setSpacing(10)
+
+        left_panel = QWidget(workspace)
+        left_panel.setObjectName("manualScreenshotPanel")
         left_layout = QVBoxLayout(left_panel)
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(8)
         left_layout.addWidget(self._create_screenshot_group(), 1)
         left_layout.addWidget(self._create_capture_group())
 
-        right_panel = QWidget(self)
+        right_panel = QWidget(workspace)
+        right_panel.setObjectName("manualControlPanel")
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(8)
@@ -97,11 +113,19 @@ class ManualTestPanel(QWidget):
         right_layout.addWidget(self._create_marker_group())
         self._status_label = QLabel("Manual Test 대기 중", right_panel)
         self._status_label.setObjectName("manualStatusLabel")
-        self._status_label.setWordWrap(True)
+        self._status_label.setWordWrap(False)
+        self._status_label.setFixedHeight(26)
         right_layout.addWidget(self._status_label)
 
-        root_layout.addWidget(left_panel, 1)
-        root_layout.addWidget(right_panel, 1)
+        workspace_layout.addWidget(left_panel, 6)
+        workspace_layout.addWidget(right_panel, 5)
+
+        self._log_panel = LogPanel(self, logger=logging.getLogger())
+        self._log_panel.setObjectName("manualTestLogPanel")
+        self._log_panel.setFixedWidth(_LOG_PANEL_WIDTH)
+
+        root_layout.addWidget(workspace, 1)
+        root_layout.addWidget(self._log_panel)
 
     def _create_screenshot_group(self) -> QGroupBox:
         group = QGroupBox("SA Screenshot", self)
@@ -127,8 +151,7 @@ class ManualTestPanel(QWidget):
 
         self._screenshot_list = QListWidget(group)
         self._screenshot_list.setObjectName("manualScreenshotListWidget")
-        self._screenshot_list.setMinimumWidth(180)
-        self._screenshot_list.setMaximumWidth(250)
+        self._screenshot_list.setFixedWidth(_SCREENSHOT_LIST_WIDTH)
         self._screenshot_list.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection,
         )
@@ -138,7 +161,9 @@ class ManualTestPanel(QWidget):
 
     def _create_capture_group(self) -> QGroupBox:
         group = QGroupBox("Screenshot Capture", self)
+        group.setObjectName("manualCaptureGroup")
         layout = QGridLayout(group)
+        layout.setContentsMargins(8, 16, 8, 8)
         layout.setHorizontalSpacing(8)
         layout.setVerticalSpacing(6)
 
@@ -146,7 +171,7 @@ class ManualTestPanel(QWidget):
         self._capture_directory_edit.setObjectName("captureDirectoryEdit")
         browse_button = QPushButton("…", group)
         browse_button.setObjectName("captureDirectoryButton")
-        browse_button.setFixedWidth(36)
+        browse_button.setFixedWidth(_CAPTURE_ACTION_WIDTH)
         browse_button.clicked.connect(self._on_browse_directory)
 
         self._capture_name_edit = QLineEdit(group)
@@ -154,6 +179,7 @@ class ManualTestPanel(QWidget):
         self._capture_name_edit.setPlaceholderText("확장자 제외")
         self._capture_button = QPushButton("Capture", group)
         self._capture_button.setObjectName("singleCaptureButton")
+        self._capture_button.setFixedWidth(_CAPTURE_ACTION_WIDTH)
 
         self._capture_interval_spin = QDoubleSpinBox(group)
         self._capture_interval_spin.setObjectName("captureIntervalSpinBox")
@@ -161,17 +187,20 @@ class ManualTestPanel(QWidget):
         self._capture_interval_spin.setDecimals(1)
         self._capture_interval_spin.setValue(1.0)
         self._capture_interval_spin.setSuffix(" s")
+        self._capture_interval_spin.setMinimumWidth(104)
         self._capture_shots_spin = QSpinBox(group)
         self._capture_shots_spin.setObjectName("captureShotsSpinBox")
         self._capture_shots_spin.setRange(1, 999)
         self._capture_shots_spin.setValue(1)
+        self._capture_shots_spin.setMinimumWidth(104)
         self._n_capture_button = QPushButton("N-Capture", group)
         self._n_capture_button.setObjectName("nCaptureButton")
+        self._n_capture_button.setFixedWidth(_CAPTURE_ACTION_WIDTH)
 
         layout.addWidget(QLabel("저장 폴더", group), 0, 0)
         layout.addWidget(self._capture_directory_edit, 0, 1, 1, 3)
         layout.addWidget(browse_button, 0, 4)
-        layout.addWidget(QLabel("Screenshot File Name", group), 1, 0)
+        layout.addWidget(QLabel("File Name", group), 1, 0)
         layout.addWidget(self._capture_name_edit, 1, 1, 1, 3)
         layout.addWidget(self._capture_button, 1, 4)
         layout.addWidget(QLabel("Interval", group), 2, 0)
@@ -188,95 +217,173 @@ class ManualTestPanel(QWidget):
         group.setObjectName("manualSaSettingGroup")
         layout = QHBoxLayout(group)
         layout.setContentsMargins(10, 16, 10, 8)
-        layout.setSpacing(10)
+        layout.setSpacing(8)
 
-        settings = QWidget(group)
-        form = QGridLayout(settings)
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setHorizontalSpacing(8)
-        form.setVerticalSpacing(5)
-        self._preset_combo = QComboBox(settings)
+        control_stack = QWidget(group)
+        control_stack.setObjectName("manualSaControlStack")
+        control_stack_layout = QVBoxLayout(control_stack)
+        control_stack_layout.setContentsMargins(0, 0, 0, 0)
+        control_stack_layout.setSpacing(6)
+
+        settings = QWidget(control_stack)
+        settings.setObjectName("manualSettingsContainer")
+        settings_layout = QHBoxLayout(settings)
+        settings_layout.setContentsMargins(0, 0, 0, 0)
+        settings_layout.setSpacing(6)
+        settings_layout.addWidget(self._create_frequency_group(settings), 1)
+        settings_layout.addWidget(self._create_sweep_trace_group(settings), 1)
+
+        operation_group = self._create_operation_group(control_stack)
+        control_stack_layout.addWidget(settings)
+        control_stack_layout.addWidget(operation_group)
+        control_stack_layout.addStretch(1)
+
+        tdf_group = self._create_tdf_group(group)
+        layout.addWidget(control_stack, 3)
+        layout.addWidget(tdf_group, 2)
+        return group
+
+    def _create_frequency_group(self, parent: QWidget) -> QGroupBox:
+        group = QGroupBox("Frequency", parent)
+        group.setObjectName("manualFrequencyGroup")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(3)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._preset_combo = QComboBox(group)
         self._preset_combo.setObjectName("manualPresetComboBox")
+        self._preset_combo.setMinimumWidth(_SETTING_COMBO_MIN_WIDTH)
+        self._preset_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._preset_combo.setMinimumContentsLength(12)
         for preset in MANUAL_FREQUENCY_PRESETS:
             self._preset_combo.addItem(preset.label, preset.id)
-        self._custom_check = QCheckBox("Custom On", settings)
+        self._custom_check = QCheckBox("Custom On", group)
         self._custom_check.setObjectName("manualCustomCheckBox")
 
-        self._start_frequency_edit = self._number_edit("manualStartFrequencyEdit", settings)
-        self._stop_frequency_edit = self._number_edit("manualStopFrequencyEdit", settings)
-        self._rbw_edit = self._number_edit("manualRbwEdit", settings)
-        self._vbw_edit = self._number_edit("manualVbwEdit", settings)
-        self._sweep_point_edit = QLineEdit(settings)
+        self._start_frequency_edit = self._number_edit("manualStartFrequencyEdit", group)
+        self._stop_frequency_edit = self._number_edit("manualStopFrequencyEdit", group)
+        self._rbw_edit = self._number_edit("manualRbwEdit", group)
+        self._vbw_edit = self._number_edit("manualVbwEdit", group)
+
+        layout.addWidget(QLabel("Preset", group), 0, 0)
+        layout.addWidget(self._preset_combo, 1, 0)
+        layout.addWidget(self._custom_check, 2, 0)
+        row = 3
+        for label, widget in (
+            ("Start (MHz)", self._start_frequency_edit),
+            ("Stop (MHz)", self._stop_frequency_edit),
+            ("RBW (MHz)", self._rbw_edit),
+            ("VBW (MHz)", self._vbw_edit),
+        ):
+            row = self._add_stacked_field(layout, row, label, widget, group)
+        layout.setRowStretch(row, 1)
+        return group
+
+    def _create_sweep_trace_group(self, parent: QWidget) -> QGroupBox:
+        group = QGroupBox("Sweep / Trace", parent)
+        group.setObjectName("manualSweepTraceGroup")
+        layout = QGridLayout(group)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setHorizontalSpacing(6)
+        layout.setVerticalSpacing(3)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        self._sweep_point_edit = QLineEdit(group)
         self._sweep_point_edit.setObjectName("manualSweepPointEdit")
-        self._sweep_point_edit.setValidator(QIntValidator(1, 2_147_483_647, settings))
+        self._sweep_point_edit.setMinimumWidth(_SETTING_INPUT_MIN_WIDTH)
+        self._sweep_point_edit.setValidator(QIntValidator(1, 2_147_483_647, group))
         self._sweep_point_edit.setText("30001")
-        self._sweep_time_edit = self._number_edit("manualSweepTimeEdit", settings, "0.1")
+        self._sweep_time_edit = self._number_edit("manualSweepTimeEdit", group, "0.1")
         self._saturation_time_edit = self._number_edit(
-            "manualSaturationTimeEdit", settings, "5"
+            "manualSaturationTimeEdit", group, "5"
         )
-        self._atten_level_edit = self._number_edit("manualAttenLevelEdit", settings, "0")
-        self._detector_combo = QComboBox(settings)
+        self._atten_level_edit = self._number_edit("manualAttenLevelEdit", group, "0")
+        self._detector_combo = QComboBox(group)
         self._detector_combo.setObjectName("manualDetectorModeComboBox")
+        self._detector_combo.setMinimumWidth(_SETTING_COMBO_MIN_WIDTH)
+        self._detector_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._detector_combo.setMinimumContentsLength(7)
         self._detector_combo.addItems(MANUAL_DETECTOR_MODES)
         self._detector_combo.setCurrentText("RMS")
-        self._limit_edit = self._number_edit("manualLimitEdit", settings, "-30")
+        self._limit_edit = self._number_edit("manualLimitEdit", group, "-30")
 
-        form.addWidget(QLabel("Frequency Range", settings), 0, 0)
-        form.addWidget(self._preset_combo, 0, 1, 1, 3)
-        form.addWidget(self._custom_check, 1, 0, 1, 2)
-        row_fields = (
-            ("Start Freq (MHz)", self._start_frequency_edit, "Sweep Point", self._sweep_point_edit),
-            ("Stop Freq (MHz)", self._stop_frequency_edit, "Sweep Time (s)", self._sweep_time_edit),
-            ("RBW (MHz)", self._rbw_edit, "Saturation (s)", self._saturation_time_edit),
-            ("VBW (MHz)", self._vbw_edit, "Atten Level (dB)", self._atten_level_edit),
-            ("Detector Mode", self._detector_combo, "Line Limit (dBm)", self._limit_edit),
-        )
-        for row, (left_label, left_widget, right_label, right_widget) in enumerate(
-            row_fields, start=2
+        row = 0
+        for label, widget in (
+            ("Sweep Point", self._sweep_point_edit),
+            ("Sweep Time", self._sweep_time_edit),
+            ("Saturation", self._saturation_time_edit),
+            ("Atten (dB)", self._atten_level_edit),
+            ("Detector", self._detector_combo),
+            ("Limit (dBm)", self._limit_edit),
         ):
-            form.addWidget(QLabel(left_label, settings), row, 0)
-            form.addWidget(left_widget, row, 1)
-            form.addWidget(QLabel(right_label, settings), row, 2)
-            form.addWidget(right_widget, row, 3)
+            row = self._add_stacked_field(layout, row, label, widget, group)
+        layout.setRowStretch(row, 1)
+        return group
 
-        controls = QWidget(group)
-        control_layout = QGridLayout(controls)
-        control_layout.setContentsMargins(0, 0, 0, 0)
+    def _create_operation_group(self, parent: QWidget) -> QGroupBox:
+        group = QGroupBox("Operation", parent)
+        group.setObjectName("manualOperationGroup")
+        group.setMinimumWidth(230)
+        control_layout = QGridLayout(group)
+        control_layout.setContentsMargins(8, 16, 8, 8)
         control_layout.setSpacing(6)
-        self._preset_button = self._button("Preset", "manualPresetButton", controls)
-        self._set_button = self._button("Set", "manualSetButton", controls)
-        self._trace_clear_button = self._button("Trace Clear", "manualTraceClearButton", controls)
-        self._semi_auto_button = self._button("Semi Auto", "manualSemiAutoButton", controls)
-        self._stop_button = self._button("Stop", "manualStopButton", controls)
+        control_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._preset_button = self._button("Preset", "manualPresetButton", group)
+        self._set_button = self._button("Set", "manualSetButton", group)
+        self._trace_clear_button = self._button("Trace Clear", "manualTraceClearButton", group)
+        self._semi_auto_button = self._button("Semi Auto", "manualSemiAutoButton", group)
+        self._stop_button = self._button("Stop", "manualStopButton", group)
         control_layout.addWidget(self._preset_button, 0, 0)
         control_layout.addWidget(self._semi_auto_button, 0, 1)
         control_layout.addWidget(self._stop_button, 0, 2, 2, 1)
         control_layout.addWidget(self._set_button, 1, 0)
         control_layout.addWidget(self._trace_clear_button, 1, 1)
 
-        self._turntable_speed_spin = QSpinBox(controls)
+        self._turntable_speed_spin = QSpinBox(group)
         self._turntable_speed_spin.setObjectName("manualTurntableSpeedSpinBox")
         self._turntable_speed_spin.setRange(1, 10)
         self._turntable_speed_spin.setValue(6)
-        self._turntable_zero_button = self._button("0°", "manualTurntableZeroButton", controls)
-        self._turntable_360_button = self._button("360°", "manualTurntable360Button", controls)
-        self._mast_combo = QComboBox(controls)
+        self._turntable_speed_spin.setMinimumWidth(84)
+        self._turntable_zero_button = self._button("0°", "manualTurntableZeroButton", group)
+        self._turntable_360_button = self._button("360°", "manualTurntable360Button", group)
+        self._mast_combo = QComboBox(group)
         self._mast_combo.setObjectName("manualMastComboBox")
+        self._mast_combo.setMinimumWidth(_SETTING_COMBO_MIN_WIDTH)
+        self._mast_combo.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
+        self._mast_combo.setMinimumContentsLength(12)
         for mast in ManualMast:
             self._mast_combo.addItem(mast.value, mast)
-        self._vertical_button = self._button("V", "manualVerticalButton", controls)
-        self._horizontal_button = self._button("H", "manualHorizontalButton", controls)
-        control_layout.addWidget(QLabel("Turn Table Speed", controls), 2, 0, 1, 2)
-        control_layout.addWidget(self._turntable_speed_spin, 2, 2)
-        control_layout.addWidget(self._turntable_zero_button, 3, 0)
-        control_layout.addWidget(self._turntable_360_button, 3, 1)
-        control_layout.addWidget(QLabel("Mast Type", controls), 4, 0)
-        control_layout.addWidget(self._mast_combo, 4, 1, 1, 2)
-        control_layout.addWidget(self._vertical_button, 5, 1)
-        control_layout.addWidget(self._horizontal_button, 5, 2)
-        control_layout.setRowStretch(6, 1)
+        self._vertical_button = self._button("V", "manualVerticalButton", group)
+        self._horizontal_button = self._button("H", "manualHorizontalButton", group)
+        turntable_label = QLabel("Turntable", group)
+        turntable_label.setObjectName("manualOperationSectionLabel")
+        mast_label = QLabel("Mast", group)
+        mast_label.setObjectName("manualOperationSectionLabel")
+        control_layout.addWidget(turntable_label, 2, 0, 1, 3)
+        control_layout.addWidget(QLabel("Speed", group), 3, 0)
+        control_layout.addWidget(self._turntable_speed_spin, 3, 1, 1, 2)
+        control_layout.addWidget(self._turntable_zero_button, 4, 0)
+        control_layout.addWidget(self._turntable_360_button, 4, 1, 1, 2)
+        control_layout.addWidget(mast_label, 5, 0, 1, 3)
+        control_layout.addWidget(QLabel("Mast Type", group), 6, 0)
+        control_layout.addWidget(self._mast_combo, 6, 1, 1, 2)
+        control_layout.addWidget(self._vertical_button, 7, 1)
+        control_layout.addWidget(self._horizontal_button, 7, 2)
+        control_layout.setRowStretch(8, 1)
+        return group
 
-        tdf_group = QGroupBox("FSV Factor List", group)
+    def _create_tdf_group(self, parent: QWidget) -> QGroupBox:
+        tdf_group = QGroupBox("FSV Factor List", parent)
+        tdf_group.setObjectName("manualTdfGroup")
+        tdf_group.setMinimumWidth(216)
         tdf_layout = QVBoxLayout(tdf_group)
         tdf_layout.setContentsMargins(6, 14, 6, 6)
         self._tdf_list = QListWidget(tdf_group)
@@ -290,14 +397,18 @@ class ManualTestPanel(QWidget):
         tdf_buttons.addWidget(self._tdf_update_button)
         tdf_layout.addWidget(self._tdf_list, 1)
         tdf_layout.addLayout(tdf_buttons)
-        layout.addWidget(settings, 5)
-        layout.addWidget(controls, 3)
-        layout.addWidget(tdf_group, 3)
-        return group
+        return tdf_group
 
     def _create_marker_group(self) -> QGroupBox:
         group = QGroupBox("Marker Setting Panel", self)
-        layout = QGridLayout(group)
+        group.setObjectName("manualMarkerSettingGroup")
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(10, 14, 10, 5)
+        layout.setSpacing(4)
+        form_layout = QGridLayout()
+        form_layout.setContentsMargins(0, 0, 0, 0)
+        form_layout.setHorizontalSpacing(8)
+        form_layout.setVerticalSpacing(3)
         self._marker_combo = QComboBox(group)
         self._marker_combo.setObjectName("manualTargetMarkerComboBox")
         for index in range(1, 11):
@@ -314,22 +425,43 @@ class ManualTestPanel(QWidget):
         self._marker_all_off_button = self._button("ALL Marker OFF", "manualMarkerAllOffButton", group)
         self._marker_auto_max_button = self._button("Auto Max Peak", "manualMarkerAutoMaxButton", group)
         self._marker_center_button = self._button("Mkr→Center", "manualMarkerCenterButton", group)
-        layout.addWidget(QLabel("Target Marker", group), 0, 0)
-        layout.addWidget(self._marker_combo, 0, 1, 1, 5)
-        layout.addWidget(QLabel("Next Peak Search Level", group), 1, 0)
-        layout.addWidget(self._excursion_edit, 1, 1, 1, 5)
-        for column, button in enumerate(
-            (
-                self._marker_peak_button,
-                self._marker_next_button,
-                self._marker_off_button,
-                self._marker_all_off_button,
-                self._marker_auto_max_button,
-                self._marker_center_button,
-            )
-        ):
-            layout.addWidget(button, 2, column)
+        form_layout.addWidget(QLabel("Target Marker", group), 0, 0)
+        form_layout.addWidget(self._marker_combo, 0, 1)
+        form_layout.addWidget(QLabel("Next Peak Search Level", group), 1, 0)
+        form_layout.addWidget(self._excursion_edit, 1, 1)
+        form_layout.setColumnStretch(1, 1)
+        button_layout = QGridLayout()
+        button_layout.setObjectName("manualMarkerButtonLayout")
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(4)
+        marker_buttons = (
+            self._marker_peak_button,
+            self._marker_next_button,
+            self._marker_off_button,
+            self._marker_all_off_button,
+            self._marker_auto_max_button,
+            self._marker_center_button,
+        )
+        for index, button in enumerate(marker_buttons):
+            button.setMinimumHeight(_MARKER_BUTTON_HEIGHT)
+            button.setMaximumHeight(_MARKER_BUTTON_HEIGHT)
+            button_layout.addWidget(button, index // 3, index % 3)
+            button_layout.setColumnStretch(index % 3, 1)
+        layout.addLayout(form_layout)
+        layout.addLayout(button_layout)
         return group
+
+    @staticmethod
+    def _add_stacked_field(
+        layout: QGridLayout,
+        row: int,
+        label_text: str,
+        widget: QWidget,
+        parent: QWidget,
+    ) -> int:
+        layout.addWidget(QLabel(label_text, parent), row, 0)
+        layout.addWidget(widget, row + 1, 0)
+        return row + 2
 
     def _connect_controls(self) -> None:
         self._preset_combo.currentIndexChanged.connect(self._on_preset_changed)
@@ -690,6 +822,7 @@ class ManualTestPanel(QWidget):
     def _number_edit(object_name: str, parent: QWidget, text: str = "") -> QLineEdit:
         edit = QLineEdit(parent)
         edit.setObjectName(object_name)
+        edit.setMinimumWidth(_SETTING_INPUT_MIN_WIDTH)
         edit.setValidator(QDoubleValidator(-1.0e12, 1.0e12, 6, parent))
         edit.setText(text)
         return edit
@@ -707,18 +840,75 @@ class ManualTestPanel(QWidget):
     def _apply_styles(self) -> None:
         self.setStyleSheet(
             """
-            QWidget#manualTestPanel { background: #f4f6f8; }
-            QGroupBox {
-                background: #ffffff;
-                border: 1px solid #3f73a8;
+            QWidget#manualTestPanel,
+            QWidget#manualWorkspace,
+            QWidget#manualScreenshotPanel,
+            QWidget#manualControlPanel,
+            QWidget#manualSaControlStack,
+            QWidget#manualSettingsContainer {
+                background: palette(window);
+                color: palette(window-text);
+            }
+            QGroupBox#manualScreenshotGroup,
+            QGroupBox#manualCaptureGroup,
+            QGroupBox#manualSaSettingGroup,
+            QGroupBox#manualMarkerSettingGroup {
+                background: palette(base);
+                color: palette(text);
+                border: 1px solid #4e86bd;
                 border-radius: 3px;
                 margin-top: 9px;
                 font-weight: 600;
             }
-            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 3px; }
-            QFrame#manualScreenshotFrame { border: 1px solid #9aa7b4; background: #ffffff; }
-            QLabel#manualScreenshotImageLabel { color: #66717d; border: 0; }
-            QLabel#manualStatusLabel { background: #eaf2fa; padding: 6px; border: 1px solid #aac2d9; }
-            QPushButton { min-width: 68px; padding: 4px 7px; }
+            QGroupBox#manualScreenshotGroup::title,
+            QGroupBox#manualCaptureGroup::title,
+            QGroupBox#manualSaSettingGroup::title,
+            QGroupBox#manualMarkerSettingGroup::title {
+                subcontrol-origin: margin;
+                left: 8px;
+                padding: 0 3px;
+            }
+            QGroupBox#manualFrequencyGroup,
+            QGroupBox#manualSweepTraceGroup,
+            QGroupBox#manualOperationGroup,
+            QGroupBox#manualTdfGroup {
+                background: palette(base);
+                color: palette(text);
+                border: 1px solid #6d9bc5;
+                border-radius: 2px;
+                margin-top: 9px;
+                font-weight: 600;
+                font-size: 11px;
+            }
+            QGroupBox#manualFrequencyGroup::title,
+            QGroupBox#manualSweepTraceGroup::title,
+            QGroupBox#manualOperationGroup::title,
+            QGroupBox#manualTdfGroup::title {
+                subcontrol-origin: margin;
+                left: 7px;
+                padding: 0 3px;
+            }
+            QFrame#manualScreenshotFrame {
+                border: 1px solid palette(mid);
+                background: palette(base);
+            }
+            QLabel#manualScreenshotImageLabel { color: palette(mid); border: 0; }
+            QLabel#manualStatusLabel {
+                background: palette(alternate-base);
+                color: palette(text);
+                padding: 4px 6px;
+                border: 1px solid palette(mid);
+            }
+            QLabel#manualOperationSectionLabel { color: #4e86bd; font-weight: 600; }
+            QWidget#manualTestPanel QLineEdit,
+            QWidget#manualTestPanel QComboBox,
+            QWidget#manualTestPanel QAbstractSpinBox,
+            QWidget#manualTestPanel QListWidget {
+                background: palette(base);
+                color: palette(text);
+                selection-background-color: palette(highlight);
+                selection-color: palette(highlighted-text);
+            }
+            QWidget#manualTestPanel QPushButton { min-width: 54px; padding: 4px 5px; }
             """
         )
