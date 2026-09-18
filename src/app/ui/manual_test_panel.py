@@ -48,6 +48,7 @@ _CAPTURE_ACTION_WIDTH = 84
 _SCREENSHOT_LIST_WIDTH = 160
 _LOG_PANEL_WIDTH = 280
 _MARKER_BUTTON_HEIGHT = 28
+_STOP_BUTTON_WIDTH = 68
 
 
 class ManualTestPanel(QWidget):
@@ -109,7 +110,7 @@ class ManualTestPanel(QWidget):
         right_layout = QVBoxLayout(right_panel)
         right_layout.setContentsMargins(0, 0, 0, 0)
         right_layout.setSpacing(8)
-        right_layout.addWidget(self._create_sa_group(), 1)
+        right_layout.addWidget(self._create_control_area(right_panel), 1)
         right_layout.addWidget(self._create_marker_group())
         self._status_label = QLabel("Manual Test 대기 중", right_panel)
         self._status_label.setObjectName("manualStatusLabel")
@@ -212,35 +213,41 @@ class ManualTestPanel(QWidget):
         layout.setColumnStretch(3, 1)
         return group
 
-    def _create_sa_group(self) -> QGroupBox:
-        group = QGroupBox("SA Setting Panel", self)
-        group.setObjectName("manualSaSettingGroup")
-        layout = QHBoxLayout(group)
-        layout.setContentsMargins(10, 16, 10, 8)
+    def _create_control_area(self, parent: QWidget) -> QWidget:
+        area = QWidget(parent)
+        area.setObjectName("manualControlArea")
+        layout = QHBoxLayout(area)
+        layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        control_stack = QWidget(group)
+        control_stack = QWidget(area)
         control_stack.setObjectName("manualSaControlStack")
         control_stack_layout = QVBoxLayout(control_stack)
         control_stack_layout.setContentsMargins(0, 0, 0, 0)
         control_stack_layout.setSpacing(6)
+        control_stack_layout.addWidget(self._create_sa_group(control_stack))
+        control_stack_layout.addWidget(self._create_operation_group(control_stack))
+        control_stack_layout.addStretch(1)
 
-        settings = QWidget(control_stack)
+        layout.addWidget(control_stack, 3)
+        layout.addWidget(self._create_tdf_group(area), 2)
+        return area
+
+    def _create_sa_group(self, parent: QWidget) -> QGroupBox:
+        group = QGroupBox("SA Setting Panel", parent)
+        group.setObjectName("manualSaSettingGroup")
+        layout = QHBoxLayout(group)
+        layout.setContentsMargins(10, 16, 10, 8)
+        layout.setSpacing(6)
+
+        settings = QWidget(group)
         settings.setObjectName("manualSettingsContainer")
         settings_layout = QHBoxLayout(settings)
         settings_layout.setContentsMargins(0, 0, 0, 0)
         settings_layout.setSpacing(6)
         settings_layout.addWidget(self._create_frequency_group(settings), 1)
         settings_layout.addWidget(self._create_sweep_trace_group(settings), 1)
-
-        operation_group = self._create_operation_group(control_stack)
-        control_stack_layout.addWidget(settings)
-        control_stack_layout.addWidget(operation_group)
-        control_stack_layout.addStretch(1)
-
-        tdf_group = self._create_tdf_group(group)
-        layout.addWidget(control_stack, 3)
-        layout.addWidget(tdf_group, 2)
+        layout.addWidget(settings)
         return group
 
     def _create_frequency_group(self, parent: QWidget) -> QGroupBox:
@@ -330,20 +337,29 @@ class ManualTestPanel(QWidget):
         group = QGroupBox("Operation", parent)
         group.setObjectName("manualOperationGroup")
         group.setMinimumWidth(230)
-        control_layout = QGridLayout(group)
-        control_layout.setContentsMargins(8, 16, 8, 8)
-        control_layout.setSpacing(6)
-        control_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(8, 16, 8, 8)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        action_layout = QGridLayout()
+        action_layout.setObjectName("manualOperationActionLayout")
+        action_layout.setContentsMargins(0, 0, 0, 0)
+        action_layout.setSpacing(6)
         self._preset_button = self._button("Preset", "manualPresetButton", group)
         self._set_button = self._button("Set", "manualSetButton", group)
         self._trace_clear_button = self._button("Trace Clear", "manualTraceClearButton", group)
         self._semi_auto_button = self._button("Semi Auto", "manualSemiAutoButton", group)
         self._stop_button = self._button("Stop", "manualStopButton", group)
-        control_layout.addWidget(self._preset_button, 0, 0)
-        control_layout.addWidget(self._semi_auto_button, 0, 1)
-        control_layout.addWidget(self._stop_button, 0, 2, 2, 1)
-        control_layout.addWidget(self._set_button, 1, 0)
-        control_layout.addWidget(self._trace_clear_button, 1, 1)
+        self._stop_button.setFixedWidth(_STOP_BUTTON_WIDTH)
+        action_layout.addWidget(self._preset_button, 0, 0)
+        action_layout.addWidget(self._semi_auto_button, 0, 1)
+        action_layout.addWidget(self._stop_button, 0, 2, 2, 1)
+        action_layout.addWidget(self._set_button, 1, 0)
+        action_layout.addWidget(self._trace_clear_button, 1, 1)
+        action_layout.setColumnStretch(0, 2)
+        action_layout.setColumnStretch(1, 3)
+        layout.addLayout(action_layout)
 
         self._turntable_speed_spin = QSpinBox(group)
         self._turntable_speed_spin.setObjectName("manualTurntableSpeedSpinBox")
@@ -367,17 +383,40 @@ class ManualTestPanel(QWidget):
         turntable_label.setObjectName("manualOperationSectionLabel")
         mast_label = QLabel("Mast", group)
         mast_label.setObjectName("manualOperationSectionLabel")
-        control_layout.addWidget(turntable_label, 2, 0, 1, 3)
-        control_layout.addWidget(QLabel("Speed", group), 3, 0)
-        control_layout.addWidget(self._turntable_speed_spin, 3, 1, 1, 2)
-        control_layout.addWidget(self._turntable_zero_button, 4, 0)
-        control_layout.addWidget(self._turntable_360_button, 4, 1, 1, 2)
-        control_layout.addWidget(mast_label, 5, 0, 1, 3)
-        control_layout.addWidget(QLabel("Mast Type", group), 6, 0)
-        control_layout.addWidget(self._mast_combo, 6, 1, 1, 2)
-        control_layout.addWidget(self._vertical_button, 7, 1)
-        control_layout.addWidget(self._horizontal_button, 7, 2)
-        control_layout.setRowStretch(8, 1)
+
+        speed_layout = QHBoxLayout()
+        speed_layout.setContentsMargins(0, 0, 0, 0)
+        speed_layout.setSpacing(6)
+        speed_layout.addWidget(QLabel("Speed", group))
+        speed_layout.addWidget(self._turntable_speed_spin, 1)
+
+        turntable_button_layout = QHBoxLayout()
+        turntable_button_layout.setObjectName("manualTurntableButtonLayout")
+        turntable_button_layout.setContentsMargins(0, 0, 0, 0)
+        turntable_button_layout.setSpacing(6)
+        turntable_button_layout.addWidget(self._turntable_zero_button, 1)
+        turntable_button_layout.addWidget(self._turntable_360_button, 1)
+
+        mast_type_layout = QHBoxLayout()
+        mast_type_layout.setContentsMargins(0, 0, 0, 0)
+        mast_type_layout.setSpacing(6)
+        mast_type_layout.addWidget(QLabel("Mast Type", group))
+        mast_type_layout.addWidget(self._mast_combo, 1)
+
+        mast_button_layout = QHBoxLayout()
+        mast_button_layout.setObjectName("manualMastButtonLayout")
+        mast_button_layout.setContentsMargins(0, 0, 0, 0)
+        mast_button_layout.setSpacing(6)
+        mast_button_layout.addWidget(self._vertical_button, 1)
+        mast_button_layout.addWidget(self._horizontal_button, 1)
+
+        layout.addWidget(turntable_label)
+        layout.addLayout(speed_layout)
+        layout.addLayout(turntable_button_layout)
+        layout.addWidget(mast_label)
+        layout.addLayout(mast_type_layout)
+        layout.addLayout(mast_button_layout)
+        layout.addStretch(1)
         return group
 
     def _create_tdf_group(self, parent: QWidget) -> QGroupBox:
@@ -391,7 +430,7 @@ class ManualTestPanel(QWidget):
         tdf_buttons = QHBoxLayout()
         self._tdf_select_button = self._button("Select", "manualSetTdfButton", tdf_group)
         self._tdf_all_off_button = self._button("All Off", "manualTdfAllOffButton", tdf_group)
-        self._tdf_update_button = self._button("List Update", "manualGetTdfListButton", tdf_group)
+        self._tdf_update_button = self._button("Update", "manualGetTdfListButton", tdf_group)
         tdf_buttons.addWidget(self._tdf_select_button)
         tdf_buttons.addWidget(self._tdf_all_off_button)
         tdf_buttons.addWidget(self._tdf_update_button)
@@ -844,6 +883,7 @@ class ManualTestPanel(QWidget):
             QWidget#manualWorkspace,
             QWidget#manualScreenshotPanel,
             QWidget#manualControlPanel,
+            QWidget#manualControlArea,
             QWidget#manualSaControlStack,
             QWidget#manualSettingsContainer {
                 background: palette(window);

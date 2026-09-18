@@ -86,17 +86,49 @@ def test_manual_panel_places_operation_below_settings_and_keeps_log_on_right(qtb
     qtbot.wait(1)
 
     stack = panel.findChild(QWidget, "manualSaControlStack")
+    control_area = panel.findChild(QWidget, "manualControlArea")
+    sa_settings = panel.findChild(QGroupBox, "manualSaSettingGroup")
     settings = panel.findChild(QWidget, "manualSettingsContainer")
     operation = panel.findChild(QGroupBox, "manualOperationGroup")
+    tdf = panel.findChild(QGroupBox, "manualTdfGroup")
     screenshot = panel.findChild(QGroupBox, "manualScreenshotGroup")
     controls = panel.findChild(QWidget, "manualControlPanel")
     log_panel = panel.findChild(LogPanel, "manualTestLogPanel")
 
-    assert stack.layout().indexOf(settings) < stack.layout().indexOf(operation)
-    assert operation.y() > settings.y()
+    assert sa_settings.isAncestorOf(settings)
+    assert not sa_settings.isAncestorOf(operation)
+    assert not sa_settings.isAncestorOf(tdf)
+    assert stack.layout().indexOf(sa_settings) < stack.layout().indexOf(operation)
+    assert operation.y() > sa_settings.y()
+    assert control_area.isAncestorOf(operation)
+    assert control_area.isAncestorOf(tdf)
     assert screenshot.width() > controls.width()
     assert log_panel.width() == 280
     assert log_panel.x() > controls.x()
+
+
+def test_manual_panel_sizes_operation_buttons_independently(qtbot) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+    panel.resize(1578, 898)
+    panel.show()
+    qtbot.wait(1)
+
+    trace_clear = panel.findChild(QPushButton, "manualTraceClearButton")
+    stop = panel.findChild(QPushButton, "manualStopButton")
+    zero = panel.findChild(QPushButton, "manualTurntableZeroButton")
+    full_turn = panel.findChild(QPushButton, "manualTurntable360Button")
+    vertical = panel.findChild(QPushButton, "manualVerticalButton")
+    horizontal = panel.findChild(QPushButton, "manualHorizontalButton")
+    update = panel.findChild(QPushButton, "manualGetTdfListButton")
+    all_off = panel.findChild(QPushButton, "manualTdfAllOffButton")
+
+    assert trace_clear.width() > stop.width()
+    assert trace_clear.width() >= trace_clear.sizeHint().width()
+    assert stop.width() >= stop.sizeHint().width()
+    assert zero.width() == full_turn.width() == vertical.width() == horizontal.width()
+    assert update.text() == "Update"
+    assert all_off.text() == "All Off"
 
 
 def test_manual_panel_and_log_follow_dark_palette(qtbot, qapp) -> None:
