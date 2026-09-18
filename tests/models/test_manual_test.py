@@ -64,7 +64,6 @@ def test_manual_sa_settings_accept_valid_input() -> None:
         {"rbw_mhz": 0.0},
         {"vbw_mhz": -1.0},
         {"sweep_point": 1.5},
-        {"sweep_time_sec": 0.0},
         {"saturation_time_sec": -1.0},
         {"detector_mode": "invalid"},
     ],
@@ -74,6 +73,13 @@ def test_manual_sa_settings_reject_obvious_input_errors(
 ) -> None:
     with pytest.raises(ValueError):
         _settings(**overrides)
+
+
+def test_manual_sa_settings_leaves_detailed_sweep_limits_to_fsv40() -> None:
+    settings = _settings(sweep_point=0, sweep_time_sec=0.0)
+
+    assert settings.sweep_point == 0
+    assert settings.sweep_time_sec == 0.0
 
 
 def test_unknown_manual_preset_is_rejected() -> None:

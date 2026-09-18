@@ -287,12 +287,77 @@ def test_manual_service_applies_settings_and_remembers_saturation(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
 
     assert service.apply_sa_settings(_manual_settings(saturation_time_sec=2.5))
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert service.applied_saturation_time_sec == 2.5
     assert commands.calls[0][0] == "setup_sa_manual"
+
+
+def test_manual_fsv40_operations_require_connection_before_command(
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert not service.apply_sa_settings(_manual_settings())
+    assert not service.preset_sa()
+    assert not service.clear_trace()
+
+    assert commands.calls == []
+    assert [operation for operation, _message in failures] == [
+        "FSV40 Set",
+        "FSV40 Preset",
+        "Trace Clear",
+    ]
+
+
+def test_failed_manual_set_preserves_last_successful_saturation(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
+
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=2.5))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    commands.setup_sa_manual = lambda _client, **_params: False
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=9.0))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert service.applied_saturation_time_sec == 2.5
+
+
+def test_manual_preset_and_disconnect_invalidate_applied_settings(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
+
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=2.5))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    assert service.preset_sa()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    assert service.applied_saturation_time_sec is None
+
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=3.0))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    service.set_equipment_state({})
+
+    assert service.applied_saturation_time_sec is None
 
 
 def test_manual_service_capture_many_preserves_order(
@@ -365,6 +430,7 @@ def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
     assert service.apply_sa_settings(_manual_settings())
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
     commands.calls.clear()
@@ -479,6 +545,7 @@ def test_manual_service_stop_during_angle_query_skips_rotation(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
     assert service.apply_sa_settings(_manual_settings())
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
     commands.calls.clear()

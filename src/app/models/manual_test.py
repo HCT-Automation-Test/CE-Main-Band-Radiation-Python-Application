@@ -150,11 +150,8 @@ class ManualSaSettings:
         if (
             isinstance(self.sweep_point, bool)
             or not isinstance(self.sweep_point, int)
-            or self.sweep_point <= 0
         ):
-            raise ValueError("Sweep Point는 0보다 큰 정수여야 합니다.")
-        if self.sweep_time_sec <= 0:
-            raise ValueError("Sweep Time은 0보다 커야 합니다.")
+            raise ValueError("Sweep Point는 정수여야 합니다.")
         if self.saturation_time_sec < 0:
             raise ValueError("Saturation Time은 0 이상이어야 합니다.")
         if self.detector_mode not in MANUAL_DETECTOR_MODES:

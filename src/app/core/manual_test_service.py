@@ -245,6 +245,13 @@ class ManualTestService(QObject):
     def apply_sa_settings(self, settings: ManualSaSettings) -> bool:
         """FSV40 설정을 적용하고 성공한 Saturation Time을 보관한다."""
 
+        if not self._ensure_capability(
+            operation="FSV40 Set",
+            available=self._capabilities.fsv40,
+            equipment="FSV40",
+        ):
+            return False
+
         def operation(context: ManualOperationContext) -> None:
             context.report_step("FSV40 Manual 설정 적용 중")
             ok = self._commands.setup_sa_manual(
@@ -266,6 +273,13 @@ class ManualTestService(QObject):
         return self.start_operation("FSV40 Set", operation)
 
     def preset_sa(self) -> bool:
+        if not self._ensure_capability(
+            operation="FSV40 Preset",
+            available=self._capabilities.fsv40,
+            equipment="FSV40",
+        ):
+            return False
+
         def operation(context: ManualOperationContext) -> None:
             context.report_step("FSV40 Preset 실행 중")
             self._require_true(
@@ -278,6 +292,12 @@ class ManualTestService(QObject):
         return self.start_operation("FSV40 Preset", operation)
 
     def clear_trace(self) -> bool:
+        if not self._ensure_capability(
+            operation="Trace Clear",
+            available=self._capabilities.fsv40,
+            equipment="FSV40",
+        ):
+            return False
         return self._start_simple_command("Trace Clear", self._commands.clear_trace)
 
     def marker_peak(self, marker_index: int, excursion: float) -> bool:
@@ -631,6 +651,20 @@ class ManualTestService(QObject):
         if self._client is None:
             raise RuntimeError("Manual Test client is not configured")
         return self._client
+
+    def _ensure_capability(
+        self,
+        *,
+        operation: str,
+        available: bool,
+        equipment: str,
+    ) -> bool:
+        """필요 장비가 없으면 worker 생성 전에 operation을 거부한다."""
+
+        if available:
+            return True
+        self.operation_failed.emit(operation, f"{equipment} 연결이 필요합니다.")
+        return False
 
     @staticmethod
     def _validate_turntable_request(*, angle: float, speed: int) -> None:

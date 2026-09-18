@@ -302,7 +302,9 @@ class ManualTestPanel(QWidget):
         self._sweep_point_edit = QLineEdit(group)
         self._sweep_point_edit.setObjectName("manualSweepPointEdit")
         self._sweep_point_edit.setMinimumWidth(_SETTING_INPUT_MIN_WIDTH)
-        self._sweep_point_edit.setValidator(QIntValidator(1, 2_147_483_647, group))
+        self._sweep_point_edit.setValidator(
+            QIntValidator(-2_147_483_648, 2_147_483_647, group)
+        )
         self._sweep_point_edit.setText("30001")
         self._sweep_time_edit = self._number_edit("manualSweepTimeEdit", group, "0.1")
         self._saturation_time_edit = self._number_edit(
