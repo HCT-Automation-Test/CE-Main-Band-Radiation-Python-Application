@@ -1626,9 +1626,15 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
 
 def test_main_window_blocks_manual_before_command_for_every_competing_operation(
     qtbot,
+    monkeypatch,
 ) -> None:
     window = MainWindow()
     qtbot.addWidget(window)
+    monkeypatch.setattr(
+        window._manual_test_panel,
+        "_show_warning",
+        lambda _title, _message: None,
+    )
     calls: list[str] = []
     connection_service = window._runner.instrument_connection_service
 
@@ -1668,6 +1674,45 @@ def test_main_window_blocks_manual_before_command_for_every_competing_operation(
             clear()
 
     assert calls == []
+
+
+def test_main_window_shares_tdf_list_with_manual_panel(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window._tdf_service.tdf_list_received.emit(["a.tdf", "b.tdf"])
+
+    manual_list = window._manual_test_panel.findChild(
+        QListWidget,
+        "manualTdfListWidget",
+    )
+    assert manual_list is not None
+    assert [manual_list.item(index).text() for index in range(manual_list.count())] == [
+        "a.tdf",
+        "b.tdf",
+    ]
+
+
+def test_main_window_locks_manual_commands_during_automatic_test(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._manual_test_service.set_equipment_state(
+        {"FSV40": True, "CO3000": True},
+    )
+    set_button = window._manual_test_panel.findChild(
+        QPushButton,
+        "manualSetButton",
+    )
+    assert set_button is not None
+    assert set_button.isEnabled()
+
+    window._runner._set_measurement_active(True)
+
+    assert not set_button.isEnabled()
+    assert window._manual_test_panel.findChild(
+        QPushButton,
+        "manualStopButton",
+    ).isEnabled() is False
 
 
 def test_main_window_allows_start_without_active_tdf(

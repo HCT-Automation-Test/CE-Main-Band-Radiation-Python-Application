@@ -224,6 +224,12 @@ class Runner(QObject):
 
         return self._commands
 
+    @property
+    def temp_dir(self) -> Path:
+        """보조 서비스와 공유하는 LV 임시 파일 경로를 반환한다."""
+
+        return self._temp_dir
+
 
     @property
     def equipment_state(self) -> dict[str, bool]:

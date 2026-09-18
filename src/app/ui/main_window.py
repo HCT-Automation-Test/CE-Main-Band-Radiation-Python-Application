@@ -176,6 +176,9 @@ class MainWindow(QMainWindow):
         )
         self._manual_test_service = ManualTestService(
             self,
+            client=self._runner.client,
+            commands=self._runner.commands,
+            temp_dir=self._runner.temp_dir,
             operation_guard=lambda: self._equipment_operation_block_reason(
                 exclude="manual",
             ),
@@ -218,10 +221,22 @@ class MainWindow(QMainWindow):
         self._tdf_service.tdf_list_received.connect(
             self._test_manager_panel.set_tdf_file_list,
         )
+        self._tdf_service.tdf_list_received.connect(
+            self._manual_test_panel.set_tdf_file_list,
+        )
         self._tdf_service.operation_finished.connect(self.on_tdf_operation_finished)
         self._tdf_service.operation_failed.connect(self.on_tdf_operation_failed)
         self._manual_test_service.running_changed.connect(
             self.on_manual_operation_running_changed,
+        )
+        self._manual_test_panel.get_tdf_list_requested.connect(
+            self.on_get_tdf_list_requested,
+        )
+        self._manual_test_panel.tdf_all_off_requested.connect(
+            self.on_tdf_all_off_requested,
+        )
+        self._manual_test_panel.set_tdf_requested.connect(
+            self.on_set_tdf_requested,
         )
         self._runner.measurement_active_changed.connect(
             self.on_measurement_active_changed,
@@ -572,8 +587,12 @@ class MainWindow(QMainWindow):
             self._test_manager_panel.set_active_tdf_file_name(
                 self._pending_tdf_file_name,
             )
+            self._manual_test_panel.set_active_tdf_file_name(
+                self._pending_tdf_file_name,
+            )
         elif self._pending_tdf_operation == "all_off":
             self._test_manager_panel.clear_active_tdf_file_name()
+            self._manual_test_panel.clear_active_tdf_file_name()
         self._pending_tdf_operation = None
         self._pending_tdf_file_name = None
         self._show_info("TDF", message)
@@ -592,7 +611,9 @@ class MainWindow(QMainWindow):
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
 
-        if not active:
+        if active:
+            self._manual_test_service.invalidate_applied_settings()
+        else:
             self._test_manager_panel.clear_running_test_case()
         self._update_tdf_operation_lock()
         self._update_instrument_operation_lock()
@@ -670,6 +691,7 @@ class MainWindow(QMainWindow):
     def on_instrument_connection_started(self) -> None:
         """장비 연결 진행 상태를 각 패널에 반영한다."""
 
+        self._manual_test_service.invalidate_applied_settings()
         self._test_manager_panel.set_connection_connecting()
         self._update_instrument_operation_lock()
 
@@ -692,15 +714,16 @@ class MainWindow(QMainWindow):
         *,
         include_connecting: bool = True,
     ) -> None:
+        connection_in_progress = (
+            include_connecting
+            and self._runner.instrument_connection_service.is_connecting
+        )
         state = self._build_instrument_operation_lock_state(
             measurement_active=self._runner.is_measurement_active,
             instrument_set_active=self._instrument_set_active,
             tdf_operation_active=self._tdf_operation_active,
             manual_operation_active=self._manual_test_service.is_running,
-            connection_in_progress=(
-                include_connecting
-                and self._runner.instrument_connection_service.is_connecting
-            ),
+            connection_in_progress=connection_in_progress,
         )
 
         self._instrument_check_panel.set_connection_block_reason(
@@ -708,6 +731,14 @@ class MainWindow(QMainWindow):
         )
         self._test_manager_panel.set_run_settings_locked(state.run_settings_locked)
         self._rf_filter_box_panel.set_operation_locked(state.rf_operation_locked)
+        self._manual_test_panel.set_operation_locked(
+            self._runner.is_measurement_active
+            or self._instrument_set_active
+            or self._tdf_operation_active
+            or connection_in_progress
+            or self._runner.instrument_connection_service.is_setting
+            or self._rf_switch_box_service.is_running
+        )
         self._test_manager_panel.set_stop_enabled(self._runner.is_measurement_active)
 
     def _update_tdf_operation_lock(self) -> None:
@@ -717,6 +748,7 @@ class MainWindow(QMainWindow):
             or self._manual_test_service.is_running
         )
         self._test_manager_panel.set_tdf_operation_locked(locked)
+        self._manual_test_panel.set_tdf_operation_locked(locked)
 
     def _build_instrument_operation_lock_state(
         self,

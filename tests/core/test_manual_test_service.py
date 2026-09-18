@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import threading
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from PySide6.QtCore import QObject, Signal
 
 from app.core.manual_test_service import (
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
@@ -11,6 +14,7 @@ from app.core.manual_test_service import (
     _DETACHED_THREADS,
     manual_test_capabilities,
 )
+from app.models.manual_test import ManualSaSettings
 
 
 @pytest.mark.parametrize(
@@ -206,3 +210,193 @@ def test_manual_shutdown_preserves_blocked_thread_until_it_finishes(qtbot) -> No
         lambda: len(_DETACHED_THREADS) == detached_count,
         timeout=1000,
     )
+
+
+class _EventClient(QObject):
+    event_received = Signal(object)
+
+    def pop_events(self, _predicate) -> list[object]:
+        return []
+
+
+class _ManualCommands:
+    def __init__(self, client: _EventClient, temp_dir: Path) -> None:
+        self.client = client
+        self.temp_dir = temp_dir
+        self.calls: list[tuple[object, ...]] = []
+        self.emit_turntable_complete = True
+
+    def setup_sa_manual(self, _client, **params) -> bool:
+        self.calls.append(("setup_sa_manual", params))
+        return True
+
+    def preset_sa(self, _client) -> bool:
+        self.calls.append(("preset_sa",))
+        return True
+
+    def clear_trace(self, _client) -> bool:
+        self.calls.append(("clear_trace",))
+        return True
+
+    def get_screenshot(self, _client) -> bool:
+        self.calls.append(("get_screenshot",))
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        (self.temp_dir / "screenshot.png").write_bytes(
+            b"\x89PNG\r\n\x1a\nfixture"
+        )
+        return True
+
+    def get_turntable_angle(self, _client) -> float:
+        self.calls.append(("get_turntable_angle",))
+        return 90.0
+
+    def rotate_turntable(self, _client, *, angle: float, turntable_speed: int) -> None:
+        self.calls.append(("rotate_turntable", angle, turntable_speed))
+        if self.emit_turntable_complete:
+            self.client.event_received.emit(
+                SimpleNamespace(
+                    target="CO3000",
+                    command="turntable_complete",
+                    params={},
+                )
+            )
+
+    def stop_turntable(self, _client) -> None:
+        self.calls.append(("stop_turntable",))
+
+
+def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
+    return ManualSaSettings(
+        start_frequency_mhz=1000.0,
+        stop_frequency_mhz=12750.0,
+        rbw_mhz=1.0,
+        vbw_mhz=3.0,
+        sweep_point=30001,
+        sweep_time_sec=0.1,
+        saturation_time_sec=saturation_time_sec,
+        atten_level_db=0.0,
+        detector_mode="RMS",
+        limit_dbm=-30.0,
+    )
+
+
+def test_manual_service_applies_settings_and_remembers_saturation(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=2.5))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert service.applied_saturation_time_sec == 2.5
+    assert commands.calls[0][0] == "setup_sa_manual"
+
+
+def test_manual_service_capture_many_preserves_order(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    commands = _ManualCommands(client, temp_dir)
+    service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    saved: list[str] = []
+    service.screenshot_saved.connect(saved.append)
+
+    assert service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=0,
+        shot_count=3,
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert [Path(path).name for path in saved] == [
+        "capture_001.png",
+        "capture_002.png",
+        "capture_003.png",
+    ]
+    assert [call[0] for call in commands.calls] == [
+        "get_screenshot",
+        "clear_trace",
+        "get_screenshot",
+        "clear_trace",
+        "get_screenshot",
+    ]
+
+
+def test_manual_service_capture_preflight_sends_no_command_on_collision(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    temp_dir = tmp_path / "temp"
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
+    (output_dir / "capture_002.png").write_bytes(b"existing")
+    commands = _ManualCommands(client, temp_dir)
+    service = ManualTestService(client=client, commands=commands, temp_dir=temp_dir)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.capture_many(
+        directory=output_dir,
+        base_name="capture",
+        interval_sec=0,
+        shot_count=3,
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == []
+    assert failures and "capture_002.png" in failures[0][1]
+
+
+def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+
+    assert service.run_semi_auto(speed=4)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+        ("clear_trace",),
+        ("rotate_turntable", 360.0, 4),
+    ]
+
+
+def test_manual_service_stop_stops_active_turntable(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(
+        client=client,
+        commands=commands,
+        temp_dir=tmp_path,
+        turntable_timeout_sec=5.0,
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(
+        lambda: any(call[0] == "rotate_turntable" for call in commands.calls),
+        timeout=1000,
+    )
+    service.request_stop()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert ("stop_turntable",) in commands.calls
