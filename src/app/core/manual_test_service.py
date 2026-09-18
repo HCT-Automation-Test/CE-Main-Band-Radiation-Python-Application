@@ -356,8 +356,15 @@ class ManualTestService(QObject):
         """Turntable 이동 명령을 보내고 완료 Event까지 기다린다."""
 
         self._validate_turntable_request(angle=angle, speed=speed)
+        operation_name = f"Turntable {angle:g}°"
+        if not self._ensure_capability(
+            operation=operation_name,
+            available=self._capabilities.turntable,
+            equipment="CO3000",
+        ):
+            return False
         return self.start_operation(
-            f"Turntable {angle:g}°",
+            operation_name,
             lambda context: self._rotate_and_wait(context, angle=angle, speed=speed),
         )
 
@@ -368,6 +375,18 @@ class ManualTestService(QObject):
         polarization: AntennaPol,
     ) -> bool:
         """선택 Mast와 편파를 기존 InputPath 계약으로 변환한다."""
+
+        is_1m = mast is ManualMast.MAST_1M
+        if not self._ensure_capability(
+            operation="Mast Polarization",
+            available=(
+                self._capabilities.mast_1m
+                if is_1m
+                else self._capabilities.mast_3m
+            ),
+            equipment="3D Controller" if is_1m else "CO3000",
+        ):
+            return False
 
         def operation(context: ManualOperationContext) -> None:
             context.report_step(f"{mast.value} {polarization.value} 편파 설정 중")

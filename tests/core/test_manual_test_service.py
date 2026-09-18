@@ -14,7 +14,8 @@ from app.core.manual_test_service import (
     _DETACHED_THREADS,
     manual_test_capabilities,
 )
-from app.models.manual_test import ManualSaSettings
+from app.models.enums import AntennaPol, InputPath
+from app.models.manual_test import ManualMast, ManualSaSettings
 
 
 @pytest.mark.parametrize(
@@ -300,6 +301,10 @@ class _ManualCommands:
     def stop_turntable(self, _client) -> None:
         self.calls.append(("stop_turntable",))
 
+    def set_antenna_pol(self, _client, *, pol, input_path) -> bool:
+        self.calls.append(("set_antenna_pol", pol, input_path))
+        return True
+
 
 def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
     return ManualSaSettings(
@@ -466,6 +471,64 @@ def test_manual_marker_timeout_reports_failure_and_releases_worker(
     assert not service.is_running
 
 
+def test_manual_motion_operations_require_their_controller(
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+
+    assert not service.move_turntable(angle=0.0, speed=4)
+    assert not service.set_mast_polarization(
+        mast=ManualMast.BILOG_3M,
+        polarization=AntennaPol.H,
+    )
+    assert not service.set_mast_polarization(
+        mast=ManualMast.MAST_1M,
+        polarization=AntennaPol.V,
+    )
+
+    assert commands.calls == []
+
+
+def test_manual_motion_uses_existing_turntable_and_mast_contracts(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"CO3000": True, "3D Controller": True})
+
+    operations = (
+        lambda: service.move_turntable(angle=0.0, speed=2),
+        lambda: service.move_turntable(angle=360.0, speed=4),
+        lambda: service.set_mast_polarization(
+            mast=ManualMast.BILOG_3M,
+            polarization=AntennaPol.H,
+        ),
+        lambda: service.set_mast_polarization(
+            mast=ManualMast.HORN_3M,
+            polarization=AntennaPol.V,
+        ),
+        lambda: service.set_mast_polarization(
+            mast=ManualMast.MAST_1M,
+            polarization=AntennaPol.H,
+        ),
+    )
+    for operation in operations:
+        assert operation()
+        qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("rotate_turntable", 0.0, 2),
+        ("rotate_turntable", 360.0, 4),
+        ("set_antenna_pol", AntennaPol.H, InputPath.INPUT1),
+        ("set_antenna_pol", AntennaPol.V, InputPath.INPUT2),
+        ("set_antenna_pol", AntennaPol.H, InputPath.INPUT3),
+    ]
+
+
 def test_manual_service_capture_many_preserves_order(
     qtbot,
     tmp_path: Path,
@@ -562,6 +625,7 @@ def test_manual_service_stop_stops_active_turntable(qtbot, tmp_path: Path) -> No
         temp_dir=tmp_path,
         turntable_timeout_sec=5.0,
     )
+    service.set_equipment_state({"CO3000": True})
     cancelled: list[str] = []
     failures: list[tuple[str, str]] = []
     service.operation_cancelled.connect(cancelled.append)
@@ -592,6 +656,7 @@ def test_manual_service_reports_stop_command_failure(qtbot, tmp_path: Path) -> N
         temp_dir=tmp_path,
         turntable_timeout_sec=5.0,
     )
+    service.set_equipment_state({"CO3000": True})
     cancelled: list[str] = []
     failures: list[tuple[str, str]] = []
     service.operation_cancelled.connect(cancelled.append)
@@ -632,6 +697,7 @@ def test_manual_service_timeout_stops_turntable_and_reports_failure(
         temp_dir=tmp_path,
         turntable_timeout_sec=0.01,
     )
+    service.set_equipment_state({"CO3000": True})
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),

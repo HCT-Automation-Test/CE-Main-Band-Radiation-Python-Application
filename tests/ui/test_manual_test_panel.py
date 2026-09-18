@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.manual_test_service import ManualTestCapabilities, ManualTestService
+from app.models.manual_test import ManualMast
 from app.ui.log_panel import LogPanel
 from app.ui.manual_test_panel import ManualTestPanel
 
@@ -244,6 +245,25 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualSetButton").isEnabled()
+
+
+def test_manual_panel_enables_only_the_connected_mast(qtbot) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    mast = panel.findChild(QComboBox, "manualMastComboBox")
+    vertical = panel.findChild(QPushButton, "manualVerticalButton")
+
+    service.set_equipment_state({"3D Controller": True})
+    mast.setCurrentIndex(mast.findData(ManualMast.MAST_1M))
+    assert vertical.isEnabled()
+    mast.setCurrentIndex(mast.findData(ManualMast.BILOG_3M))
+    assert not vertical.isEnabled()
+
+    service.set_equipment_state({"CO3000": True})
+    assert vertical.isEnabled()
+    mast.setCurrentIndex(mast.findData(ManualMast.MAST_1M))
+    assert not vertical.isEnabled()
 
 
 def test_manual_panel_emits_tdf_requests_and_marks_active_item(qtbot) -> None:
