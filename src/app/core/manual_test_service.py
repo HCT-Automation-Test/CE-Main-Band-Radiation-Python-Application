@@ -325,25 +325,31 @@ class ManualTestService(QObject):
         )
 
     def marker_all_off(self) -> bool:
+        if not self._ensure_capability(
+            operation="Marker ALL OFF",
+            available=self._capabilities.marker,
+            equipment="FSV40",
+        ):
+            return False
         return self._start_simple_command(
             "Marker ALL OFF",
             self._commands.marker_all_off,
         )
 
-    def marker_auto_max(self, marker_index: int, excursion: float) -> bool:
+    def marker_auto_max(self, marker_index: int) -> bool:
         return self._start_marker_command(
             "Marker Auto Max",
             self._commands.marker_auto_max,
             marker_index,
-            excursion,
+            0.0,
         )
 
-    def marker_set_center(self, marker_index: int, excursion: float) -> bool:
+    def marker_set_center(self, marker_index: int) -> bool:
         return self._start_marker_command(
             "Marker to Center",
             self._commands.marker_set_center,
             marker_index,
-            excursion,
+            0.0,
         )
 
     def move_turntable(self, *, angle: float, speed: int) -> bool:
@@ -521,6 +527,13 @@ class ManualTestService(QObject):
         marker_index: int,
         excursion: float,
     ) -> bool:
+        if not self._ensure_capability(
+            operation=name,
+            available=self._capabilities.marker,
+            equipment="FSV40",
+        ):
+            return False
+
         def operation(context: ManualOperationContext) -> None:
             context.report_step(f"{name} 실행 중")
             ok = command(

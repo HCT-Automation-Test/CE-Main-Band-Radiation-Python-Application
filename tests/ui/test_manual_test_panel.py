@@ -186,6 +186,31 @@ def test_manual_panel_places_marker_actions_in_three_by_two_grid(qtbot) -> None:
     assert panel.findChild(QWidget, "manualStatusLabel").height() == 26
 
 
+def test_manual_panel_uses_excursion_only_for_existing_marker_actions(qtbot) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True})
+    calls: list[tuple[object, ...]] = []
+    service.marker_next = lambda marker_index, excursion: calls.append(
+        ("next", marker_index, excursion)
+    ) or True
+    service.marker_auto_max = lambda marker_index: calls.append(
+        ("auto", marker_index)
+    ) or True
+    service.marker_set_center = lambda marker_index: calls.append(
+        ("center", marker_index)
+    ) or True
+
+    panel.findChild(QComboBox, "manualTargetMarkerComboBox").setCurrentIndex(1)
+    panel.findChild(QLineEdit, "manualNextPeakSearchLevelEdit").setText("7.5")
+    panel.findChild(QPushButton, "manualMarkerNextButton").click()
+    panel.findChild(QPushButton, "manualMarkerAutoMaxButton").click()
+    panel.findChild(QPushButton, "manualMarkerCenterButton").click()
+
+    assert calls == [("next", 2, 7.5), ("auto", 2), ("center", 2)]
+
+
 def test_manual_panel_custom_toggle_controls_frequency_edits(qtbot) -> None:
     panel = ManualTestPanel(service=ManualTestService())
     qtbot.addWidget(panel)

@@ -696,23 +696,27 @@ class ManualTestPanel(QWidget):
             return
         try:
             marker_index = int(self._marker_combo.currentData())
-            excursion = 0.0
-            if action not in {"auto", "center"}:
-                excursion = self._parse_float(
-                    self._excursion_edit,
-                    "Next Peak Search Level",
+            if action in {"auto", "center"}:
+                method = {
+                    "auto": self._service.marker_auto_max,
+                    "center": self._service.marker_set_center,
+                }[action]
+                method(marker_index)
+                return
+
+            excursion = self._parse_float(
+                self._excursion_edit,
+                "Next Peak Search Level",
+            )
+            if not 0 <= excursion <= _MAX_NEXT_PEAK_SEARCH_LEVEL_DB:
+                raise ValueError(
+                    "Next Peak Search Level은 "
+                    f"0~{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g} 범위여야 합니다."
                 )
-                if not 0 <= excursion <= _MAX_NEXT_PEAK_SEARCH_LEVEL_DB:
-                    raise ValueError(
-                        "Next Peak Search Level은 "
-                        f"0~{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g} 범위여야 합니다."
-                    )
             method = {
                 "peak": self._service.marker_peak,
                 "next": self._service.marker_next,
                 "off": self._service.marker_off,
-                "auto": self._service.marker_auto_max,
-                "center": self._service.marker_set_center,
             }[action]
             method(marker_index, excursion)
         except ValueError as exc:

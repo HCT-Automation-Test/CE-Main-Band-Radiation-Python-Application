@@ -238,6 +238,42 @@ class _ManualCommands:
         self.calls.append(("clear_trace",))
         return True
 
+    def marker_peak(self, _client, *, marker_index: int, excursion: float) -> bool:
+        self.calls.append(("marker_peak", marker_index, excursion))
+        return True
+
+    def marker_next(self, _client, *, marker_index: int, excursion: float) -> bool:
+        self.calls.append(("marker_next", marker_index, excursion))
+        return True
+
+    def marker_off(self, _client, *, marker_index: int, excursion: float) -> bool:
+        self.calls.append(("marker_off", marker_index, excursion))
+        return True
+
+    def marker_all_off(self, _client) -> bool:
+        self.calls.append(("marker_all_off",))
+        return True
+
+    def marker_auto_max(
+        self,
+        _client,
+        *,
+        marker_index: int,
+        excursion: float,
+    ) -> bool:
+        self.calls.append(("marker_auto_max", marker_index, excursion))
+        return True
+
+    def marker_set_center(
+        self,
+        _client,
+        *,
+        marker_index: int,
+        excursion: float,
+    ) -> bool:
+        self.calls.append(("marker_set_center", marker_index, excursion))
+        return True
+
     def get_screenshot(self, _client) -> bool:
         self.calls.append(("get_screenshot",))
         self.temp_dir.mkdir(parents=True, exist_ok=True)
@@ -358,6 +394,76 @@ def test_manual_preset_and_disconnect_invalidate_applied_settings(
     service.set_equipment_state({})
 
     assert service.applied_saturation_time_sec is None
+
+
+def test_manual_marker_operations_preserve_excursion_contract(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
+
+    operations = (
+        lambda: service.marker_peak(1, 6.0),
+        lambda: service.marker_next(2, 7.5),
+        lambda: service.marker_off(3, 8.0),
+        service.marker_all_off,
+        lambda: service.marker_auto_max(4),
+        lambda: service.marker_set_center(5),
+    )
+    for operation in operations:
+        assert operation()
+        qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("marker_peak", 1, 6.0),
+        ("marker_next", 2, 7.5),
+        ("marker_off", 3, 8.0),
+        ("marker_all_off",),
+        ("marker_auto_max", 4, 0.0),
+        ("marker_set_center", 5, 0.0),
+    ]
+
+
+def test_manual_marker_operations_require_fsv40_connection(
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+
+    assert not service.marker_next(2, 7.5)
+    assert not service.marker_all_off()
+    assert not service.marker_auto_max(3)
+    assert not service.marker_set_center(4)
+
+    assert commands.calls == []
+
+
+def test_manual_marker_timeout_reports_failure_and_releases_worker(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    def timeout(_client, *, marker_index: int, excursion: float) -> bool:
+        raise TimeoutError(f"marker {marker_index} / {excursion}")
+
+    commands.marker_next = timeout
+    assert service.marker_next(2, 7.5)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert failures == [("Marker Next", "marker 2 / 7.5")]
+    assert not service.is_running
 
 
 def test_manual_service_capture_many_preserves_order(
