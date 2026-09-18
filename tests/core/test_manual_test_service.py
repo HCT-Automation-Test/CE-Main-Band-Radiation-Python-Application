@@ -226,6 +226,8 @@ class _ManualCommands:
         self.temp_dir = temp_dir
         self.calls: list[tuple[object, ...]] = []
         self.emit_turntable_complete = True
+        self.current_angle = 90.0
+        self.clear_trace_result = True
 
     def setup_sa_manual(self, _client, **params) -> bool:
         self.calls.append(("setup_sa_manual", params))
@@ -237,7 +239,7 @@ class _ManualCommands:
 
     def clear_trace(self, _client) -> bool:
         self.calls.append(("clear_trace",))
-        return True
+        return self.clear_trace_result
 
     def marker_peak(self, _client, *, marker_index: int, excursion: float) -> bool:
         self.calls.append(("marker_peak", marker_index, excursion))
@@ -285,7 +287,7 @@ class _ManualCommands:
 
     def get_turntable_angle(self, _client) -> float:
         self.calls.append(("get_turntable_angle",))
-        return 90.0
+        return self.current_angle
 
     def rotate_turntable(self, _client, *, angle: float, turntable_speed: int) -> None:
         self.calls.append(("rotate_turntable", angle, turntable_speed))
@@ -598,6 +600,7 @@ def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
 ) -> None:
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
+    commands.current_angle = 180.0
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
     service.set_equipment_state({"FSV40": True, "CO3000": True})
     assert service.apply_sa_settings(_manual_settings())
@@ -612,6 +615,97 @@ def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
         ("rotate_turntable", 0.0, 6),
         ("clear_trace",),
         ("rotate_turntable", 360.0, 4),
+    ]
+
+
+def test_manual_semi_auto_requires_fsv40_and_co3000(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True})
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+
+    assert not service.run_semi_auto(speed=4)
+
+    assert commands.calls == []
+
+
+def test_manual_semi_auto_aligns_angles_over_180_to_360(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.current_angle = 180.1
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+
+    assert service.run_semi_auto(speed=3)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 360.0, 6),
+        ("clear_trace",),
+        ("rotate_turntable", 0.0, 3),
+    ]
+
+
+def test_manual_semi_auto_clear_trace_failure_blocks_final_rotation(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+    commands.clear_trace_result = False
+
+    assert service.run_semi_auto(speed=4)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+        ("clear_trace",),
+    ]
+
+
+def test_manual_semi_auto_stop_during_saturation_skips_final_rotation(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    assert service.apply_sa_settings(_manual_settings(saturation_time_sec=5.0))
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    commands.calls.clear()
+
+    assert service.run_semi_auto(speed=4)
+    qtbot.waitUntil(
+        lambda: ("clear_trace",) in commands.calls,
+        timeout=1000,
+    )
+    service.request_stop()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+        ("clear_trace",),
     ]
 
 

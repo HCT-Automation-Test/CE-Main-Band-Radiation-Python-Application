@@ -403,6 +403,12 @@ class ManualTestService(QObject):
         """현재 각도 기준 정렬부터 반대 기준점 회전까지 순차 실행한다."""
 
         self._validate_turntable_request(angle=0.0, speed=speed)
+        if not self._ensure_capability(
+            operation="Semi Auto",
+            available=self._capabilities.semi_auto,
+            equipment="FSV40와 CO3000",
+        ):
+            return False
         if self._applied_saturation_time_sec is None:
             self.operation_failed.emit(
                 "Semi Auto",
