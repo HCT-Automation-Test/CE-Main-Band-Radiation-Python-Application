@@ -208,11 +208,20 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
 
     service.set_equipment_state({"FSV40": True})
 
-    assert panel.findChild(QPushButton, "manualSetButton").isEnabled()
+    fsv40_buttons = tuple(
+        panel.findChild(QPushButton, object_name)
+        for object_name in (
+            "manualSetButton",
+            "manualPresetButton",
+            "manualTraceClearButton",
+        )
+    )
+    assert all(button.isEnabled() for button in fsv40_buttons)
     assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
     assert panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
+    assert not panel.findChild(QLineEdit, "manualSaturationTimeEdit").isEnabled()
     assert not panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
 
@@ -222,7 +231,36 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
     assert panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
-    assert not panel.findChild(QPushButton, "manualSetButton").isEnabled()
+    assert all(not button.isEnabled() for button in fsv40_buttons)
+
+
+def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True})
+    buttons = tuple(
+        panel.findChild(QPushButton, object_name)
+        for object_name in (
+            "manualSetButton",
+            "manualPresetButton",
+            "manualTraceClearButton",
+        )
+    )
+
+    assert all(button.isEnabled() for button in buttons)
+
+    service.running_changed.emit(True)
+    assert all(not button.isEnabled() for button in buttons)
+
+    service.running_changed.emit(False)
+    assert all(button.isEnabled() for button in buttons)
+
+    panel.set_operation_locked(True)
+    assert all(not button.isEnabled() for button in buttons)
+
+    panel.set_operation_locked(False)
+    assert all(button.isEnabled() for button in buttons)
 
 
 def test_manual_panel_emits_tdf_requests_and_marks_active_item(qtbot) -> None:

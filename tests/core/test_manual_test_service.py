@@ -145,6 +145,44 @@ def _settings() -> ManualSaSettings:
     )
 
 
+def _run_fsv40_operation(
+    service: ManualTestService,
+    operation: str,
+) -> bool:
+    if operation == "set":
+        return service.apply_sa_settings(_settings())
+    if operation == "preset":
+        return service.preset_sa()
+    if operation == "trace_clear":
+        return service.clear_trace()
+    raise AssertionError(f"Unknown FSV40 operation: {operation}")
+
+
+_FSV40_OPERATIONS = (
+    (
+        "set",
+        "FSV40 Set",
+        (
+            "setup_sa_manual",
+            {
+                "start_frequency_mhz": 1000.0,
+                "stop_frequency_mhz": 12750.0,
+                "rbw_mhz": 1.0,
+                "vbw_mhz": 3.0,
+                "sweep_point": 30001,
+                "sweep_time_sec": 0.1,
+                "atten_level_db": 0.0,
+                "detector_mode": "RMS",
+                "limit_dbm": -30.0,
+            },
+        ),
+        "Load SA Manual Setting returned false",
+    ),
+    ("preset", "FSV40 Preset", ("preset_sa",), "FSV40 Preset returned false"),
+    ("trace_clear", "Trace Clear", ("clear_trace",), "Trace Clear returned false"),
+)
+
+
 @pytest.mark.parametrize(
     ("equipment_state", "expected"),
     [
@@ -180,8 +218,16 @@ def test_manual_capabilities_use_only_equipment_connection_state(
     assert manual_test_capabilities(equipment_state) == expected
 
 
-def test_manual_service_runs_command_synchronously_and_releases_state(
+@pytest.mark.parametrize(
+    ("operation", "operation_name", "expected_call", "_false_message"),
+    _FSV40_OPERATIONS,
+)
+def test_manual_fsv40_command_runs_once_and_releases_state(
     tmp_path: Path,
+    operation: str,
+    operation_name: str,
+    expected_call: tuple[object, ...],
+    _false_message: str,
 ) -> None:
     commands = _Commands(tmp_path)
     service = ManualTestService(client=object(), commands=commands)
@@ -196,13 +242,13 @@ def test_manual_service_runs_command_synchronously_and_releases_state(
         lambda name: signals.append(("finished", name, service.is_running))
     )
 
-    assert service.clear_trace()
+    assert _run_fsv40_operation(service, operation)
 
-    assert commands.calls == [("clear_trace",)]
+    assert commands.calls == [expected_call]
     assert signals == [
         ("running", True),
-        ("started", "Trace Clear", True, "Trace Clear"),
-        ("finished", "Trace Clear", True),
+        ("started", operation_name, True, operation_name),
+        ("finished", operation_name, True),
         ("running", False),
     ]
     assert not service.is_running
@@ -210,20 +256,27 @@ def test_manual_service_runs_command_synchronously_and_releases_state(
 
 
 @pytest.mark.parametrize(
-    ("result", "error", "message"),
+    ("error", "error_message"),
     [
-        (False, None, "Trace Clear returned false"),
-        (True, RuntimeError("transport failed"), "transport failed"),
+        (None, None),
+        (RuntimeError("transport failed"), "transport failed"),
     ],
 )
-def test_manual_service_reports_failure_and_releases_state(
+@pytest.mark.parametrize(
+    ("operation", "operation_name", "expected_call", "false_message"),
+    _FSV40_OPERATIONS,
+)
+def test_manual_fsv40_command_failure_releases_state(
     tmp_path: Path,
-    result: bool,
+    operation: str,
+    operation_name: str,
+    expected_call: tuple[object, ...],
+    false_message: str,
     error: Exception | None,
-    message: str,
+    error_message: str | None,
 ) -> None:
     commands = _Commands(tmp_path)
-    commands.result = result
+    commands.result = False if error is None else True
     commands.error = error
     service = ManualTestService(client=object(), commands=commands)
     failures: list[tuple[str, str]] = []
@@ -233,9 +286,10 @@ def test_manual_service_reports_failure_and_releases_state(
     )
     service.running_changed.connect(running.append)
 
-    assert not service.clear_trace()
+    assert not _run_fsv40_operation(service, operation)
 
-    assert failures == [("Trace Clear", message)]
+    assert commands.calls == [expected_call]
+    assert failures == [(operation_name, error_message or false_message)]
     assert running == [True, False]
     assert not service.is_running
     assert service.current_operation is None
@@ -260,7 +314,17 @@ def test_manual_service_rejects_reentrant_command(tmp_path: Path) -> None:
     assert failures == [("FSV40 Preset", MANUAL_OPERATION_IN_PROGRESS_MESSAGE)]
 
 
-def test_manual_service_guard_rejects_before_command(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("operation", "operation_name", "_expected_call", "_false_message"),
+    _FSV40_OPERATIONS,
+)
+def test_manual_fsv40_guard_rejects_before_command(
+    tmp_path: Path,
+    operation: str,
+    operation_name: str,
+    _expected_call: tuple[object, ...],
+    _false_message: str,
+) -> None:
     commands = _Commands(tmp_path)
     service = ManualTestService(
         client=object(),
@@ -272,10 +336,12 @@ def test_manual_service_guard_rejects_before_command(tmp_path: Path) -> None:
         lambda name, message: failures.append((name, message))
     )
 
-    assert not service.clear_trace()
+    assert not _run_fsv40_operation(service, operation)
 
     assert commands.calls == []
-    assert failures == [("Trace Clear", "다른 작업 진행 중")]
+    assert failures == [(operation_name, "다른 작업 진행 중")]
+    assert not service.is_running
+    assert service.current_operation is None
 
 
 def test_manual_service_shutdown_rejects_new_command(tmp_path: Path) -> None:
@@ -291,30 +357,6 @@ def test_manual_service_shutdown_rejects_new_command(tmp_path: Path) -> None:
     assert not service.preset_sa()
     assert commands.calls == []
     assert failures == [("FSV40 Preset", MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE)]
-
-
-def test_manual_service_applies_settings_once(tmp_path: Path) -> None:
-    commands = _Commands(tmp_path)
-    service = ManualTestService(client=object(), commands=commands)
-
-    assert service.apply_sa_settings(_settings())
-
-    assert commands.calls == [
-        (
-            "setup_sa_manual",
-            {
-                "start_frequency_mhz": 1000.0,
-                "stop_frequency_mhz": 12750.0,
-                "rbw_mhz": 1.0,
-                "vbw_mhz": 3.0,
-                "sweep_point": 30001,
-                "sweep_time_sec": 0.1,
-                "atten_level_db": 0.0,
-                "detector_mode": "RMS",
-                "limit_dbm": -30.0,
-            },
-        )
-    ]
 
 
 @pytest.mark.parametrize(
