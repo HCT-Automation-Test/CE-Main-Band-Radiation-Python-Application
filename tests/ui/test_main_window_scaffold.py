@@ -48,6 +48,7 @@ from app.models.enums import (
     TestType as NRTestType,
 )
 from app.models.test_case import TestCase
+from app.net.mock_lv_server import MockLvServer
 from app.ui import main_window as main_window_module
 from app.ui.instrument_check_panel import InstrumentCheckPanel
 from app.ui.log_panel import LogPanel
@@ -1561,13 +1562,16 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
     qtbot,
     monkeypatch,
 ) -> None:
-    """Manual worker가 끝나기 전에는 경쟁 command를 하나도 보내지 않는다."""
+    """Manual 장기 작업 중에는 경쟁 command를 하나도 보내지 않는다."""
 
     window = MainWindow()
     qtbot.addWidget(window)
     monkeypatch.setattr(window, "_show_warning", lambda _title, _message: None)
-    entered = threading.Event()
-    release = threading.Event()
+    monkeypatch.setattr(
+        window._instrument_check_panel,
+        "_show_warning",
+        lambda _message: None,
+    )
     calls: list[str] = []
 
     class Commands:
@@ -1579,8 +1583,15 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
             calls.append(f"rf:{filter_path}")
             return True
 
+        def rotate_turntable(self, _client, *, angle, turntable_speed):
+            calls.append(f"manual:{angle}:{turntable_speed}")
+
+        def stop_turntable(self, _client):
+            calls.append("manual:stop")
+
     window._tdf_service._commands = Commands()
     window._rf_switch_box_service._commands = Commands()
+    window._manual_test_service._commands = Commands()
     config = build_equipment_connection_config(
         mt8000a_visa_resource="MT",
         fsv40_visa_resource="FS",
@@ -1590,38 +1601,26 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
         switch_box_port=5000,
     )
 
-    def manual_operation(_context) -> None:
-        entered.set()
-        release.wait(2.0)
+    assert window._manual_test_service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(lambda: "manual:360.0:6" in calls, timeout=1000)
 
-    assert window._manual_test_service.start_operation(
-        "Manual blocking",
-        manual_operation,
-    )
-    qtbot.waitUntil(entered.is_set, timeout=1000)
-    try:
-        window._runner.start([], settings=object())
-        window._runner.instrument_connection_service.connect_equipment(config)
-        window._runner.instrument_connection_service.set_equipment({"FSV40": True})
-        window._tdf_service.get_tdf_list()
-        window._rf_switch_box_service.set_thru()
+    window._runner.start([], settings=object())
+    window._runner.instrument_connection_service.connect_equipment(config)
+    window._runner.instrument_connection_service.set_equipment({"FSV40": True})
+    window._tdf_service.get_tdf_list()
+    window._rf_switch_box_service.set_thru()
 
-        assert calls == []
-        assert not window._runner.is_measurement_active
-        assert not window._runner.instrument_connection_service.is_connecting
-        assert not window._runner.instrument_connection_service.is_setting
-        assert not window._tdf_service.is_running
-        assert not window._rf_switch_box_service.is_running
-        assert window._manual_test_service.is_running
+    assert calls == ["manual:360.0:6"]
+    assert not window._runner.is_measurement_active
+    assert not window._runner.instrument_connection_service.is_connecting
+    assert not window._runner.instrument_connection_service.is_setting
+    assert not window._tdf_service.is_running
+    assert not window._rf_switch_box_service.is_running
+    assert window._manual_test_service.is_running
 
-        window._manual_test_service.request_stop()
-        assert window._manual_test_service.is_running
-    finally:
-        release.set()
-    qtbot.waitUntil(
-        lambda: not window._manual_test_service.is_running,
-        timeout=1000,
-    )
+    window._manual_test_service.request_stop()
+    assert calls == ["manual:360.0:6", "manual:stop"]
+    assert not window._manual_test_service.is_running
 
 
 def test_main_window_blocks_manual_before_command_for_every_competing_operation(
@@ -1637,6 +1636,13 @@ def test_main_window_blocks_manual_before_command_for_every_competing_operation(
     )
     calls: list[str] = []
     connection_service = window._runner.instrument_connection_service
+
+    class Commands:
+        def clear_trace(self, _client):
+            calls.append("command")
+            return True
+
+    window._manual_test_service._commands = Commands()
 
     active_states = [
         (
@@ -1664,16 +1670,70 @@ def test_main_window_blocks_manual_before_command_for_every_competing_operation(
     for activate, clear in active_states:
         activate()
         try:
-            accepted = window._manual_test_service.start_operation(
-                "경쟁 Manual",
-                lambda _context: calls.append("command"),
-            )
+            accepted = window._manual_test_service.clear_trace()
             assert not accepted
             assert not window._manual_test_service.is_running
         finally:
             clear()
 
     assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("current_angle", "target_angle", "turntable_delay_sec"),
+    [
+        (0.0, 0.0, 0.0),
+        (0.0, 360.0, 0.01),
+    ],
+)
+def test_main_window_manual_turntable_unlocks_after_real_client_completion(
+    qtbot,
+    tmp_path,
+    current_angle: float,
+    target_angle: float,
+    turntable_delay_sec: float,
+) -> None:
+    server = MockLvServer(
+        port=0,
+        temp_dir=tmp_path,
+        turntable_delay_sec=turntable_delay_sec,
+    )
+    server.state.current_angle = current_angle
+    server.start()
+    window = MainWindow()
+    qtbot.addWidget(window)
+    service = window._manual_test_service
+    client = window._runner.client
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+
+    try:
+        with qtbot.waitSignal(client.connected_changed, timeout=1000):
+            client.connect_to(server.host, server.port, timeout=1.0)
+        service.set_equipment_state({"CO3000": True})
+
+        target_name = (
+            "manualTurntableZeroButton"
+            if target_angle == 0.0
+            else "manualTurntable360Button"
+        )
+        move_button = window.findChild(QPushButton, target_name)
+        stop_button = window.findChild(QPushButton, "manualStopButton")
+        move_button.click()
+
+        qtbot.waitUntil(lambda: service.is_running, timeout=1000)
+        assert stop_button.isEnabled()
+        assert not move_button.isEnabled()
+
+        qtbot.waitUntil(lambda: not service.is_running, timeout=3000)
+
+        assert finished == [f"Turntable {target_angle:g}°"]
+        assert not stop_button.isEnabled()
+        assert move_button.isEnabled()
+    finally:
+        service.shutdown()
+        client.disconnect_from_host()
+        server.stop()
 
 
 def test_main_window_shares_tdf_list_with_manual_panel(qtbot) -> None:

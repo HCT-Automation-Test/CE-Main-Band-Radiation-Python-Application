@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QThread, Signal
 
 from app.core.manual_test_service import (
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
     ManualTestCapabilities,
     ManualTestService,
-    _DETACHED_THREADS,
     manual_test_capabilities,
 )
 from app.models.manual_test import ManualSaSettings
+from app.net import commands as net_commands
+from app.net.mock_lv_server import MockLvServer
+from app.net.tcp_client import TcpClient
 
 
 @pytest.mark.parametrize(
@@ -68,147 +69,6 @@ def test_manual_capabilities_ignore_non_equipment_state() -> None:
         fsv40=True,
         marker=True,
         capture=True,
-    )
-
-
-def test_manual_service_runs_operation_and_reports_progress(qtbot) -> None:
-    service = ManualTestService()
-    steps: list[str] = []
-    finished: list[str] = []
-    running: list[bool] = []
-    service.step_changed.connect(steps.append)
-    service.operation_finished.connect(finished.append)
-    service.running_changed.connect(running.append)
-
-    assert service.start_operation(
-        "FSV40 Set",
-        lambda context: context.report_step("설정 적용"),
-    )
-    assert service.is_running
-    assert service.current_operation == "FSV40 Set"
-
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-
-    assert steps == ["설정 적용"]
-    assert finished == ["FSV40 Set"]
-    assert running == [True, False]
-    assert service.current_operation is None
-
-
-@pytest.mark.parametrize("error", [RuntimeError("boom"), TimeoutError("timeout")])
-def test_manual_service_recovers_after_error(qtbot, error: Exception) -> None:
-    service = ManualTestService()
-    failures: list[tuple[str, str]] = []
-    service.operation_failed.connect(
-        lambda operation, message: failures.append((operation, message)),
-    )
-
-    def fail(_context) -> None:
-        raise error
-
-    assert service.start_operation("실패 작업", fail)
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-
-    assert failures == [("실패 작업", str(error))]
-    assert service.start_operation("재시도", lambda _context: None)
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-
-
-def test_manual_stop_keeps_busy_until_worker_finishes(qtbot) -> None:
-    service = ManualTestService()
-    entered = threading.Event()
-    release = threading.Event()
-    steps: list[str] = []
-    cancelled: list[str] = []
-    failures: list[tuple[str, str]] = []
-    service.operation_cancelled.connect(cancelled.append)
-    service.operation_failed.connect(
-        lambda operation, message: failures.append((operation, message)),
-    )
-
-    def operation(context) -> None:
-        steps.append("step_1")
-        entered.set()
-        release.wait(2.0)
-        if context.cancel_requested:
-            return
-        steps.append("step_2")
-
-    assert service.start_operation("다단계 작업", operation)
-    qtbot.waitUntil(entered.is_set, timeout=1000)
-
-    service.request_stop()
-
-    assert service.cancel_requested
-    assert service.is_running
-    assert not service.start_operation("경쟁 작업", lambda _context: None)
-    assert failures[-1] == ("경쟁 작업", MANUAL_OPERATION_IN_PROGRESS_MESSAGE)
-
-    release.set()
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-
-    assert steps == ["step_1"]
-    assert cancelled == ["다단계 작업"]
-
-
-def test_manual_service_guard_rejects_before_operation_runs() -> None:
-    calls: list[str] = []
-    service = ManualTestService(operation_guard=lambda: "다른 작업 진행 중")
-    failures: list[tuple[str, str]] = []
-    service.operation_failed.connect(
-        lambda operation, message: failures.append((operation, message)),
-    )
-
-    accepted = service.start_operation(
-        "차단 작업",
-        lambda _context: calls.append("command"),
-    )
-
-    assert not accepted
-    assert calls == []
-    assert failures == [("차단 작업", "다른 작업 진행 중")]
-    assert not service.is_running
-
-
-def test_manual_service_shutdown_cancels_and_rejects_new_work(qtbot) -> None:
-    service = ManualTestService()
-    entered = threading.Event()
-
-    def operation(context) -> None:
-        entered.set()
-        context.wait(5.0)
-
-    assert service.start_operation("종료 대기", operation)
-    qtbot.waitUntil(entered.is_set, timeout=1000)
-
-    service.shutdown()
-
-    assert not service.is_running
-    assert not service.start_operation("신규 작업", lambda _context: None)
-
-
-def test_manual_shutdown_preserves_blocked_thread_until_it_finishes(qtbot) -> None:
-    service = ManualTestService()
-    entered = threading.Event()
-    release = threading.Event()
-    detached_count = len(_DETACHED_THREADS)
-
-    def operation(_context) -> None:
-        entered.set()
-        release.wait(5.0)
-
-    assert service.start_operation("지연 종료", operation)
-    qtbot.waitUntil(entered.is_set, timeout=1000)
-
-    service.shutdown()
-
-    assert len(_DETACHED_THREADS) == detached_count + 1
-    assert not service.start_operation("신규 작업", lambda _context: None)
-
-    release.set()
-    qtbot.waitUntil(
-        lambda: len(_DETACHED_THREADS) == detached_count,
-        timeout=1000,
     )
 
 
@@ -278,6 +138,175 @@ def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
         detector_mode="RMS",
         limit_dbm=-30.0,
     )
+
+
+def test_manual_service_uses_timer_lifecycle_without_worker_thread(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    events: list[tuple[object, ...]] = []
+    service.running_changed.connect(lambda value: events.append(("running", value)))
+    service.operation_started.connect(lambda name: events.append(("started", name)))
+    service.step_changed.connect(lambda step: events.append(("step", step)))
+    service.operation_finished.connect(lambda name: events.append(("finished", name)))
+
+    assert service.clear_trace()
+    assert service.is_running
+    assert service.current_operation == "Trace Clear"
+    assert commands.calls == []
+    assert service.findChildren(QThread) == []
+
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert events == [
+        ("running", True),
+        ("started", "Trace Clear"),
+        ("step", "Trace Clear 실행 중"),
+        ("finished", "Trace Clear"),
+        ("running", False),
+    ]
+
+
+def test_manual_service_recovers_after_command_error(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    commands.clear_trace = lambda _client: (_ for _ in ()).throw(RuntimeError("boom"))
+    assert service.clear_trace()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    assert failures == [("Trace Clear", "boom")]
+
+    commands.clear_trace = lambda _client: True
+    assert service.clear_trace()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+
+def test_manual_stop_before_first_timer_step_sends_no_command(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    cancelled: list[str] = []
+    service.operation_cancelled.connect(cancelled.append)
+
+    assert service.clear_trace()
+    service.request_stop()
+    qtbot.wait(10)
+
+    assert commands.calls == []
+    assert cancelled == ["Trace Clear"]
+    assert not service.is_running
+
+
+def test_manual_service_rejects_competing_operation_while_waiting_for_event(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(lambda: ("rotate_turntable", 360.0, 6) in commands.calls)
+    assert not service.clear_trace()
+    assert failures[-1] == ("Trace Clear", MANUAL_OPERATION_IN_PROGRESS_MESSAGE)
+
+    service.request_stop()
+    assert not service.is_running
+
+
+def test_manual_service_guard_rejects_before_command(tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(
+        client=client,
+        commands=commands,
+        temp_dir=tmp_path,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert not service.clear_trace()
+    assert commands.calls == []
+    assert failures == [("Trace Clear", "다른 작업 진행 중")]
+    assert not service.is_running
+
+
+def test_manual_service_shutdown_cancels_timer_and_rejects_new_work(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.clear_trace()
+    service.shutdown()
+    qtbot.wait(10)
+
+    assert commands.calls == []
+    assert not service.is_running
+    assert not service.clear_trace()
+    assert failures == [
+        ("Trace Clear", "Manual Test 서비스를 종료하는 중입니다."),
+    ]
+
+
+def test_manual_service_repeats_fifty_real_client_commands_without_threads(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    server = MockLvServer(port=0, temp_dir=tmp_path)
+    server.start()
+    client = TcpClient()
+    service = ManualTestService(
+        client=client,
+        commands=net_commands,
+        temp_dir=tmp_path,
+    )
+    finished: list[str] = []
+    failures: list[tuple[str, str]] = []
+    service.operation_finished.connect(finished.append)
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    try:
+        with qtbot.waitSignal(client.connected_changed, timeout=1000):
+            client.connect_to(server.host, server.port, timeout=1.0)
+        for _index in range(50):
+            assert service.clear_trace()
+            qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+            assert service.findChildren(QThread) == []
+
+        assert finished == ["Trace Clear"] * 50
+        assert failures == []
+    finally:
+        service.shutdown()
+        client.disconnect_from_host()
+        server.stop()
 
 
 def test_manual_service_applies_settings_and_remembers_saturation(
@@ -483,21 +512,14 @@ def test_manual_service_stop_during_angle_query_skips_rotation(
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
     commands.calls.clear()
 
-    query_started = threading.Event()
-    release_query = threading.Event()
-
     def get_turntable_angle(_client) -> float:
         commands.calls.append(("get_turntable_angle",))
-        query_started.set()
-        release_query.wait(2.0)
+        service.request_stop()
         return 90.0
 
     commands.get_turntable_angle = get_turntable_angle
 
     assert service.run_semi_auto(speed=6)
-    qtbot.waitUntil(query_started.is_set, timeout=1000)
-    service.request_stop()
-    release_query.set()
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert commands.calls == [("get_turntable_angle",)]
