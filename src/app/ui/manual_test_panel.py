@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.manual_test_service import ManualTestCapabilities, ManualTestService
-from app.models.enums import AntennaPol
 from app.models.manual_test import (
     MANUAL_DETECTOR_MODES,
     MANUAL_FREQUENCY_PRESETS,
@@ -508,19 +507,6 @@ class ManualTestPanel(QWidget):
         self._preset_button.clicked.connect(self._on_preset_clicked)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._trace_clear_button.clicked.connect(self._on_trace_clear_clicked)
-        self._stop_button.clicked.connect(self._on_stop_clicked)
-        self._turntable_zero_button.clicked.connect(lambda _checked=False: self._move_turntable(0.0))
-        self._turntable_360_button.clicked.connect(lambda _checked=False: self._move_turntable(360.0))
-        self._mast_combo.currentIndexChanged.connect(self._update_control_state)
-        self._vertical_button.clicked.connect(lambda _checked=False: self._set_polarization(AntennaPol.V))
-        self._horizontal_button.clicked.connect(lambda _checked=False: self._set_polarization(AntennaPol.H))
-        self._marker_peak_button.clicked.connect(lambda _checked=False: self._run_marker("peak"))
-        self._marker_next_button.clicked.connect(lambda _checked=False: self._run_marker("next"))
-        self._marker_off_button.clicked.connect(lambda _checked=False: self._run_marker("off"))
-        self._marker_all_off_button.clicked.connect(self._on_marker_all_off_clicked)
-        self._marker_auto_max_button.clicked.connect(lambda _checked=False: self._run_marker("auto"))
-        self._marker_center_button.clicked.connect(lambda _checked=False: self._run_marker("center"))
-        self._capture_button.clicked.connect(self._on_capture_clicked)
         self._screenshot_list.currentItemChanged.connect(self._on_screenshot_selected)
         self._tdf_list.currentItemChanged.connect(self._update_control_state)
         self._tdf_update_button.clicked.connect(self.get_tdf_list_requested.emit)
@@ -534,10 +520,7 @@ class ManualTestPanel(QWidget):
         self._service.running_changed.connect(self._on_running_changed)
         self._service.operation_started.connect(self._on_operation_started)
         self._service.operation_finished.connect(self._on_operation_finished)
-        self._service.operation_cancelled.connect(self._on_operation_cancelled)
         self._service.operation_failed.connect(self._on_operation_failed)
-        self._service.screenshot_saved.connect(self.add_screenshot)
-        self._service.turntable_info_changed.connect(self._on_turntable_info_changed)
 
     @Slot(object)
     def set_capabilities(self, capabilities: ManualTestCapabilities) -> None:
@@ -592,31 +575,18 @@ class ManualTestPanel(QWidget):
             self._marker_auto_max_button,
             self._marker_center_button,
         ):
-            button.setEnabled(self._capabilities.marker and idle)
-        self._capture_button.setEnabled(self._capabilities.capture and idle)
+            button.setEnabled(False)
+        self._capture_button.setEnabled(False)
         self._n_capture_button.setEnabled(False)
         self._capture_interval_spin.setEnabled(False)
         self._capture_shots_spin.setEnabled(False)
         self._saturation_time_edit.setEnabled(False)
-        self._turntable_zero_button.setEnabled(self._capabilities.turntable and idle)
-        self._turntable_360_button.setEnabled(self._capabilities.turntable and idle)
-        selected_mast = self._selected_mast()
-        mast_ready = (
-            self._capabilities.mast_1m
-            if selected_mast is ManualMast.MAST_1M
-            else self._capabilities.mast_3m
-        )
-        self._vertical_button.setEnabled(mast_ready and idle)
-        self._horizontal_button.setEnabled(mast_ready and idle)
+        self._turntable_zero_button.setEnabled(False)
+        self._turntable_360_button.setEnabled(False)
+        self._vertical_button.setEnabled(False)
+        self._horizontal_button.setEnabled(False)
         self._semi_auto_button.setEnabled(False)
-        turntable_running = (
-            self._service is not None and self._service.is_turntable_running
-        )
-        self._stop_button.setEnabled(
-            self._capabilities.turntable
-            and turntable_running
-            and not self._external_operation_locked
-        )
+        self._stop_button.setEnabled(False)
         tdf_ready = self._capabilities.fsv40 and idle and not self._tdf_operation_locked
         self._tdf_update_button.setEnabled(tdf_ready)
         self._tdf_all_off_button.setEnabled(tdf_ready)
@@ -636,24 +606,10 @@ class ManualTestPanel(QWidget):
         self._status_label.setText(f"{name} 완료")
         self._update_control_state()
 
-    @Slot(str)
-    def _on_operation_cancelled(self, name: str) -> None:
-        self._status_label.setText(f"{name} 중단")
-        self._update_control_state()
-
     @Slot(str, str)
     def _on_operation_failed(self, name: str, message: str) -> None:
         self._status_label.setText(f"{name} 실패: {message}")
         self._show_warning(name, message)
-
-    @Slot(object)
-    def _on_turntable_info_changed(self, info: dict[str, object]) -> None:
-        current = info.get("current_angle")
-        target = info.get("target_angle")
-        self._status_label.setText(
-            f"Turntable {target}° 이동 중" if current is None else f"Turntable {current}°"
-        )
-        self._update_control_state()
 
     def _on_set_clicked(self) -> None:
         if self._service is None:
@@ -671,71 +627,11 @@ class ManualTestPanel(QWidget):
         if self._service is not None:
             self._service.clear_trace()
 
-    def _on_stop_clicked(self) -> None:
-        if self._service is not None:
-            self._service.request_stop()
-
-    def _move_turntable(self, angle: float) -> None:
-        if self._service is not None:
-            self._service.move_turntable(angle=angle, speed=self._turntable_speed_spin.value())
-
-    def _set_polarization(self, polarization: AntennaPol) -> None:
-        if self._service is not None:
-            self._service.set_mast_polarization(mast=self._selected_mast(), polarization=polarization)
-
-    def _run_marker(self, action: str) -> None:
-        if self._service is None:
-            return
-        try:
-            marker_index = int(self._marker_combo.currentData())
-            excursion = 0.0
-            if action not in {"auto", "center"}:
-                excursion = self._parse_float(
-                    self._excursion_edit,
-                    "Next Peak Search Level",
-                )
-                if not 0 <= excursion <= _MAX_NEXT_PEAK_SEARCH_LEVEL_DB:
-                    raise ValueError(
-                        "Next Peak Search Level은 "
-                        f"0~{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g} 범위여야 합니다."
-                    )
-            method = {
-                "peak": self._service.marker_peak,
-                "next": self._service.marker_next,
-                "off": self._service.marker_off,
-                "auto": self._service.marker_auto_max,
-                "center": self._service.marker_set_center,
-            }[action]
-            method(marker_index, excursion)
-        except ValueError as exc:
-            self._show_warning("Marker", str(exc))
-
-    def _on_marker_all_off_clicked(self) -> None:
-        if self._service is not None:
-            self._service.marker_all_off()
-
-    def _on_capture_clicked(self) -> None:
-        if self._service is None:
-            return
-        try:
-            self._service.capture_single(
-                directory=self._capture_directory(),
-                base_name=self._capture_name_edit.text(),
-            )
-        except (ValueError, FileExistsError) as exc:
-            self._show_warning("Single Capture", str(exc))
-
     def _on_browse_directory(self) -> None:
         initial = self._capture_directory_edit.text().strip() or str(Path.cwd())
         selected = QFileDialog.getExistingDirectory(self, "Screenshot 저장 폴더", initial)
         if selected:
             self._capture_directory_edit.setText(selected)
-
-    def _capture_directory(self) -> Path:
-        value = self._capture_directory_edit.text().strip()
-        if not value:
-            raise ValueError("Screenshot 저장 폴더를 선택하세요.")
-        return Path(value)
 
     def _on_tdf_select_clicked(self) -> None:
         item = self._tdf_list.currentItem()
@@ -793,10 +689,6 @@ class ManualTestPanel(QWidget):
             return float(edit.text().strip())
         except ValueError as exc:
             raise ValueError(f"{field_name}은 숫자여야 합니다.") from exc
-
-    def _selected_mast(self) -> ManualMast:
-        value = self._mast_combo.currentData()
-        return value if isinstance(value, ManualMast) else ManualMast(value)
 
     def _on_screenshot_selected(
         self,

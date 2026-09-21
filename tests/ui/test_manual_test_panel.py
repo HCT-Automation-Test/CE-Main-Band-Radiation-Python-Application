@@ -217,20 +217,19 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
         )
     )
     assert all(button.isEnabled() for button in fsv40_buttons)
-    assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
-    assert panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
+    assert not panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
     assert not panel.findChild(QLineEdit, "manualSaturationTimeEdit").isEnabled()
     assert not panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
 
-    panel.set_capabilities(
-        ManualTestCapabilities(turntable=True, mast_3m=True),
-    )
-    assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
-    assert panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
+
+    panel.set_capabilities(ManualTestCapabilities())
     assert all(not button.isEnabled() for button in fsv40_buttons)
 
 
@@ -238,7 +237,9 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
     service = ManualTestService()
     panel = ManualTestPanel(service=service)
     qtbot.addWidget(panel)
-    service.set_equipment_state({"FSV40": True})
+    service.set_equipment_state(
+        {"FSV40": True, "CO3000": True, "3D Controller": True}
+    )
     buttons = tuple(
         panel.findChild(QPushButton, object_name)
         for object_name in (

@@ -1606,54 +1606,6 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
         window._manual_test_service._running = False
 
 
-def test_main_window_manual_turntable_event_releases_ui_lock(qtbot) -> None:
-    window = MainWindow()
-    qtbot.addWidget(window)
-    panel = window._manual_test_panel
-    service = window._manual_test_service
-    calls: list[tuple[object, ...]] = []
-
-    class Commands:
-        def rotate_turntable(
-            self,
-            _client,
-            *,
-            angle: float,
-            turntable_speed: int,
-        ) -> None:
-            calls.append(("rotate_turntable", angle, turntable_speed))
-
-        def stop_turntable(self, _client) -> None:
-            calls.append(("stop_turntable",))
-
-    service._commands = Commands()
-    service.set_equipment_state({"CO3000": True})
-    stop = panel.findChild(QPushButton, "manualStopButton")
-    move = panel.findChild(QPushButton, "manualTurntable360Button")
-
-    assert service._client is window._runner.client
-    assert not stop.isEnabled()
-    assert move.isEnabled()
-    assert service.move_turntable(angle=360.0, speed=6)
-    assert service.is_running
-    assert stop.isEnabled()
-    assert not move.isEnabled()
-
-    window._runner.client.event_received.emit(
-        SimpleNamespace(
-            id="fixed-event-id",
-            target="CO3000",
-            command="turntable_complete",
-            params={},
-        )
-    )
-
-    assert calls == [("rotate_turntable", 360.0, 6)]
-    assert not service.is_running
-    assert not stop.isEnabled()
-    assert move.isEnabled()
-
-
 def test_main_window_removed_manual_settings_state_has_no_stale_call(qtbot) -> None:
     window = MainWindow()
     qtbot.addWidget(window)

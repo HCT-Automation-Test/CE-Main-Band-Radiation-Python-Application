@@ -178,7 +178,6 @@ class MainWindow(QMainWindow):
             self,
             client=self._runner.client,
             commands=self._runner.commands,
-            temp_dir=self._runner.temp_dir,
             operation_guard=lambda: self._equipment_operation_block_reason(
                 exclude="manual",
             ),
