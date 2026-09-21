@@ -103,7 +103,7 @@ EUT 기반 RawData 파일 lifecycle은 H2026E014-41/44/45/43/42에서 구현·�
 | POL-MAN-02 | Manual Test는 정식 TestCase Range와 독립된 타입인 `Frequency Range Manual preset` 1~9를 사용한다. Manual preset 1~6의 Start/Stop Frequency와 RBW/VBW 값은 기존 TestCase Range 1~6과 동일하며, Manual preset 7~9는 별도 확정값을 사용한다. | 정식 TestCase Range는 기존 1~6을 유지한다. Manual preset 7~9에는 확정된 네 값 외의 속성을 임의로 추가하지 않는다. |
 | POL-MAN-03 | Capture는 사용자가 저장 폴더와 기준 파일명을 지정한다. 기존 파일은 덮어쓰지 않으며, 성공한 파일만 현재 앱 실행 세션의 목록에 최신순으로 표시한다. | Single/N-Capture의 사전 충돌 확인과 경고, 부분 성공 보존을 Acceptance Criteria에 포함한다. 저장 폴더 전체는 스캔하지 않는다. |
 | POL-MAN-04 | Detector Mode는 확정된 9종을 제공하고 기본값은 `RMS`로 한다. `Next Peak Search Level`은 기존 Marker command의 `Excursion`으로 사용한다. UI는 명백한 입력 오류만 차단하며 장비별 상세 제한은 LV/FSV40 오류로 처리한다. | FSV40 상세 허용 범위를 UI에 임의로 고정하지 않고 기존 Marker parameter mapping을 재사용한다. |
-| POL-MAN-05 | Saturation Time은 FSV40 설정에서 입력하고 Set으로 적용한다. Semi Auto는 별도로 입력받지 않고 적용된 값만큼 Continuous Sweep 후 대기한다. 초기 기준점은 `현재 각도 <= 180° → 0°`, `> 180° → 360°`, 속도 6으로 정렬하며 전 과정에서 Stop할 수 있다. | Stop 후 남은 단계를 실행하지 않으며 회전 중이면 Turntable을 정지한다. |
+| POL-MAN-05 | Saturation Time은 FSV40 설정에서 입력하고 Set으로 적용한다. Semi Auto는 별도로 입력받지 않고 적용된 값만큼 Continuous Sweep 후 대기한다. 초기 기준점은 `현재 각도 <= 180° → 0°`, `> 180° → 360°`로 선택하며 초기 정렬과 최종 회전에 현재 UI의 Turntable Speed를 동일하게 사용한다. 전 과정에서 Stop할 수 있다. | Stop 후 남은 단계를 실행하지 않으며 회전 중이면 Turntable을 정지한다. |
 | POL-PRIO-01 | Manual Test의 제품 동작은 4.4로 확정한다. command명·payload·Python workflow·LV 복합 명령 단위는 후속 Interface Contract에서 확정한다. | 확정된 UX를 Refinement 대상으로 되돌리지 않는다. 기술 계약만 후속 작업으로 관리한다. |
 
 RawData filename의 `*` 표기는 Markdown 강조 기호로 해석했으며 실제 파일명 문자로 사용하지 않았다. 이 문서의 canonical filename은 `{EUT Name}_CE Main_Radiation_{NR|LTE}.xlsx`다.
@@ -359,7 +359,7 @@ Semi Auto 실행 시 Saturation Time을 다시 입력받지 않고 마지막 Set
 
 ```text
 현재 각도 조회
-→ 현재 각도가 180° 이하면 0°, 초과면 360°로 속도 6 초기 정렬
+→ 현재 각도가 180° 이하면 0°, 초과면 360°로 입력 속도 초기 정렬
 → Clear Write
 → Max Hold
 → Continuous Sweep
@@ -622,14 +622,14 @@ Manual domain에서는 사용자가 Filter Path를 선택하는 것으로 오해
 
 - Turntable command와 progress/complete/error event 처리
 - 현재 각도가 `<= 180°`면 0°, 그보다 크면 360°를 가까운 기준점으로 선택
-- 초기 정렬 속도 6
+- 자동시험의 초기 정렬 속도 6
 - 중단 시 Turntable Stop
 
 Manual Test는 FSV40 설정에서 입력해 Set으로 적용한 Saturation Time을 Semi Auto에서 별도 입력 없이 재사용한다.
 
 관련 로직은 `src/app/core/fsm/states/measurement/common.py:289-568`에 있다. 이 state는 SessionContext와 TestCase에 결합되어 있으므로 Manual Test에서 직접 호출하지 않고 알고리즘과 event handling을 Manual service로 재구성한다.
 
-기존 `InitialTurntableZeroState`에는 `현재 각도 <= 180° → 0°`, `현재 각도 > 180° → 360°`, 초기 속도 6 규칙이 구현·검증되어 있다. Manual Test는 이 판정 규칙을 그대로 재사용한다. timeout, 실패 시 안전 상태와 회전 완료 event correlation만 `MAN-09`의 구현·검증 범위로 둔다.
+기존 `InitialTurntableZeroState`에는 `현재 각도 <= 180° → 0°`, `현재 각도 > 180° → 360°` 판정과 자동시험 초기 속도 6 규칙이 구현·검증되어 있다. Manual Test는 각도 판정만 재사용하고 초기 정렬과 최종 회전에 현재 UI의 Turntable Speed를 동일하게 사용한다. timeout, 실패 시 안전 상태와 회전 완료 event correlation만 `MAN-09`의 구현·검증 범위로 둔다.
 
 ### 7.4 Single/N-Capture와 목록
 
@@ -689,7 +689,7 @@ v3.0 정책은 Filter Box와 같은 전역 장비 operation 배타 동작이다.
 | DEC-MAN-02 | FSV40의 독립된 `Frequency Range Manual preset` 1~9를 사용하고 Detector Mode 9종을 제공하며 기본값은 `RMS`다. `Next Peak Search Level`은 기존 `Excursion` parameter로 사용한다. | 명백한 입력 오류만 UI에서 차단하고 장비별 상세 제한은 LV/FSV40 오류로 처리하며 기존 Marker mapping을 재사용한다. |
 | DEC-MAN-03 | Capture는 저장 폴더와 기준 파일명을 입력받고 기존 파일을 덮어쓰지 않는다. Screenshot 목록은 현재 앱 실행 세션의 성공 파일만 표시한다. | Single/N-Capture 충돌 경고, N-Capture 순번, 부분 성공 보존과 최신순 목록을 적용한다. |
 | DEC-MAN-04 | Manual preset 1~6의 Start/Stop Frequency와 RBW/VBW 값은 기존 TestCase Range 1~6과 동일하며, Manual preset 7~9는 별도 확정값을 사용한다. | `TestRange`를 재사용·확장하지 않고 독립 타입으로 구현하며 preset 7~9의 미확정 속성은 추가하지 않는다. |
-| DEC-MAN-05 | Saturation Time은 FSV40 설정의 Set으로 적용한다. Semi Auto는 별도 입력 없이 적용된 값을 사용하고 `현재 각도 <= 180° → 0°`, `> 180° → 360°`, 속도 6으로 초기 정렬하며 전 과정에서 Stop할 수 있다. | Continuous Sweep 후 적용값만큼 대기한다. Stop 후 남은 단계는 실행하지 않고 회전 중이면 Turntable을 정지한다. |
+| DEC-MAN-05 | Saturation Time은 FSV40 설정의 Set으로 적용한다. Semi Auto는 별도 입력 없이 적용된 값을 사용하고 `현재 각도 <= 180° → 0°`, `> 180° → 360°`로 기준점을 선택하며 초기 정렬과 최종 회전에 현재 UI의 Turntable Speed를 동일하게 사용한다. 전 과정에서 Stop할 수 있다. | Continuous Sweep 후 적용값만큼 대기한다. Stop 후 남은 단계는 실행하지 않고 회전 중이면 Turntable을 정지한다. |
 | DEC-PLAN-01 | Manual Test의 제품 요구사항은 4.4로 확정하고 기술 인터페이스만 후속 계약으로 남긴다. | command명·payload·Python/LV 책임 경계를 Interface Contract에서 확정한다. |
 
 ### 8.2 추가 제품 결정 상태
@@ -825,7 +825,7 @@ Manual Test의 확정 UX를 별도의 미결정 Issue로 만들지 않는다. co
 | MAN-06 | 독립된 `Frequency Range Manual preset` 1~9를 사용하는 FSV40 Set/Preset/Single/Continuous Sweep UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
 | MAN-07 | Next Peak Search Level→`Excursion` mapping을 포함한 Marker UI+service | MAN-02-PY, MAN-03, MAN-05 | UI/core |
 | MAN-08 | Turntable/1m/3m Horn/Bilog UI+service | MAN-03/05 | UI/core |
-| MAN-09 | Set으로 적용된 Saturation Time과 기존 `<= 180° → 0°`, `> 180° → 360°`, 속도 6 기준점 판정을 사용하는 Semi Auto 및 Stop/timeout/failure 처리 | MAN-02-PY/LV, MAN-03, MAN-04, MAN-08 | Python/LV 공동. sequence 소유권은 Interface Contract에서 확정 |
+| MAN-09 | Set으로 적용된 Saturation Time, 기존 `<= 180° → 0°`, `> 180° → 360°` 기준점 판정, 현재 UI의 동일 Turntable Speed를 사용하는 Semi Auto 및 Stop/timeout/failure 처리 | MAN-02-PY/LV, MAN-03, MAN-04, MAN-08 | Python/LV 공동. sequence 소유권은 Interface Contract에서 확정 |
 | MAN-10 | strict no-overwrite Single Capture store/workflow | MAN-03 | report/core/UI |
 | MAN-11 | N-Capture 반복 수행, preflight와 부분 성공 보존 통합 | MAN-02-PY/LV, MAN-03, MAN-10 | Python/LV/report/UI. 반복 sequence 소유권은 Interface Contract에서 확정 |
 | MAN-12 | 현재 세션 최신순 Screenshot 목록과 viewer | POL-MAN-03, MAN-10/11 | UI |

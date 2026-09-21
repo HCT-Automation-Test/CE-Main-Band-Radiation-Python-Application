@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -12,6 +13,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QWidget,
 )
 
@@ -222,8 +224,8 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
     assert not panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
-    assert not panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
-    assert not panel.findChild(QLineEdit, "manualSaturationTimeEdit").isEnabled()
+    assert panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
+    assert panel.findChild(QLineEdit, "manualSaturationTimeEdit").isEnabled()
     assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
     assert panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
@@ -253,6 +255,30 @@ def test_manual_panel_enables_only_the_selected_mast_capability(qtbot) -> None:
     assert horizontal.isEnabled()
 
 
+def test_manual_panel_semi_auto_requires_fsv40_and_co3000(qtbot) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    semi_auto = panel.findChild(QPushButton, "manualSemiAutoButton")
+    saturation = panel.findChild(QLineEdit, "manualSaturationTimeEdit")
+    stop = panel.findChild(QPushButton, "manualStopButton")
+
+    service.set_equipment_state({"FSV40": True})
+    assert not semi_auto.isEnabled()
+    assert not saturation.isEnabled()
+    assert not stop.isEnabled()
+
+    service.set_equipment_state({"CO3000": True})
+    assert not semi_auto.isEnabled()
+    assert not saturation.isEnabled()
+    assert not stop.isEnabled()
+
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    assert semi_auto.isEnabled()
+    assert saturation.isEnabled()
+    assert not stop.isEnabled()
+
+
 def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
     service = ManualTestService()
     panel = ManualTestPanel(service=service)
@@ -272,6 +298,7 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
             "manualMarkerAllOffButton",
             "manualMarkerAutoMaxButton",
             "manualMarkerCenterButton",
+            "manualSemiAutoButton",
             "manualTurntableZeroButton",
             "manualTurntable360Button",
             "manualVerticalButton",
@@ -289,7 +316,7 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
 
     panel.set_operation_locked(True)
     assert all(not button.isEnabled() for button in buttons)
-    assert not stop.isEnabled()
+    assert stop.isEnabled()
 
     panel.set_operation_locked(False)
     assert all(not button.isEnabled() for button in buttons)
@@ -298,6 +325,48 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
     service.running_changed.emit(False)
     assert all(button.isEnabled() for button in buttons)
     assert not stop.isEnabled()
+
+
+def test_manual_panel_semi_auto_passes_current_speed_and_saturation(qtbot) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class Commands:
+        def get_turntable_angle(self, _client):
+            calls.append(("get_turntable_angle",))
+            return 90.0
+
+        def rotate_turntable(
+            self,
+            _client,
+            *,
+            angle: float,
+            turntable_speed: int,
+        ) -> None:
+            calls.append(("rotate_turntable", angle, turntable_speed))
+
+    class Client(QObject):
+        event_received = Signal(object)
+
+    service = ManualTestService(
+        client=Client(),
+        commands=Commands(),
+    )
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    panel.findChild(QSpinBox, "manualTurntableSpeedSpinBox").setValue(4)
+    panel.findChild(QLineEdit, "manualSaturationTimeEdit").setText("2.5")
+
+    qtbot.mouseClick(
+        panel.findChild(QPushButton, "manualSemiAutoButton"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    assert calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 4),
+    ]
+    assert service.is_running
 
 
 def test_manual_panel_marker_buttons_use_existing_command_mapping(qtbot) -> None:

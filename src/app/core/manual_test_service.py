@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.models.enums import AntennaPol
 from app.models.manual_test import ManualMast, ManualSaSettings
@@ -17,6 +18,7 @@ OperationGuard = Callable[[], str | None]
 ManualOperation = Callable[[], None]
 MANUAL_OPERATION_IN_PROGRESS_MESSAGE = "Manual Test 작업이 진행 중입니다."
 MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE = "Manual Test 서비스를 종료하는 중입니다."
+_TURNTABLE_TIMEOUT_MS = 300_000
 _TURNTABLE_EVENT_COMMANDS = {
     "turntable_progress",
     "turntable_complete",
@@ -81,6 +83,16 @@ class ManualTestService(QObject):
         self._turntable_target_angle: float | None = None
         self._turntable_speed: int | None = None
         self._turntable_event_signal: Any | None = None
+        self._turntable_completed: Callable[[], None] | None = None
+        self._turntable_timeout_timer = QTimer(self)
+        self._turntable_timeout_timer.setSingleShot(True)
+        self._turntable_timeout_timer.timeout.connect(self._on_turntable_timeout)
+        self._semi_auto_speed: int | None = None
+        self._semi_auto_saturation_time_sec: float | None = None
+        self._semi_auto_target_angle: float | None = None
+        self._saturation_timer = QTimer(self)
+        self._saturation_timer.setSingleShot(True)
+        self._saturation_timer.timeout.connect(self._on_saturation_elapsed)
 
     @property
     def is_running(self) -> bool:
@@ -188,31 +200,74 @@ class ManualTestService(QObject):
             return False
 
         try:
-            client = self._require_client()
-            event_signal = getattr(client, "event_received", None)
-            if event_signal is None:
-                raise RuntimeError("Turntable Event signal is not available")
-
-            self._turntable_target_angle = angle
-            self._turntable_speed = speed
-            self._turntable_event_signal = event_signal
-            event_signal.connect(self._on_turntable_event)
-            self.turntable_info_changed.emit(
-                {"target_angle": angle, "current_angle": None, "speed": speed}
-            )
-            self._commands.rotate_turntable(
-                client,
+            self._start_turntable_wait(
                 angle=angle,
-                turntable_speed=speed,
+                speed=speed,
+                completed=self._complete_current_operation,
             )
             return True
         except Exception as exc:
             logger.exception("Manual Test 작업 실패: %s", name)
-            self._terminate_turntable_failure(str(exc))
+            if self._running:
+                self._fail_current_operation(str(exc))
+            return False
+
+    def run_semi_auto(
+        self,
+        *,
+        speed: int,
+        saturation_time_sec: float,
+    ) -> bool:
+        """기준점 정렬부터 반대 기준점 회전까지 순차 실행한다."""
+
+        self._validate_turntable_request(angle=0.0, speed=speed)
+        self._validate_saturation_time(saturation_time_sec)
+        if not self._begin_operation("Semi Auto"):
+            return False
+
+        try:
+            current_angle = self._commands.get_turntable_angle(
+                self._require_client()
+            )
+            reference_angle = 0.0 if current_angle <= 180.0 else 360.0
+            self._semi_auto_speed = speed
+            self._semi_auto_saturation_time_sec = float(saturation_time_sec)
+            self._semi_auto_target_angle = (
+                360.0 if reference_angle == 0.0 else 0.0
+            )
+            if current_angle == reference_angle:
+                self.turntable_info_changed.emit(
+                    {
+                        "target_angle": reference_angle,
+                        "current_angle": current_angle,
+                        "speed": speed,
+                    }
+                )
+                self._on_reference_positioned()
+            else:
+                self._start_turntable_wait(
+                    angle=reference_angle,
+                    speed=speed,
+                    completed=self._on_reference_positioned,
+                )
+            return True
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: Semi Auto")
+            if self._running:
+                self._fail_current_operation(str(exc))
             return False
 
     def request_stop(self) -> bool:
         """현재 operation과 관계없이 Turntable Stop command를 호출한다."""
+
+        if (
+            self._current_operation == "Semi Auto"
+            and not self.is_turntable_running
+            and self._saturation_timer.isActive()
+        ):
+            self._cleanup_async_operation()
+            self.operation_finished.emit("Turntable Stop")
+            return True
 
         try:
             self._commands.stop_turntable(self._require_client())
@@ -222,7 +277,7 @@ class ManualTestService(QObject):
             return False
 
         if self.is_turntable_running:
-            self._cleanup_turntable_operation()
+            self._cleanup_async_operation()
         self.operation_finished.emit("Turntable Stop")
         return True
 
@@ -248,13 +303,19 @@ class ManualTestService(QObject):
         """신규 Manual command를 막는다."""
 
         self._shutting_down = True
+        if (
+            self._current_operation == "Semi Auto"
+            and self._saturation_timer.isActive()
+        ):
+            self._cleanup_async_operation()
+            return
         if not self.is_turntable_running:
             return
         try:
             self._commands.stop_turntable(self._require_client())
         except Exception:
             logger.exception("Manual Test 종료 중 Turntable Stop 실패")
-        self._cleanup_turntable_operation()
+        self._cleanup_async_operation()
 
     def _run_bool_command(
         self,
@@ -347,12 +408,12 @@ class ManualTestService(QObject):
                 if isinstance(params, dict)
                 else "unknown"
             )
-            self._terminate_turntable_failure(f"Turntable 회전 실패: {message}")
+            self._fail_current_operation(f"Turntable 회전 실패: {message}")
             return
 
-        name = self._current_operation or "Turntable"
         target_angle = self._turntable_target_angle
         speed = self._turntable_speed
+        completed = self._turntable_completed
         self.turntable_info_changed.emit(
             {
                 "target_angle": target_angle,
@@ -360,15 +421,102 @@ class ManualTestService(QObject):
                 "speed": speed,
             }
         )
-        self._cleanup_turntable_operation()
+        self._clear_turntable_wait()
+        if completed is not None:
+            completed()
+
+    def _start_turntable_wait(
+        self,
+        *,
+        angle: float,
+        speed: int,
+        completed: Callable[[], None],
+    ) -> None:
+        client = self._require_client()
+        event_signal = getattr(client, "event_received", None)
+        if event_signal is None:
+            raise RuntimeError("Turntable Event signal is not available")
+
+        self._turntable_target_angle = angle
+        self._turntable_speed = speed
+        self._turntable_event_signal = event_signal
+        self._turntable_completed = completed
+        event_signal.connect(self._on_turntable_event)
+        self.turntable_info_changed.emit(
+            {"target_angle": angle, "current_angle": None, "speed": speed}
+        )
+        self._commands.rotate_turntable(
+            client,
+            angle=angle,
+            turntable_speed=speed,
+        )
+        if self.is_turntable_running:
+            self._turntable_timeout_timer.start(_TURNTABLE_TIMEOUT_MS)
+
+    def _on_turntable_timeout(self) -> None:
+        if not self.is_turntable_running:
+            return
+
+        self._clear_turntable_wait()
+        try:
+            self._commands.stop_turntable(self._require_client())
+        except Exception:
+            logger.exception("Manual Test Turntable 타임아웃 정지 실패")
+        self._fail_current_operation("Turntable 회전 타임아웃")
+
+    def _on_reference_positioned(self) -> None:
+        try:
+            ok = self._commands.clear_trace(self._require_client())
+            self._require_true(ok, "Clear Trace")
+            saturation_time_sec = self._semi_auto_saturation_time_sec
+            if saturation_time_sec is None:
+                raise RuntimeError("Semi Auto saturation time is not configured")
+            interval_ms = (
+                0
+                if saturation_time_sec == 0
+                else max(1, math.ceil(saturation_time_sec * 1000))
+            )
+            self._saturation_timer.start(interval_ms)
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: Semi Auto")
+            self._fail_current_operation(str(exc))
+
+    def _on_saturation_elapsed(self) -> None:
+        if self._current_operation != "Semi Auto" or not self._running:
+            return
+        try:
+            if self._semi_auto_target_angle is None or self._semi_auto_speed is None:
+                raise RuntimeError("Semi Auto rotation is not configured")
+            self._start_turntable_wait(
+                angle=self._semi_auto_target_angle,
+                speed=self._semi_auto_speed,
+                completed=self._complete_current_operation,
+            )
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: Semi Auto")
+            self._fail_current_operation(str(exc))
+
+    def _complete_current_operation(self) -> None:
+        name = self._current_operation or "Turntable"
+        self._cleanup_async_operation()
         self.operation_finished.emit(name)
 
-    def _terminate_turntable_failure(self, message: str) -> None:
+    def _fail_current_operation(self, message: str) -> None:
         name = self._current_operation or "Turntable"
-        self._cleanup_turntable_operation()
+        self._cleanup_async_operation()
         self.operation_failed.emit(name, message)
 
-    def _cleanup_turntable_operation(self) -> None:
+    def _cleanup_async_operation(self) -> None:
+        self._saturation_timer.stop()
+        self._clear_turntable_wait()
+        self._semi_auto_speed = None
+        self._semi_auto_saturation_time_sec = None
+        self._semi_auto_target_angle = None
+        if self._running:
+            self._finish_operation()
+
+    def _clear_turntable_wait(self) -> None:
+        self._turntable_timeout_timer.stop()
         event_signal = self._turntable_event_signal
         self._turntable_event_signal = None
         if event_signal is not None:
@@ -378,8 +526,7 @@ class ManualTestService(QObject):
                 pass
         self._turntable_target_angle = None
         self._turntable_speed = None
-        if self._running:
-            self._finish_operation()
+        self._turntable_completed = None
 
     @staticmethod
     def _is_turntable_event(event: Any) -> bool:
@@ -399,6 +546,16 @@ class ManualTestService(QObject):
             raise ValueError("Turntable 목표 각도는 0° 또는 360°여야 합니다.")
         if isinstance(speed, bool) or not isinstance(speed, int) or speed <= 0:
             raise ValueError("Turntable Speed는 0보다 큰 정수여야 합니다.")
+
+    @staticmethod
+    def _validate_saturation_time(saturation_time_sec: float) -> None:
+        if (
+            isinstance(saturation_time_sec, bool)
+            or not isinstance(saturation_time_sec, (int, float))
+            or not math.isfinite(saturation_time_sec)
+            or saturation_time_sec < 0
+        ):
+            raise ValueError("Saturation Time은 0 이상의 유한한 숫자여야 합니다.")
 
     @staticmethod
     def _require_true(result: object, command_name: str) -> None:

@@ -1761,6 +1761,86 @@ def test_main_window_manual_move_completes_from_shared_client_event(qtbot) -> No
     assert not stop_button.isEnabled()
 
 
+def test_main_window_manual_semi_auto_uses_shared_client_events(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    calls: list[tuple[object, ...]] = []
+
+    class Commands:
+        def get_turntable_angle(self, _client) -> float:
+            calls.append(("get_turntable_angle",))
+            return 90.0
+
+        def rotate_turntable(
+            self,
+            _client,
+            *,
+            angle: float,
+            turntable_speed: int,
+        ) -> None:
+            calls.append(("rotate_turntable", angle, turntable_speed))
+
+        def clear_trace(self, _client) -> bool:
+            calls.append(("clear_trace",))
+            return True
+
+    window._manual_test_service._commands = Commands()
+    window._manual_test_service.set_equipment_state(
+        {"FSV40": True, "CO3000": True}
+    )
+    panel = window._manual_test_panel
+    semi_auto_button = panel.findChild(
+        QPushButton,
+        "manualSemiAutoButton",
+    )
+    stop_button = panel.findChild(QPushButton, "manualStopButton")
+    panel.findChild(QLineEdit, "manualSaturationTimeEdit").setText("0")
+
+    assert not stop_button.isEnabled()
+
+    qtbot.mouseClick(semi_auto_button, Qt.MouseButton.LeftButton)
+
+    assert calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+    ]
+    assert window._manual_test_service.is_running
+    assert not semi_auto_button.isEnabled()
+    assert stop_button.isEnabled()
+
+    window._runner.client.event_received.emit(
+        SimpleNamespace(
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
+    )
+    qtbot.waitUntil(
+        lambda: calls[-1] == ("rotate_turntable", 360.0, 6),
+        timeout=1000,
+    )
+
+    assert calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+        ("clear_trace",),
+        ("rotate_turntable", 360.0, 6),
+    ]
+    assert window._manual_test_service.is_running
+
+    window._runner.client.event_received.emit(
+        SimpleNamespace(
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
+    )
+
+    assert not window._manual_test_service.is_running
+    assert semi_auto_button.isEnabled()
+    assert not stop_button.isEnabled()
+
+
 def test_main_window_allows_start_without_active_tdf(
     qtbot,
     monkeypatch,

@@ -508,6 +508,7 @@ class ManualTestPanel(QWidget):
         self._preset_button.clicked.connect(self._on_preset_clicked)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._trace_clear_button.clicked.connect(self._on_trace_clear_clicked)
+        self._semi_auto_button.clicked.connect(self._on_semi_auto_clicked)
         self._marker_peak_button.clicked.connect(
             lambda _checked=False: self._run_marker("peak")
         )
@@ -616,7 +617,12 @@ class ManualTestPanel(QWidget):
         self._n_capture_button.setEnabled(False)
         self._capture_interval_spin.setEnabled(False)
         self._capture_shots_spin.setEnabled(False)
-        self._saturation_time_edit.setEnabled(False)
+        semi_auto_ready = (
+            self._capabilities.fsv40
+            and self._capabilities.turntable
+            and idle
+        )
+        self._saturation_time_edit.setEnabled(semi_auto_ready)
         self._turntable_zero_button.setEnabled(self._capabilities.turntable and idle)
         self._turntable_360_button.setEnabled(self._capabilities.turntable and idle)
         selected_mast = self._selected_mast()
@@ -627,11 +633,9 @@ class ManualTestPanel(QWidget):
         )
         self._vertical_button.setEnabled(mast_ready and idle)
         self._horizontal_button.setEnabled(mast_ready and idle)
-        self._semi_auto_button.setEnabled(False)
+        self._semi_auto_button.setEnabled(semi_auto_ready)
         self._stop_button.setEnabled(
-            self._capabilities.turntable
-            and self._service_running
-            and not self._external_operation_locked
+            self._capabilities.turntable and self._service_running
         )
         tdf_ready = self._capabilities.fsv40 and idle and not self._tdf_operation_locked
         self._tdf_update_button.setEnabled(tdf_ready)
@@ -682,6 +686,21 @@ class ManualTestPanel(QWidget):
     def _on_trace_clear_clicked(self) -> None:
         if self._service is not None:
             self._service.clear_trace()
+
+    def _on_semi_auto_clicked(self) -> None:
+        if self._service is None:
+            return
+        try:
+            saturation_time_sec = self._parse_float(
+                self._saturation_time_edit,
+                "Saturation Time",
+            )
+            self._service.run_semi_auto(
+                speed=self._turntable_speed_spin.value(),
+                saturation_time_sec=saturation_time_sec,
+            )
+        except ValueError as exc:
+            self._show_warning("Semi Auto", str(exc))
 
     def _run_marker(self, action: str) -> None:
         if self._service is None:

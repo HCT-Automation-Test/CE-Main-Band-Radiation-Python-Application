@@ -24,6 +24,7 @@ class _Commands:
         self.error: Exception | None = None
         self.on_rotate: Any | None = None
         self.on_stop: Any | None = None
+        self.turntable_angle = 90.0
 
     def _record(self, *call: object) -> bool:
         self.calls.append(call)
@@ -74,6 +75,12 @@ class _Commands:
         if self.on_stop is not None:
             self.on_stop()
 
+    def get_turntable_angle(self, _client: Any) -> float:
+        self.calls.append(("get_turntable_angle",))
+        if self.error is not None:
+            raise self.error
+        return self.turntable_angle
+
     def set_antenna_pol(
         self,
         _client: Any,
@@ -89,6 +96,40 @@ class _EventClient(QObject):
 
     def deliver(self, event: object) -> None:
         self.event_received.emit(event)
+
+
+class _ManualTimer:
+    def __init__(self, timeout: Any) -> None:
+        self._timeout = timeout
+        self.active = False
+        self.interval_ms: int | None = None
+
+    def start(self, interval_ms: int) -> None:
+        self.active = True
+        self.interval_ms = interval_ms
+
+    def stop(self) -> None:
+        self.active = False
+
+    def isActive(self) -> bool:  # noqa: N802
+        return self.active
+
+    def fire(self) -> None:
+        assert self.active
+        self.active = False
+        self._timeout()
+
+
+def _replace_saturation_timer(service: ManualTestService) -> _ManualTimer:
+    timer = _ManualTimer(service._on_saturation_elapsed)
+    service._saturation_timer = timer
+    return timer
+
+
+def _replace_turntable_timeout_timer(service: ManualTestService) -> _ManualTimer:
+    timer = _ManualTimer(service._on_turntable_timeout)
+    service._turntable_timeout_timer = timer
+    return timer
 
 
 def _turntable_event(
@@ -470,6 +511,7 @@ def test_manual_turntable_waits_for_progress_and_complete_event() -> None:
     commands = _Commands()
     client = _EventClient()
     service = ManualTestService(client=client, commands=commands)
+    timer = _replace_turntable_timeout_timer(service)
     info: list[dict[str, object]] = []
     finished: list[str] = []
     service.turntable_info_changed.connect(info.append)
@@ -478,6 +520,7 @@ def test_manual_turntable_waits_for_progress_and_complete_event() -> None:
     assert service.move_turntable(angle=360.0, speed=4)
     assert service.is_running
     assert service.is_turntable_running
+    assert timer.active
     assert finished == []
 
     client.deliver(
@@ -497,6 +540,7 @@ def test_manual_turntable_waits_for_progress_and_complete_event() -> None:
         {"target_angle": 360.0, "current_angle": 360.0, "speed": 4},
     ]
     assert finished == ["Turntable 360°"]
+    assert not timer.active
     assert not service.is_running
     assert not service.is_turntable_running
 
@@ -508,6 +552,7 @@ def test_manual_turntable_handles_immediate_complete_event_once() -> None:
     commands = _Commands()
     client = _EventClient()
     service = ManualTestService(client=client, commands=commands)
+    timer = _replace_turntable_timeout_timer(service)
     finished: list[str] = []
     service.operation_finished.connect(finished.append)
     commands.on_rotate = lambda: client.deliver(
@@ -518,6 +563,7 @@ def test_manual_turntable_handles_immediate_complete_event_once() -> None:
 
     assert commands.calls == [("rotate_turntable", 0.0, 6)]
     assert finished == ["Turntable 0°"]
+    assert not timer.active
     assert not service.is_running
 
 
@@ -559,6 +605,39 @@ def test_manual_turntable_equipment_error_fails_and_releases_state() -> None:
     )
 
     assert failures == [("Turntable 360°", "Turntable 회전 실패: drive fault")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+@pytest.mark.parametrize("stop_fails", [False, True])
+def test_manual_turntable_timeout_stops_and_releases_state(
+    stop_fails: bool,
+) -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_turntable_timeout_timer(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    assert timer.active
+    assert timer.interval_ms == 300_000
+
+    def fail_stop() -> None:
+        raise RuntimeError("stop failed")
+
+    if stop_fails:
+        commands.on_stop = fail_stop
+    timer.fire()
+
+    assert commands.calls == [
+        ("rotate_turntable", 360.0, 6),
+        ("stop_turntable",),
+    ]
+    assert failures == [("Turntable 360°", "Turntable 회전 타임아웃")]
     assert not service.is_running
     assert not service.is_turntable_running
 
@@ -670,6 +749,402 @@ def test_manual_turntable_stop_failure_keeps_move_active() -> None:
 
     commands.error = None
     client.deliver(_turntable_event("turntable_complete"))
+    assert not service.is_running
+
+
+@pytest.mark.parametrize(
+    ("current_angle", "reference_angle", "target_angle", "event_id"),
+    [
+        (90.0, 0.0, 360.0, "fixed"),
+        (180.0, 0.0, 360.0, ""),
+        (270.0, 360.0, 0.0, "repeated"),
+    ],
+)
+def test_manual_semi_auto_runs_order_with_same_speed(
+    current_angle: float,
+    reference_angle: float,
+    target_angle: float,
+    event_id: str,
+) -> None:
+    commands = _Commands()
+    commands.turntable_angle = current_angle
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    finished: list[str] = []
+    info: list[dict[str, object]] = []
+    service.operation_finished.connect(finished.append)
+    service.turntable_info_changed.connect(info.append)
+
+    assert service.run_semi_auto(speed=4, saturation_time_sec=1.25)
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", reference_angle, 4),
+    ]
+    assert service.is_running
+    assert service.is_turntable_running
+
+    client.deliver(
+        _turntable_event(
+            "turntable_progress",
+            {"Current Angle": 45.0},
+            event_id=event_id,
+        )
+    )
+    client.deliver(
+        _turntable_event("turntable_complete", event_id=event_id)
+    )
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", reference_angle, 4),
+        ("clear_trace",),
+    ]
+    assert timer.active
+    assert timer.interval_ms == 1250
+    assert service.is_running
+    assert not service.is_turntable_running
+
+    client.deliver(
+        _turntable_event("turntable_complete", event_id=event_id)
+    )
+    assert commands.calls[-1] == ("clear_trace",)
+
+    timer.fire()
+    assert commands.calls[-1] == ("rotate_turntable", target_angle, 4)
+    assert service.is_turntable_running
+
+    client.deliver(
+        _turntable_event(
+            "turntable_progress",
+            {"current_angle": 300.0},
+            event_id=event_id,
+        )
+    )
+    client.deliver(
+        _turntable_event("turntable_complete", event_id=event_id)
+    )
+
+    assert finished == ["Semi Auto"]
+    assert not service.is_running
+    assert service.current_operation is None
+    assert info[-1] == {
+        "target_angle": target_angle,
+        "current_angle": target_angle,
+        "speed": 4,
+    }
+
+
+@pytest.mark.parametrize(
+    ("current_angle", "target_angle"),
+    [(0.0, 360.0), (360.0, 0.0)],
+)
+def test_manual_semi_auto_skips_move_at_reference_angle(
+    current_angle: float,
+    target_angle: float,
+) -> None:
+    commands = _Commands()
+    commands.turntable_angle = current_angle
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    saturation_timer = _replace_saturation_timer(service)
+    turntable_timer = _replace_turntable_timeout_timer(service)
+
+    assert service.run_semi_auto(speed=4, saturation_time_sec=1.0)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("clear_trace",),
+    ]
+    assert saturation_timer.active
+    assert not turntable_timer.active
+
+    saturation_timer.fire()
+    assert commands.calls[-1] == ("rotate_turntable", target_angle, 4)
+    assert turntable_timer.active
+
+    client.deliver(_turntable_event("turntable_complete"))
+    assert not service.is_running
+
+
+def test_manual_semi_auto_zero_saturation_uses_next_timer_tick() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+
+    assert service.run_semi_auto(speed=3, saturation_time_sec=0.0)
+    client.deliver(_turntable_event("turntable_complete"))
+
+    assert timer.active
+    assert timer.interval_ms == 0
+    assert commands.calls[-1] == ("clear_trace",)
+
+    timer.fire()
+    assert commands.calls[-1] == ("rotate_turntable", 360.0, 3)
+
+
+@pytest.mark.parametrize(
+    "saturation_time_sec",
+    [-1.0, float("nan"), float("inf"), True],
+)
+def test_manual_semi_auto_rejects_invalid_saturation_before_command(
+    saturation_time_sec: float,
+) -> None:
+    commands = _Commands()
+    service = ManualTestService(client=_EventClient(), commands=commands)
+
+    with pytest.raises(ValueError):
+        service.run_semi_auto(
+            speed=6,
+            saturation_time_sec=saturation_time_sec,
+        )
+
+    assert commands.calls == []
+    assert not service.is_running
+
+
+@pytest.mark.parametrize("speed", [0, -1, True])
+def test_manual_semi_auto_rejects_invalid_speed_before_command(
+    speed: int,
+) -> None:
+    commands = _Commands()
+    service = ManualTestService(client=_EventClient(), commands=commands)
+
+    with pytest.raises(ValueError):
+        service.run_semi_auto(speed=speed, saturation_time_sec=5.0)
+
+    assert commands.calls == []
+    assert not service.is_running
+
+
+def test_manual_semi_auto_guard_rejects_before_command() -> None:
+    commands = _Commands()
+    service = ManualTestService(
+        client=_EventClient(),
+        commands=commands,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+
+    assert not service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+
+    assert commands.calls == []
+    assert not service.is_running
+
+
+def test_manual_semi_auto_angle_query_failure_releases_state() -> None:
+    commands = _Commands()
+    commands.error = RuntimeError("angle failed")
+    service = ManualTestService(client=_EventClient(), commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert not service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+
+    assert commands.calls == [("get_turntable_angle",)]
+    assert failures == [("Semi Auto", "angle failed")]
+    assert not service.is_running
+    assert service.current_operation is None
+
+
+def test_manual_semi_auto_initial_move_failure_releases_state() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    def fail_rotate(
+        _client: Any,
+        *,
+        angle: float,
+        turntable_speed: int,
+    ) -> None:
+        commands.calls.append(("rotate_turntable", angle, turntable_speed))
+        raise RuntimeError("initial move failed")
+
+    commands.rotate_turntable = fail_rotate
+
+    assert not service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+
+    assert commands.calls == [
+        ("get_turntable_angle",),
+        ("rotate_turntable", 0.0, 6),
+    ]
+    assert failures == [("Semi Auto", "initial move failed")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+@pytest.mark.parametrize(
+    ("result", "error", "message"),
+    [
+        (False, None, "Clear Trace returned false"),
+        (True, RuntimeError("clear failed"), "clear failed"),
+    ],
+)
+def test_manual_semi_auto_trace_clear_failure_releases_state(
+    result: bool,
+    error: Exception | None,
+    message: str,
+) -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, detail: failures.append((name, detail))
+    )
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    commands.result = result
+    commands.error = error
+
+    client.deliver(_turntable_event("turntable_complete"))
+
+    assert failures == [("Semi Auto", message)]
+    assert not timer.active
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+def test_manual_semi_auto_final_move_failure_releases_state() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    client.deliver(_turntable_event("turntable_complete"))
+    commands.error = RuntimeError("final move failed")
+
+    timer.fire()
+
+    assert commands.calls[-1] == ("rotate_turntable", 360.0, 6)
+    assert failures == [("Semi Auto", "final move failed")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+@pytest.mark.parametrize("after_timer", [False, True])
+def test_manual_semi_auto_equipment_error_releases_state(
+    after_timer: bool,
+) -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    if after_timer:
+        client.deliver(_turntable_event("turntable_complete"))
+        timer.fire()
+
+    client.deliver(
+        _turntable_event("equipment_error", {"message": "drive fault"})
+    )
+
+    assert failures == [("Semi Auto", "Turntable 회전 실패: drive fault")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+@pytest.mark.parametrize("after_saturation", [False, True])
+def test_manual_semi_auto_rotation_timeout_stops_and_releases_state(
+    after_saturation: bool,
+) -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    saturation_timer = _replace_saturation_timer(service)
+    turntable_timer = _replace_turntable_timeout_timer(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    if after_saturation:
+        client.deliver(_turntable_event("turntable_complete"))
+        saturation_timer.fire()
+
+    assert turntable_timer.active
+    assert turntable_timer.interval_ms == 300_000
+    turntable_timer.fire()
+
+    assert commands.calls[-1] == ("stop_turntable",)
+    assert failures == [("Semi Auto", "Turntable 회전 타임아웃")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+@pytest.mark.parametrize("after_timer", [False, True])
+def test_manual_semi_auto_stop_during_rotation_sends_once(
+    after_timer: bool,
+) -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    if after_timer:
+        assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+        client.deliver(_turntable_event("turntable_complete"))
+        timer.fire()
+    else:
+        assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+
+    assert service.request_stop()
+
+    assert commands.calls[-1] == ("stop_turntable",)
+    assert sum(call == ("stop_turntable",) for call in commands.calls) == 1
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+def test_manual_semi_auto_stop_failure_keeps_rotation_active() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    _replace_saturation_timer(service)
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    commands.error = RuntimeError("stop failed")
+
+    assert not service.request_stop()
+
+    assert service.is_running
+    assert service.is_turntable_running
+
+    commands.error = None
+    assert service.request_stop()
+    assert not service.is_running
+
+
+def test_manual_semi_auto_stop_during_saturation_only_cancels_timer() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    timer = _replace_saturation_timer(service)
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+    assert service.run_semi_auto(speed=6, saturation_time_sec=5.0)
+    client.deliver(_turntable_event("turntable_complete"))
+    calls_before_stop = list(commands.calls)
+
+    assert service.request_stop()
+
+    assert commands.calls == calls_before_stop
+    assert not timer.active
+    assert finished == ["Turntable Stop"]
     assert not service.is_running
 
 
