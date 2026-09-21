@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.manual_test_service import ManualTestCapabilities, ManualTestService
+from app.models.enums import AntennaPol
 from app.models.manual_test import (
     MANUAL_DETECTOR_MODES,
     MANUAL_FREQUENCY_PRESETS,
@@ -525,6 +526,20 @@ class ManualTestPanel(QWidget):
         self._marker_center_button.clicked.connect(
             lambda _checked=False: self._run_marker("center")
         )
+        self._stop_button.clicked.connect(self._on_stop_clicked)
+        self._turntable_zero_button.clicked.connect(
+            lambda _checked=False: self._move_turntable(0.0)
+        )
+        self._turntable_360_button.clicked.connect(
+            lambda _checked=False: self._move_turntable(360.0)
+        )
+        self._mast_combo.currentIndexChanged.connect(self._update_control_state)
+        self._vertical_button.clicked.connect(
+            lambda _checked=False: self._set_polarization(AntennaPol.V)
+        )
+        self._horizontal_button.clicked.connect(
+            lambda _checked=False: self._set_polarization(AntennaPol.H)
+        )
         self._screenshot_list.currentItemChanged.connect(self._on_screenshot_selected)
         self._tdf_list.currentItemChanged.connect(self._update_control_state)
         self._tdf_update_button.clicked.connect(self.get_tdf_list_requested.emit)
@@ -539,6 +554,9 @@ class ManualTestPanel(QWidget):
         self._service.operation_started.connect(self._on_operation_started)
         self._service.operation_finished.connect(self._on_operation_finished)
         self._service.operation_failed.connect(self._on_operation_failed)
+        self._service.turntable_info_changed.connect(
+            self._on_turntable_info_changed
+        )
 
     @Slot(object)
     def set_capabilities(self, capabilities: ManualTestCapabilities) -> None:
@@ -599,12 +617,22 @@ class ManualTestPanel(QWidget):
         self._capture_interval_spin.setEnabled(False)
         self._capture_shots_spin.setEnabled(False)
         self._saturation_time_edit.setEnabled(False)
-        self._turntable_zero_button.setEnabled(False)
-        self._turntable_360_button.setEnabled(False)
-        self._vertical_button.setEnabled(False)
-        self._horizontal_button.setEnabled(False)
+        self._turntable_zero_button.setEnabled(self._capabilities.turntable and idle)
+        self._turntable_360_button.setEnabled(self._capabilities.turntable and idle)
+        selected_mast = self._selected_mast()
+        mast_ready = (
+            self._capabilities.mast_1m
+            if selected_mast is ManualMast.MAST_1M
+            else self._capabilities.mast_3m
+        )
+        self._vertical_button.setEnabled(mast_ready and idle)
+        self._horizontal_button.setEnabled(mast_ready and idle)
         self._semi_auto_button.setEnabled(False)
-        self._stop_button.setEnabled(False)
+        self._stop_button.setEnabled(
+            self._capabilities.turntable
+            and self._service_running
+            and not self._external_operation_locked
+        )
         tdf_ready = self._capabilities.fsv40 and idle and not self._tdf_operation_locked
         self._tdf_update_button.setEnabled(tdf_ready)
         self._tdf_all_off_button.setEnabled(tdf_ready)
@@ -628,6 +656,16 @@ class ManualTestPanel(QWidget):
     def _on_operation_failed(self, name: str, message: str) -> None:
         self._status_label.setText(f"{name} 실패: {message}")
         self._show_warning(name, message)
+
+    @Slot(object)
+    def _on_turntable_info_changed(self, info: dict[str, object]) -> None:
+        current = info.get("current_angle")
+        target = info.get("target_angle")
+        self._status_label.setText(
+            f"Turntable {target}° 이동 중"
+            if current is None
+            else f"Turntable {current}°"
+        )
 
     def _on_set_clicked(self) -> None:
         if self._service is None:
@@ -680,6 +718,24 @@ class ManualTestPanel(QWidget):
         if self._service is not None:
             self._service.marker_all_off()
 
+    def _on_stop_clicked(self) -> None:
+        if self._service is not None:
+            self._service.request_stop()
+
+    def _move_turntable(self, angle: float) -> None:
+        if self._service is not None:
+            self._service.move_turntable(
+                angle=angle,
+                speed=self._turntable_speed_spin.value(),
+            )
+
+    def _set_polarization(self, polarization: AntennaPol) -> None:
+        if self._service is not None:
+            self._service.set_mast_polarization(
+                mast=self._selected_mast(),
+                polarization=polarization,
+            )
+
     def _on_browse_directory(self) -> None:
         initial = self._capture_directory_edit.text().strip() or str(Path.cwd())
         selected = QFileDialog.getExistingDirectory(self, "Screenshot 저장 폴더", initial)
@@ -705,6 +761,10 @@ class ManualTestPanel(QWidget):
             edit.setReadOnly(not custom)
         if not custom:
             self._set_preset_values(ManualPresetId(self._preset_combo.currentData()))
+
+    def _selected_mast(self) -> ManualMast:
+        value = self._mast_combo.currentData()
+        return value if isinstance(value, ManualMast) else ManualMast(value)
 
     def _apply_preset(self, preset_id: ManualPresetId) -> None:
         self._preset_combo.setCurrentIndex(int(preset_id) - 1)

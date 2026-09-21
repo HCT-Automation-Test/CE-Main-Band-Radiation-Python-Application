@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from PySide6.QtCore import QObject, Signal
 
 from app.core.manual_test_service import (
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
@@ -11,7 +13,8 @@ from app.core.manual_test_service import (
     ManualTestService,
     manual_test_capabilities,
 )
-from app.models.manual_test import ManualSaSettings
+from app.models.enums import AntennaPol, InputPath
+from app.models.manual_test import ManualMast, ManualSaSettings
 
 
 class _Commands:
@@ -19,6 +22,8 @@ class _Commands:
         self.calls: list[tuple[object, ...]] = []
         self.result = True
         self.error: Exception | None = None
+        self.on_rotate: Any | None = None
+        self.on_stop: Any | None = None
 
     def _record(self, *call: object) -> bool:
         self.calls.append(call)
@@ -52,6 +57,52 @@ class _Commands:
 
     def marker_set_center(self, _client: Any, **params: object) -> bool:
         return self._record("marker_set_center", params)
+
+    def rotate_turntable(
+        self,
+        _client: Any,
+        *,
+        angle: float,
+        turntable_speed: int,
+    ) -> None:
+        self._record("rotate_turntable", angle, turntable_speed)
+        if self.on_rotate is not None:
+            self.on_rotate()
+
+    def stop_turntable(self, _client: Any) -> None:
+        self._record("stop_turntable")
+        if self.on_stop is not None:
+            self.on_stop()
+
+    def set_antenna_pol(
+        self,
+        _client: Any,
+        *,
+        pol: AntennaPol,
+        input_path: InputPath,
+    ) -> bool:
+        return self._record("set_antenna_pol", pol, input_path)
+
+
+class _EventClient(QObject):
+    event_received = Signal(object)
+
+    def deliver(self, event: object) -> None:
+        self.event_received.emit(event)
+
+
+def _turntable_event(
+    command: str,
+    params: dict[str, object] | None = None,
+    *,
+    event_id: str = "event",
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=event_id,
+        target="CO3000",
+        command=command,
+        params=params or {},
+    )
 
 
 def _settings() -> ManualSaSettings:
@@ -172,10 +223,17 @@ _MARKER_OPERATIONS = (
         ({}, ManualTestCapabilities()),
         ({"FSV40": True}, ManualTestCapabilities(fsv40=True, marker=True)),
         ({"FSV40": False}, ManualTestCapabilities()),
-        ({"CO3000": True, "3D Controller": True}, ManualTestCapabilities()),
+        (
+            {"CO3000": True},
+            ManualTestCapabilities(turntable=True, mast_3m=True),
+        ),
+        (
+            {"3D Controller": True},
+            ManualTestCapabilities(mast_1m=True),
+        ),
     ],
 )
-def test_manual_capabilities_only_expose_fsv40(
+def test_manual_capabilities_follow_equipment_connections(
     equipment_state: dict[str, bool],
     expected: ManualTestCapabilities,
 ) -> None:
@@ -406,3 +464,288 @@ def test_manual_marker_guard_rejects_before_command(
     assert failures == [(operation_name, "다른 작업 진행 중")]
     assert not service.is_running
     assert service.current_operation is None
+
+
+def test_manual_turntable_waits_for_progress_and_complete_event() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    info: list[dict[str, object]] = []
+    finished: list[str] = []
+    service.turntable_info_changed.connect(info.append)
+    service.operation_finished.connect(finished.append)
+
+    assert service.move_turntable(angle=360.0, speed=4)
+    assert service.is_running
+    assert service.is_turntable_running
+    assert finished == []
+
+    client.deliver(
+        SimpleNamespace(target="FSV40", command="turntable_complete", params={})
+    )
+    client.deliver(
+        _turntable_event("turntable_progress", {"Current Angle": 120.0})
+    )
+    assert service.is_running
+
+    client.deliver(_turntable_event("turntable_complete"))
+
+    assert commands.calls == [("rotate_turntable", 360.0, 4)]
+    assert info == [
+        {"target_angle": 360.0, "current_angle": None, "speed": 4},
+        {"target_angle": 360.0, "current_angle": 120.0, "speed": 4},
+        {"target_angle": 360.0, "current_angle": 360.0, "speed": 4},
+    ]
+    assert finished == ["Turntable 360°"]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+    client.deliver(_turntable_event("turntable_complete"))
+    assert finished == ["Turntable 360°"]
+
+
+def test_manual_turntable_handles_immediate_complete_event_once() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+    commands.on_rotate = lambda: client.deliver(
+        _turntable_event("turntable_complete", event_id="fixed")
+    )
+
+    assert service.move_turntable(angle=0.0, speed=6)
+
+    assert commands.calls == [("rotate_turntable", 0.0, 6)]
+    assert finished == ["Turntable 0°"]
+    assert not service.is_running
+
+
+def test_manual_turntable_accepts_reused_or_empty_event_ids_for_50_moves() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+    event_ids = ("fixed", "", "fixed", "repeated")
+
+    for index in range(50):
+        angle = 0.0 if index % 2 == 0 else 360.0
+        assert service.move_turntable(angle=angle, speed=6)
+        client.deliver(
+            _turntable_event(
+                "turntable_complete",
+                event_id=event_ids[index % len(event_ids)],
+            )
+        )
+        assert not service.is_running
+
+    assert len(finished) == 50
+    assert len(commands.calls) == 50
+
+
+def test_manual_turntable_equipment_error_fails_and_releases_state() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    client.deliver(
+        _turntable_event("equipment_error", {"message": "drive fault"})
+    )
+
+    assert failures == [("Turntable 360°", "Turntable 회전 실패: drive fault")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+def test_manual_turntable_command_error_releases_state() -> None:
+    commands = _Commands()
+    commands.error = RuntimeError("transport failed")
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert not service.move_turntable(angle=360.0, speed=6)
+
+    assert commands.calls == [("rotate_turntable", 360.0, 6)]
+    assert failures == [("Turntable 360°", "transport failed")]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+
+def test_manual_turntable_guard_rejects_before_command() -> None:
+    commands = _Commands()
+    service = ManualTestService(
+        client=_EventClient(),
+        commands=commands,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+
+    assert not service.move_turntable(angle=360.0, speed=6)
+
+    assert commands.calls == []
+    assert not service.is_running
+
+
+@pytest.mark.parametrize(
+    ("angle", "speed"),
+    [(180.0, 6), (360.0, 0), (360.0, True)],
+)
+def test_manual_turntable_rejects_invalid_request(
+    angle: float,
+    speed: int,
+) -> None:
+    commands = _Commands()
+    service = ManualTestService(client=_EventClient(), commands=commands)
+
+    with pytest.raises(ValueError):
+        service.move_turntable(angle=angle, speed=speed)
+
+    assert commands.calls == []
+
+
+def test_manual_turntable_stop_is_independent_of_operation_guard() -> None:
+    commands = _Commands()
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+
+    assert service.request_stop()
+
+    assert commands.calls == [("stop_turntable",)]
+    assert finished == ["Turntable Stop"]
+    assert not service.is_running
+
+
+def test_manual_turntable_stop_releases_active_move() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    assert service.request_stop()
+
+    assert commands.calls == [
+        ("rotate_turntable", 360.0, 6),
+        ("stop_turntable",),
+    ]
+    assert finished == ["Turntable Stop"]
+    assert not service.is_running
+    assert not service.is_turntable_running
+
+    client.deliver(_turntable_event("turntable_complete"))
+    assert finished == ["Turntable Stop"]
+
+
+def test_manual_turntable_stop_failure_keeps_move_active() -> None:
+    commands = _Commands()
+    client = _EventClient()
+    service = ManualTestService(client=client, commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, message: failures.append((name, message))
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    commands.error = RuntimeError("stop failed")
+
+    assert not service.request_stop()
+
+    assert failures == [("Turntable Stop", "stop failed")]
+    assert service.is_turntable_running
+
+    commands.error = None
+    client.deliver(_turntable_event("turntable_complete"))
+    assert not service.is_running
+
+
+@pytest.mark.parametrize(
+    ("mast", "polarization", "input_path"),
+    [
+        (ManualMast.BILOG_3M, AntennaPol.V, InputPath.INPUT1),
+        (ManualMast.BILOG_3M, AntennaPol.H, InputPath.INPUT1),
+        (ManualMast.HORN_3M, AntennaPol.V, InputPath.INPUT2),
+        (ManualMast.HORN_3M, AntennaPol.H, InputPath.INPUT2),
+        (ManualMast.MAST_1M, AntennaPol.V, InputPath.INPUT3),
+        (ManualMast.MAST_1M, AntennaPol.H, InputPath.INPUT3),
+    ],
+)
+def test_manual_mast_uses_existing_input_path_mapping(
+    mast: ManualMast,
+    polarization: AntennaPol,
+    input_path: InputPath,
+) -> None:
+    commands = _Commands()
+    service = ManualTestService(client=object(), commands=commands)
+
+    assert service.set_mast_polarization(
+        mast=mast,
+        polarization=polarization,
+    )
+
+    assert commands.calls == [
+        ("set_antenna_pol", polarization, input_path)
+    ]
+    assert not service.is_running
+
+
+@pytest.mark.parametrize(
+    ("result", "error", "message"),
+    [
+        (False, None, "Change Ant Pol returned false"),
+        (True, RuntimeError("transport failed"), "transport failed"),
+    ],
+)
+def test_manual_mast_failure_releases_state(
+    result: bool,
+    error: Exception | None,
+    message: str,
+) -> None:
+    commands = _Commands()
+    commands.result = result
+    commands.error = error
+    service = ManualTestService(client=object(), commands=commands)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, detail: failures.append((name, detail))
+    )
+
+    assert not service.set_mast_polarization(
+        mast=ManualMast.HORN_3M,
+        polarization=AntennaPol.H,
+    )
+
+    assert failures == [("Mast Polarization", message)]
+    assert not service.is_running
+    assert service.current_operation is None
+
+
+def test_manual_mast_guard_rejects_before_command() -> None:
+    commands = _Commands()
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+
+    assert not service.set_mast_polarization(
+        mast=ManualMast.HORN_3M,
+        polarization=AntennaPol.H,
+    )
+
+    assert commands.calls == []
+    assert not service.is_running

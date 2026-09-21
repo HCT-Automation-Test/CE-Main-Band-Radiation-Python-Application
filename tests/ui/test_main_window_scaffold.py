@@ -1711,6 +1711,56 @@ def test_main_window_locks_manual_commands_during_automatic_test(qtbot) -> None:
     ).isEnabled() is False
 
 
+def test_main_window_manual_move_completes_from_shared_client_event(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    calls: list[tuple[object, ...]] = []
+
+    class Commands:
+        def rotate_turntable(
+            self,
+            _client,
+            *,
+            angle: float,
+            turntable_speed: int,
+        ) -> None:
+            calls.append(("rotate_turntable", angle, turntable_speed))
+
+    window._manual_test_service._commands = Commands()
+    window._manual_test_service.set_equipment_state({"CO3000": True})
+    move_button = window._manual_test_panel.findChild(
+        QPushButton,
+        "manualTurntable360Button",
+    )
+    stop_button = window._manual_test_panel.findChild(
+        QPushButton,
+        "manualStopButton",
+    )
+
+    assert window._manual_test_service._client is window._runner.client
+    assert move_button.isEnabled()
+    assert not stop_button.isEnabled()
+
+    qtbot.mouseClick(move_button, Qt.MouseButton.LeftButton)
+
+    assert calls == [("rotate_turntable", 360.0, 6)]
+    assert window._manual_test_service.is_turntable_running
+    assert not move_button.isEnabled()
+    assert stop_button.isEnabled()
+
+    window._runner.client.event_received.emit(
+        SimpleNamespace(
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
+    )
+
+    assert not window._manual_test_service.is_running
+    assert move_button.isEnabled()
+    assert not stop_button.isEnabled()
+
+
 def test_main_window_allows_start_without_active_tdf(
     qtbot,
     monkeypatch,
