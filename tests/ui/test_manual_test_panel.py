@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -199,6 +200,71 @@ def test_manual_panel_custom_toggle_controls_frequency_edits(qtbot) -> None:
     custom.setChecked(False)
     assert start.isReadOnly()
     assert start.text() == "1000"
+
+
+def test_manual_panel_semi_auto_uses_current_saturation_without_set(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    calls: list[dict[str, object]] = []
+    monkeypatch.setattr(
+        service,
+        "run_semi_auto",
+        lambda **kwargs: calls.append(kwargs) or True,
+    )
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    panel.findChild(QLineEdit, "manualSaturationTimeEdit").setText("7.5")
+
+    semi_auto = panel.findChild(QPushButton, "manualSemiAutoButton")
+    assert semi_auto.isEnabled()
+    semi_auto.click()
+
+    assert calls == [{"speed": 6, "saturation_time_sec": 7.5}]
+
+
+@pytest.mark.parametrize(
+    ("object_name", "value"),
+    [
+        ("manualStartFrequencyEdit", ""),
+        ("manualStartFrequencyEdit", "not-a-number"),
+        ("manualStartFrequencyEdit", "-1"),
+        ("manualStartFrequencyEdit", "12750"),
+        ("manualRbwEdit", "0"),
+        ("manualVbwEdit", "0"),
+        ("manualSaturationTimeEdit", "-1"),
+    ],
+)
+def test_manual_panel_rejects_invalid_sa_input_before_set(
+    qtbot,
+    monkeypatch,
+    object_name: str,
+    value: str,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    calls: list[object] = []
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        service,
+        "apply_sa_settings",
+        lambda settings: calls.append(settings) or True,
+    )
+    monkeypatch.setattr(
+        panel,
+        "_show_warning",
+        lambda title, message: warnings.append((title, message)),
+    )
+    service.set_equipment_state({"FSV40": True})
+    panel.findChild(QLineEdit, object_name).setText(value)
+
+    panel.findChild(QPushButton, "manualSetButton").click()
+
+    assert calls == []
+    assert warnings and warnings[0][0] == "FSV40 Set"
 
 
 def test_manual_panel_enables_controls_by_capability(qtbot) -> None:

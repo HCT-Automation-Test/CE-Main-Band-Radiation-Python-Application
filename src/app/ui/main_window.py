@@ -617,9 +617,7 @@ class MainWindow(QMainWindow):
     def on_measurement_active_changed(self, active: bool) -> None:
         """측정 실행 중에는 Instrument Check 재연결을 막는다."""
 
-        if active:
-            self._manual_test_service.invalidate_applied_settings()
-        else:
+        if not active:
             self._test_manager_panel.clear_running_test_case()
         self._update_tdf_operation_lock()
         self._update_instrument_operation_lock()
@@ -697,7 +695,6 @@ class MainWindow(QMainWindow):
     def on_instrument_connection_started(self) -> None:
         """장비 연결 진행 상태를 각 패널에 반영한다."""
 
-        self._manual_test_service.invalidate_applied_settings()
         self._test_manager_panel.set_connection_connecting()
         self._update_instrument_operation_lock()
 

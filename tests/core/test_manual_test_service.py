@@ -7,6 +7,7 @@ import pytest
 from PySide6.QtCore import QObject, QThread, Signal
 
 from app.core.manual_test_service import (
+    FSV40_NOT_CONNECTED_MESSAGE,
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
     ManualTestCapabilities,
     ManualTestService,
@@ -140,6 +141,10 @@ def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
     )
 
 
+def _connect_fsv40(service: ManualTestService) -> None:
+    service.set_equipment_state({"FSV40": True})
+
+
 def test_manual_service_uses_timer_lifecycle_without_worker_thread(
     qtbot,
     tmp_path: Path,
@@ -147,6 +152,7 @@ def test_manual_service_uses_timer_lifecycle_without_worker_thread(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
     events: list[tuple[object, ...]] = []
     service.running_changed.connect(lambda value: events.append(("running", value)))
     service.operation_started.connect(lambda name: events.append(("started", name)))
@@ -174,6 +180,7 @@ def test_manual_service_recovers_after_command_error(qtbot, tmp_path: Path) -> N
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -196,6 +203,7 @@ def test_manual_stop_before_first_timer_step_sends_no_command(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
     cancelled: list[str] = []
     service.operation_cancelled.connect(cancelled.append)
 
@@ -216,6 +224,7 @@ def test_manual_service_rejects_competing_operation_while_waiting_for_event(
     commands = _ManualCommands(client, tmp_path)
     commands.emit_turntable_complete = False
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -239,6 +248,7 @@ def test_manual_service_guard_rejects_before_command(tmp_path: Path) -> None:
         temp_dir=tmp_path,
         operation_guard=lambda: "다른 작업 진행 중",
     )
+    _connect_fsv40(service)
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -257,6 +267,7 @@ def test_manual_service_shutdown_cancels_timer_and_rejects_new_work(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -286,6 +297,7 @@ def test_manual_service_repeats_fifty_real_client_commands_without_threads(
         commands=net_commands,
         temp_dir=tmp_path,
     )
+    _connect_fsv40(service)
     finished: list[str] = []
     failures: list[tuple[str, str]] = []
     service.operation_finished.connect(finished.append)
@@ -309,19 +321,84 @@ def test_manual_service_repeats_fifty_real_client_commands_without_threads(
         server.stop()
 
 
-def test_manual_service_applies_settings_and_remembers_saturation(
+def test_manual_service_applies_exact_sa_wire_fields_without_saturation(
     qtbot,
     tmp_path: Path,
 ) -> None:
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
 
     assert service.apply_sa_settings(_manual_settings(saturation_time_sec=2.5))
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
-    assert service.applied_saturation_time_sec == 2.5
-    assert commands.calls[0][0] == "setup_sa_manual"
+    assert commands.calls == [
+        (
+            "setup_sa_manual",
+            {
+                "start_frequency_mhz": 1000.0,
+                "stop_frequency_mhz": 12750.0,
+                "rbw_mhz": 1.0,
+                "vbw_mhz": 3.0,
+                "sweep_point": 30001,
+                "sweep_time_sec": 0.1,
+                "atten_level_db": 0.0,
+                "detector_mode": "RMS",
+                "limit_dbm": -30.0,
+            },
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("operation_name", "invoke"),
+    [
+        ("FSV40 Set", lambda service: service.apply_sa_settings(_manual_settings())),
+        ("FSV40 Preset", lambda service: service.preset_sa()),
+        ("Trace Clear", lambda service: service.clear_trace()),
+    ],
+)
+def test_manual_fsv40_actions_reject_disconnected_before_command(
+    tmp_path: Path,
+    operation_name,
+    invoke,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert not invoke(service)
+
+    assert commands.calls == []
+    assert failures == [(operation_name, FSV40_NOT_CONNECTED_MESSAGE)]
+    assert not service.is_running
+
+
+def test_manual_sa_failure_releases_busy_for_next_command(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.setup_sa_manual = lambda _client, **_params: False
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_fsv40(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.apply_sa_settings(_manual_settings())
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert failures == [
+        ("FSV40 Set", "Load SA Manual Setting returned false"),
+    ]
+    assert service.preset_sa()
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    assert commands.calls == [("preset_sa",)]
 
 
 def test_manual_service_capture_many_preserves_order(
@@ -387,18 +464,15 @@ def test_manual_service_capture_preflight_sends_no_command_on_collision(
     assert failures and "capture_002.png" in failures[0][1]
 
 
-def test_manual_service_semi_auto_uses_applied_saturation_and_rotation_order(
+def test_manual_service_semi_auto_uses_explicit_saturation_and_rotation_order(
     qtbot,
     tmp_path: Path,
 ) -> None:
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
-    assert service.apply_sa_settings(_manual_settings())
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-    commands.calls.clear()
 
-    assert service.run_semi_auto(speed=4)
+    assert service.run_semi_auto(speed=4, saturation_time_sec=0)
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert commands.calls == [
@@ -508,9 +582,6 @@ def test_manual_service_stop_during_angle_query_skips_rotation(
     client = _EventClient()
     commands = _ManualCommands(client, tmp_path)
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
-    assert service.apply_sa_settings(_manual_settings())
-    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
-    commands.calls.clear()
 
     def get_turntable_angle(_client) -> float:
         commands.calls.append(("get_turntable_angle",))
@@ -519,7 +590,7 @@ def test_manual_service_stop_during_angle_query_skips_rotation(
 
     commands.get_turntable_angle = get_turntable_angle
 
-    assert service.run_semi_auto(speed=6)
+    assert service.run_semi_auto(speed=6, saturation_time_sec=0)
     qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
 
     assert commands.calls == [("get_turntable_angle",)]

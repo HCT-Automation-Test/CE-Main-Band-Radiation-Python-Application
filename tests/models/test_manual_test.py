@@ -66,6 +66,8 @@ def test_manual_sa_settings_accept_valid_input() -> None:
         {"sweep_point": 1.5},
         {"sweep_time_sec": 0.0},
         {"saturation_time_sec": -1.0},
+        {"saturation_time_sec": float("nan")},
+        {"limit_dbm": float("inf")},
         {"detector_mode": "invalid"},
     ],
 )

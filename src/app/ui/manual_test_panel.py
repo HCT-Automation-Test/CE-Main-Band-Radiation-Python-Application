@@ -533,7 +533,6 @@ class ManualTestPanel(QWidget):
         if self._service is None:
             return
         self._service.capabilities_changed.connect(self.set_capabilities)
-        self._service.applied_settings_changed.connect(self._on_applied_settings_changed)
         self._service.running_changed.connect(self._on_running_changed)
         self._service.operation_started.connect(self._on_operation_started)
         self._service.step_changed.connect(self._status_label.setText)
@@ -609,12 +608,7 @@ class ManualTestPanel(QWidget):
         )
         self._vertical_button.setEnabled(mast_ready and idle)
         self._horizontal_button.setEnabled(mast_ready and idle)
-        semi_ready = (
-            self._capabilities.semi_auto
-            and self._service is not None
-            and self._service.applied_saturation_time_sec is not None
-        )
-        self._semi_auto_button.setEnabled(semi_ready and idle)
+        self._semi_auto_button.setEnabled(self._capabilities.semi_auto and idle)
         self._stop_button.setEnabled(self._service_running)
         tdf_ready = self._capabilities.fsv40 and idle and not self._tdf_operation_locked
         self._tdf_update_button.setEnabled(tdf_ready)
@@ -624,10 +618,6 @@ class ManualTestPanel(QWidget):
     @Slot(bool)
     def _on_running_changed(self, active: bool) -> None:
         self._service_running = active
-        self._update_control_state()
-
-    @Slot(object)
-    def _on_applied_settings_changed(self, _value: object) -> None:
         self._update_control_state()
 
     @Slot(str)
@@ -673,8 +663,21 @@ class ManualTestPanel(QWidget):
             self._service.clear_trace()
 
     def _on_semi_auto_clicked(self) -> None:
-        if self._service is not None:
-            self._service.run_semi_auto(speed=self._turntable_speed_spin.value())
+        if self._service is None:
+            return
+        try:
+            saturation_time_sec = self._parse_float(
+                self._saturation_time_edit,
+                "Saturation Time",
+            )
+            if saturation_time_sec < 0:
+                raise ValueError("Saturation Time은 0 이상이어야 합니다.")
+            self._service.run_semi_auto(
+                speed=self._turntable_speed_spin.value(),
+                saturation_time_sec=saturation_time_sec,
+            )
+        except ValueError as exc:
+            self._show_warning("Semi Auto", str(exc))
 
     def _on_stop_clicked(self) -> None:
         if self._service is not None:

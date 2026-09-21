@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 OperationGuard = Callable[[], str | None]
 MANUAL_OPERATION_IN_PROGRESS_MESSAGE = "Manual Test 작업이 진행 중입니다."
 MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE = "Manual Test 서비스를 종료하는 중입니다."
+FSV40_NOT_CONNECTED_MESSAGE = "FSV40이 연결되어 있지 않습니다."
 _DEFAULT_TURNTABLE_TIMEOUT_SEC = 300.0
 _MAX_QT_TIMER_INTERVAL_MS = 2_147_483_647
 _TURNTABLE_EVENT_COMMANDS = {
@@ -134,7 +135,6 @@ class ManualTestService(QObject):
     operation_cancelled = Signal(str)
     running_changed = Signal(bool)
     capabilities_changed = Signal(object)
-    applied_settings_changed = Signal(object)
     screenshot_saved = Signal(str)
     turntable_info_changed = Signal(object)
 
@@ -160,7 +160,6 @@ class ManualTestService(QObject):
         self._step_deadline: float | None = None
         self._turntable_deadline: float | None = None
         self._capabilities = ManualTestCapabilities()
-        self._applied_saturation_time_sec: float | None = None
         self._shutting_down = False
         self._handled_event_ids: deque[str] = deque(maxlen=1000)
         self._handled_event_objects: deque[Any] = deque(maxlen=1000)
@@ -197,30 +196,22 @@ class ManualTestService(QObject):
     def capabilities(self) -> ManualTestCapabilities:
         return self._capabilities
 
-    @property
-    def applied_saturation_time_sec(self) -> float | None:
-        """마지막으로 Set 성공한 Saturation Time을 반환한다."""
-
-        return self._applied_saturation_time_sec
-
     def set_equipment_state(self, equipment_state: dict[str, bool]) -> None:
         """연결 상태만 사용해 capability를 갱신한다."""
 
         capabilities = manual_test_capabilities(equipment_state)
-        if not capabilities.fsv40 and self._applied_saturation_time_sec is not None:
-            self.invalidate_applied_settings()
         if capabilities == self._capabilities:
             return
         self._capabilities = capabilities
         self.capabilities_changed.emit(capabilities)
 
-    def invalidate_applied_settings(self) -> None:
-        """재연결/Preset 이후 이전 Set 적용값을 폐기한다."""
-
-        self._applied_saturation_time_sec = None
-        self.applied_settings_changed.emit(None)
-
     def apply_sa_settings(self, settings: ManualSaSettings) -> bool:
+        if not self._require_capability(
+            "FSV40 Set",
+            available=self._capabilities.fsv40,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         return self._begin_operation(
             "FSV40 Set",
             _OperationKind.SA_SET,
@@ -229,6 +220,12 @@ class ManualTestService(QObject):
         )
 
     def preset_sa(self) -> bool:
+        if not self._require_capability(
+            "FSV40 Preset",
+            available=self._capabilities.fsv40,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         return self._begin_operation(
             "FSV40 Preset",
             _OperationKind.SA_PRESET,
@@ -236,6 +233,12 @@ class ManualTestService(QObject):
         )
 
     def clear_trace(self) -> bool:
+        if not self._require_capability(
+            "Trace Clear",
+            available=self._capabilities.fsv40,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         return self._start_simple_command("Trace Clear", self._commands.clear_trace)
 
     def marker_peak(self, marker_index: int, excursion: float) -> bool:
@@ -306,21 +309,19 @@ class ManualTestService(QObject):
             {"mast": mast, "polarization": polarization},
         )
 
-    def run_semi_auto(self, *, speed: int) -> bool:
+    def run_semi_auto(self, *, speed: int, saturation_time_sec: float) -> bool:
         self._validate_turntable_request(angle=0.0, speed=speed)
-        if self._applied_saturation_time_sec is None:
-            self.operation_failed.emit(
-                "Semi Auto",
-                "먼저 FSV40 Set을 완료하세요.",
-            )
-            return False
+        self._validate_nonnegative_delay(
+            saturation_time_sec,
+            field_name="Saturation Time",
+        )
         return self._begin_operation(
             "Semi Auto",
             _OperationKind.SEMI_AUTO,
             _OperationStep.SEMI_QUERY_ANGLE,
             {
                 "speed": speed,
-                "saturation_time_sec": self._applied_saturation_time_sec,
+                "saturation_time_sec": float(saturation_time_sec),
             },
         )
 
@@ -554,8 +555,6 @@ class ManualTestService(QObject):
         self._require_true(ok, "Load SA Manual Setting")
         if not self._is_active(state):
             return
-        self._applied_saturation_time_sec = settings.saturation_time_sec
-        self.applied_settings_changed.emit(settings.saturation_time_sec)
         self._terminate(state, "finished")
 
     def _execute_preset_sa(self, state: _OperationState) -> None:
@@ -566,8 +565,6 @@ class ManualTestService(QObject):
         )
         if not self._is_active(state):
             return
-        self._applied_saturation_time_sec = None
-        self.applied_settings_changed.emit(None)
         self._terminate(state, "finished")
 
     def _execute_simple_command(self, state: _OperationState) -> None:
@@ -913,6 +910,28 @@ class ManualTestService(QObject):
             raise ValueError("Turntable 목표 각도는 0° 또는 360°여야 합니다.")
         if isinstance(speed, bool) or not isinstance(speed, int) or speed <= 0:
             raise ValueError("Turntable Speed는 0보다 큰 정수여야 합니다.")
+
+    @staticmethod
+    def _validate_nonnegative_delay(value: float, *, field_name: str) -> None:
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(float(value))
+            or value < 0
+        ):
+            raise ValueError(f"{field_name}은 0 이상의 유한한 숫자여야 합니다.")
+
+    def _require_capability(
+        self,
+        operation_name: str,
+        *,
+        available: bool,
+        message: str,
+    ) -> bool:
+        if available:
+            return True
+        self.operation_failed.emit(operation_name, message)
+        return False
 
     @staticmethod
     def _require_true(result: object, command_name: str) -> None:
