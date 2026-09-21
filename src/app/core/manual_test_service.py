@@ -27,6 +27,8 @@ OperationGuard = Callable[[], str | None]
 MANUAL_OPERATION_IN_PROGRESS_MESSAGE = "Manual Test 작업이 진행 중입니다."
 MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE = "Manual Test 서비스를 종료하는 중입니다."
 FSV40_NOT_CONNECTED_MESSAGE = "FSV40이 연결되어 있지 않습니다."
+CO3000_NOT_CONNECTED_MESSAGE = "CO3000이 연결되어 있지 않습니다."
+CONTROLLER_3D_NOT_CONNECTED_MESSAGE = "3D Controller가 연결되어 있지 않습니다."
 _DEFAULT_TURNTABLE_TIMEOUT_SEC = 300.0
 _MAX_QT_TIMER_INTERVAL_MS = 2_147_483_647
 _TURNTABLE_EVENT_COMMANDS = {
@@ -295,6 +297,12 @@ class ManualTestService(QObject):
 
     def move_turntable(self, *, angle: float, speed: int) -> bool:
         self._validate_turntable_request(angle=angle, speed=speed)
+        if not self._require_capability(
+            f"Turntable {angle:g}°",
+            available=self._capabilities.turntable,
+            message=CO3000_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         return self._begin_operation(
             f"Turntable {angle:g}°",
             _OperationKind.MOVE,
@@ -308,6 +316,18 @@ class ManualTestService(QObject):
         mast: ManualMast,
         polarization: AntennaPol,
     ) -> bool:
+        if mast is ManualMast.MAST_1M:
+            available = self._capabilities.mast_1m
+            message = CONTROLLER_3D_NOT_CONNECTED_MESSAGE
+        else:
+            available = self._capabilities.mast_3m
+            message = CO3000_NOT_CONNECTED_MESSAGE
+        if not self._require_capability(
+            "Mast Polarization",
+            available=available,
+            message=message,
+        ):
+            return False
         return self._begin_operation(
             "Mast Polarization",
             _OperationKind.MAST,

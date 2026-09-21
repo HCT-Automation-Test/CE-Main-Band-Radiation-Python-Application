@@ -341,6 +341,29 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     assert not panel.findChild(QPushButton, "manualSetButton").isEnabled()
 
 
+def test_manual_panel_mast_buttons_follow_selected_controller(qtbot) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    mast = panel.findChild(QComboBox, "manualMastComboBox")
+    vertical = panel.findChild(QPushButton, "manualVerticalButton")
+    turntable = panel.findChild(QPushButton, "manualTurntableZeroButton")
+
+    service.set_equipment_state({"CO3000": True})
+    for index in (0, 1):
+        mast.setCurrentIndex(index)
+        assert vertical.isEnabled()
+    mast.setCurrentIndex(2)
+    assert not vertical.isEnabled()
+    assert turntable.isEnabled()
+
+    service.set_equipment_state({"3D Controller": True})
+    assert vertical.isEnabled()
+    assert not turntable.isEnabled()
+    mast.setCurrentIndex(0)
+    assert not vertical.isEnabled()
+
+
 def test_manual_panel_emits_tdf_requests_and_marks_active_item(qtbot) -> None:
     panel = ManualTestPanel(service=ManualTestService())
     qtbot.addWidget(panel)

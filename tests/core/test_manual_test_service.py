@@ -7,13 +7,16 @@ import pytest
 from PySide6.QtCore import QObject, QThread, Signal
 
 from app.core.manual_test_service import (
+    CO3000_NOT_CONNECTED_MESSAGE,
+    CONTROLLER_3D_NOT_CONNECTED_MESSAGE,
     FSV40_NOT_CONNECTED_MESSAGE,
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
     ManualTestCapabilities,
     ManualTestService,
     manual_test_capabilities,
 )
-from app.models.manual_test import ManualSaSettings
+from app.models.enums import AntennaPol
+from app.models.manual_test import ManualMast, ManualSaSettings
 from app.net import commands as net_commands
 from app.net.mock_lv_server import MockLvServer
 from app.net.tcp_client import TcpClient
@@ -76,8 +79,16 @@ def test_manual_capabilities_ignore_non_equipment_state() -> None:
 class _EventClient(QObject):
     event_received = Signal(object)
 
-    def pop_events(self, _predicate) -> list[object]:
-        return []
+    def __init__(self) -> None:
+        super().__init__()
+        self.buffered_events: list[object] = []
+
+    def pop_events(self, predicate) -> list[object]:
+        selected = [event for event in self.buffered_events if predicate(event)]
+        self.buffered_events = [
+            event for event in self.buffered_events if not predicate(event)
+        ]
+        return selected
 
 
 class _ManualCommands:
@@ -149,6 +160,10 @@ class _ManualCommands:
     def stop_turntable(self, _client) -> None:
         self.calls.append(("stop_turntable",))
 
+    def set_antenna_pol(self, _client, *, pol, input_path) -> bool:
+        self.calls.append(("set_antenna_pol", pol, input_path))
+        return True
+
 
 def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
     return ManualSaSettings(
@@ -167,6 +182,24 @@ def _manual_settings(*, saturation_time_sec: float = 0.0) -> ManualSaSettings:
 
 def _connect_fsv40(service: ManualTestService) -> None:
     service.set_equipment_state({"FSV40": True})
+
+
+def _connect_co3000(service: ManualTestService) -> None:
+    service.set_equipment_state({"CO3000": True})
+
+
+def _turntable_event(
+    command: str,
+    *,
+    event_id: str,
+    params: dict[str, object] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=event_id,
+        target="CO3000",
+        command=command,
+        params=dict(params or {}),
+    )
 
 
 def test_manual_service_uses_timer_lifecycle_without_worker_thread(
@@ -248,7 +281,7 @@ def test_manual_service_rejects_competing_operation_while_waiting_for_event(
     commands = _ManualCommands(client, tmp_path)
     commands.emit_turntable_complete = False
     service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
-    _connect_fsv40(service)
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),
@@ -589,6 +622,234 @@ def test_manual_service_capture_preflight_sends_no_command_on_collision(
     assert failures and "capture_002.png" in failures[0][1]
 
 
+@pytest.mark.parametrize(("angle", "speed"), [(0.0, 2), (360.0, 9)])
+def test_manual_turntable_forwards_target_and_speed(
+    qtbot,
+    tmp_path: Path,
+    angle: float,
+    speed: int,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+
+    assert service.move_turntable(angle=angle, speed=speed)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [("rotate_turntable", angle, speed)]
+
+
+def test_manual_motion_rejects_wrong_equipment_before_command(tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert not service.move_turntable(angle=360.0, speed=6)
+    assert not service.set_mast_polarization(
+        mast=ManualMast.BILOG_3M,
+        polarization=AntennaPol.V,
+    )
+    service.set_equipment_state({"CO3000": True})
+    assert not service.set_mast_polarization(
+        mast=ManualMast.MAST_1M,
+        polarization=AntennaPol.V,
+    )
+    service.set_equipment_state({"3D Controller": True})
+    assert not service.move_turntable(angle=0.0, speed=6)
+
+    assert commands.calls == []
+    assert failures == [
+        ("Turntable 360°", CO3000_NOT_CONNECTED_MESSAGE),
+        ("Mast Polarization", CO3000_NOT_CONNECTED_MESSAGE),
+        ("Mast Polarization", CONTROLLER_3D_NOT_CONNECTED_MESSAGE),
+        ("Turntable 0°", CO3000_NOT_CONNECTED_MESSAGE),
+    ]
+
+
+def test_manual_mast_routes_co3000_and_3d_capabilities(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+
+    service.set_equipment_state({"CO3000": True})
+    for mast in (ManualMast.BILOG_3M, ManualMast.HORN_3M):
+        assert service.set_mast_polarization(
+            mast=mast,
+            polarization=AntennaPol.H,
+        )
+        qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    service.set_equipment_state({"3D Controller": True})
+    assert service.set_mast_polarization(
+        mast=ManualMast.MAST_1M,
+        polarization=AntennaPol.V,
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls == [
+        (
+            "set_antenna_pol",
+            AntennaPol.H,
+            ManualMast.BILOG_3M.input_path,
+        ),
+        (
+            "set_antenna_pol",
+            AntennaPol.H,
+            ManualMast.HORN_3M.input_path,
+        ),
+        (
+            "set_antenna_pol",
+            AntennaPol.V,
+            ManualMast.MAST_1M.input_path,
+        ),
+    ]
+
+
+def test_manual_turntable_deduplicates_buffer_and_signal_completion(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+    event = _turntable_event("turntable_complete", event_id="complete-1")
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+
+    def rotate(_client, *, angle: float, turntable_speed: int) -> None:
+        commands.calls.append(("rotate_turntable", angle, turntable_speed))
+        client.buffered_events.append(event)
+        client.event_received.emit(event)
+
+    commands.rotate_turntable = rotate
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    qtbot.wait(10)
+
+    assert finished == ["Turntable 360°"]
+    assert commands.calls == [("rotate_turntable", 360.0, 6)]
+
+
+def test_manual_turntable_discards_stale_completion(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    stale = _turntable_event("turntable_complete", event_id="stale-complete")
+    client.buffered_events.append(stale)
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(
+        lambda: ("rotate_turntable", 360.0, 6) in commands.calls,
+        timeout=1000,
+    )
+    qtbot.wait(10)
+    assert service.is_running
+
+    client.event_received.emit(
+        _turntable_event("turntable_complete", event_id="fresh-complete")
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+
+def test_manual_turntable_error_stops_and_releases_busy(qtbot, tmp_path: Path) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(
+        lambda: ("rotate_turntable", 360.0, 6) in commands.calls,
+        timeout=1000,
+    )
+    client.event_received.emit(
+        _turntable_event(
+            "equipment_error",
+            event_id="rotation-error",
+            params={"message": "encoder fault"},
+        )
+    )
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+
+    assert commands.calls[-1] == ("stop_turntable",)
+    assert failures == [
+        ("Turntable 360°", "Turntable 회전 실패: encoder fault"),
+    ]
+
+
+def test_manual_turntable_ignores_late_event_after_completion(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+    finished: list[str] = []
+    failures: list[tuple[str, str]] = []
+    service.operation_finished.connect(finished.append)
+    service.operation_failed.connect(
+        lambda operation, message: failures.append((operation, message)),
+    )
+
+    assert service.move_turntable(angle=0.0, speed=3)
+    qtbot.waitUntil(lambda: not service.is_running, timeout=1000)
+    client.event_received.emit(
+        _turntable_event(
+            "equipment_error",
+            event_id="late-error",
+            params={"message": "late"},
+        )
+    )
+    qtbot.wait(10)
+
+    assert finished == ["Turntable 0°"]
+    assert failures == []
+    assert commands.calls == [("rotate_turntable", 0.0, 3)]
+
+
+def test_manual_shutdown_stops_rotation_and_ignores_late_completion(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    client = _EventClient()
+    commands = _ManualCommands(client, tmp_path)
+    commands.emit_turntable_complete = False
+    service = ManualTestService(client=client, commands=commands, temp_dir=tmp_path)
+    _connect_co3000(service)
+    finished: list[str] = []
+    service.operation_finished.connect(finished.append)
+
+    assert service.move_turntable(angle=360.0, speed=6)
+    qtbot.waitUntil(
+        lambda: ("rotate_turntable", 360.0, 6) in commands.calls,
+        timeout=1000,
+    )
+    service.shutdown()
+    client.event_received.emit(
+        _turntable_event("turntable_complete", event_id="after-shutdown")
+    )
+    qtbot.wait(10)
+
+    assert not service.is_running
+    assert finished == []
+    assert commands.calls[-1] == ("stop_turntable",)
+
+
 def test_manual_service_semi_auto_uses_explicit_saturation_and_rotation_order(
     qtbot,
     tmp_path: Path,
@@ -618,6 +879,7 @@ def test_manual_service_stop_stops_active_turntable(qtbot, tmp_path: Path) -> No
         temp_dir=tmp_path,
         turntable_timeout_sec=5.0,
     )
+    _connect_co3000(service)
     cancelled: list[str] = []
     failures: list[tuple[str, str]] = []
     service.operation_cancelled.connect(cancelled.append)
@@ -648,6 +910,7 @@ def test_manual_service_reports_stop_command_failure(qtbot, tmp_path: Path) -> N
         temp_dir=tmp_path,
         turntable_timeout_sec=5.0,
     )
+    _connect_co3000(service)
     cancelled: list[str] = []
     failures: list[tuple[str, str]] = []
     service.operation_cancelled.connect(cancelled.append)
@@ -688,6 +951,7 @@ def test_manual_service_timeout_stops_turntable_and_reports_failure(
         temp_dir=tmp_path,
         turntable_timeout_sec=0.01,
     )
+    _connect_co3000(service)
     failures: list[tuple[str, str]] = []
     service.operation_failed.connect(
         lambda operation, message: failures.append((operation, message)),

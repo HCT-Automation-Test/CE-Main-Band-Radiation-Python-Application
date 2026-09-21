@@ -1592,6 +1592,7 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
     window._tdf_service._commands = Commands()
     window._rf_switch_box_service._commands = Commands()
     window._manual_test_service._commands = Commands()
+    window._manual_test_service.set_equipment_state({"CO3000": True})
     config = build_equipment_connection_config(
         mt8000a_visa_resource="MT",
         fsv40_visa_resource="FS",
