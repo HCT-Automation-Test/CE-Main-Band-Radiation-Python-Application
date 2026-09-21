@@ -698,7 +698,7 @@ class ManualTestPanel(QWidget):
         try:
             marker_index = int(self._marker_combo.currentData())
             excursion = 0.0
-            if action not in {"auto", "center"}:
+            if action == "next":
                 excursion = self._parse_float(
                     self._excursion_edit,
                     "Next Peak Search Level",
@@ -715,7 +715,10 @@ class ManualTestPanel(QWidget):
                 "auto": self._service.marker_auto_max,
                 "center": self._service.marker_set_center,
             }[action]
-            method(marker_index, excursion)
+            if action in {"auto", "center"}:
+                method(marker_index)
+            else:
+                method(marker_index, excursion)
         except ValueError as exc:
             self._show_warning("Marker", str(exc))
 

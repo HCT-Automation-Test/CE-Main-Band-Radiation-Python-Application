@@ -187,6 +187,60 @@ def test_manual_panel_places_marker_actions_in_three_by_two_grid(qtbot) -> None:
     assert panel.findChild(QWidget, "manualStatusLabel").height() == 26
 
 
+def test_manual_panel_only_uses_search_level_for_marker_next(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        service,
+        "marker_peak",
+        lambda marker, excursion: calls.append(("peak", marker, excursion)) or True,
+    )
+    monkeypatch.setattr(
+        service,
+        "marker_next",
+        lambda marker, excursion: calls.append(("next", marker, excursion)) or True,
+    )
+    monkeypatch.setattr(
+        service,
+        "marker_off",
+        lambda marker, excursion: calls.append(("off", marker, excursion)) or True,
+    )
+    monkeypatch.setattr(
+        service,
+        "marker_auto_max",
+        lambda marker: calls.append(("auto", marker)) or True,
+    )
+    monkeypatch.setattr(
+        service,
+        "marker_set_center",
+        lambda marker: calls.append(("center", marker)) or True,
+    )
+    service.set_equipment_state({"FSV40": True})
+    panel.findChild(QLineEdit, "manualNextPeakSearchLevelEdit").setText("7.5")
+
+    for object_name in (
+        "manualMarkerPeakButton",
+        "manualMarkerNextButton",
+        "manualMarkerOffButton",
+        "manualMarkerAutoMaxButton",
+        "manualMarkerCenterButton",
+    ):
+        panel.findChild(QPushButton, object_name).click()
+
+    assert calls == [
+        ("peak", 1, 0.0),
+        ("next", 1, 7.5),
+        ("off", 1, 0.0),
+        ("auto", 1),
+        ("center", 1),
+    ]
+
+
 def test_manual_panel_custom_toggle_controls_frequency_edits(qtbot) -> None:
     panel = ManualTestPanel(service=ManualTestService())
     qtbot.addWidget(panel)
