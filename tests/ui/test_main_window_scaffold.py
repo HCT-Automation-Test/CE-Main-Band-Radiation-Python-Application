@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from types import SimpleNamespace
 
 import pytest
@@ -1561,13 +1560,11 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
     qtbot,
     monkeypatch,
 ) -> None:
-    """Manual worker가 끝나기 전에는 경쟁 command를 하나도 보내지 않는다."""
+    """Manual command 실행 중에는 경쟁 command를 하나도 보내지 않는다."""
 
     window = MainWindow()
     qtbot.addWidget(window)
     monkeypatch.setattr(window, "_show_warning", lambda _title, _message: None)
-    entered = threading.Event()
-    release = threading.Event()
     calls: list[str] = []
 
     class Commands:
@@ -1590,15 +1587,7 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
         switch_box_port=5000,
     )
 
-    def manual_operation(_context) -> None:
-        entered.set()
-        release.wait(2.0)
-
-    assert window._manual_test_service.start_operation(
-        "Manual blocking",
-        manual_operation,
-    )
-    qtbot.waitUntil(entered.is_set, timeout=1000)
+    window._manual_test_service._running = True
     try:
         window._runner.start([], settings=object())
         window._runner.instrument_connection_service.connect_equipment(config)
@@ -1613,15 +1602,66 @@ def test_main_window_blocks_all_equipment_entry_points_while_manual_runs(
         assert not window._tdf_service.is_running
         assert not window._rf_switch_box_service.is_running
         assert window._manual_test_service.is_running
-
-        window._manual_test_service.request_stop()
-        assert window._manual_test_service.is_running
     finally:
-        release.set()
-    qtbot.waitUntil(
-        lambda: not window._manual_test_service.is_running,
-        timeout=1000,
+        window._manual_test_service._running = False
+
+
+def test_main_window_manual_turntable_event_releases_ui_lock(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+    panel = window._manual_test_panel
+    service = window._manual_test_service
+    calls: list[tuple[object, ...]] = []
+
+    class Commands:
+        def rotate_turntable(
+            self,
+            _client,
+            *,
+            angle: float,
+            turntable_speed: int,
+        ) -> None:
+            calls.append(("rotate_turntable", angle, turntable_speed))
+
+        def stop_turntable(self, _client) -> None:
+            calls.append(("stop_turntable",))
+
+    service._commands = Commands()
+    service.set_equipment_state({"CO3000": True})
+    stop = panel.findChild(QPushButton, "manualStopButton")
+    move = panel.findChild(QPushButton, "manualTurntable360Button")
+
+    assert service._client is window._runner.client
+    assert not stop.isEnabled()
+    assert move.isEnabled()
+    assert service.move_turntable(angle=360.0, speed=6)
+    assert service.is_running
+    assert stop.isEnabled()
+    assert not move.isEnabled()
+
+    window._runner.client.event_received.emit(
+        SimpleNamespace(
+            id="fixed-event-id",
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
     )
+
+    assert calls == [("rotate_turntable", 360.0, 6)]
+    assert not service.is_running
+    assert not stop.isEnabled()
+    assert move.isEnabled()
+
+
+def test_main_window_removed_manual_settings_state_has_no_stale_call(qtbot) -> None:
+    window = MainWindow()
+    qtbot.addWidget(window)
+
+    window.on_instrument_connection_started()
+    window._runner._set_measurement_active(True)
+
+    assert window._runner.is_measurement_active
 
 
 def test_main_window_blocks_manual_before_command_for_every_competing_operation(
@@ -1637,6 +1677,13 @@ def test_main_window_blocks_manual_before_command_for_every_competing_operation(
     )
     calls: list[str] = []
     connection_service = window._runner.instrument_connection_service
+
+    class Commands:
+        def clear_trace(self, _client):
+            calls.append("command")
+            return True
+
+    window._manual_test_service._commands = Commands()
 
     active_states = [
         (
@@ -1664,10 +1711,7 @@ def test_main_window_blocks_manual_before_command_for_every_competing_operation(
     for activate, clear in active_states:
         activate()
         try:
-            accepted = window._manual_test_service.start_operation(
-                "경쟁 Manual",
-                lambda _context: calls.append("command"),
-            )
+            accepted = window._manual_test_service.clear_trace()
             assert not accepted
             assert not window._manual_test_service.is_running
         finally:

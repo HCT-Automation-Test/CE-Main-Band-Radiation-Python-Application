@@ -211,12 +211,16 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     assert panel.findChild(QPushButton, "manualSetButton").isEnabled()
     assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
     assert panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
+    assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
 
     panel.set_capabilities(
         ManualTestCapabilities(turntable=True, mast_3m=True),
     )
     assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
+    assert not panel.findChild(QPushButton, "manualStopButton").isEnabled()
     assert panel.findChild(QPushButton, "manualVerticalButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualSetButton").isEnabled()
 

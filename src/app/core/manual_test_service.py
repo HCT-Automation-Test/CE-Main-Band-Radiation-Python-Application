@@ -1,16 +1,12 @@
-"""Manual Test 장비 작업의 비동기 수명주기 서비스."""
+"""Manual Test 장비 command 및 Turntable Event 수명주기 서비스."""
 from __future__ import annotations
 
 import logging
-import math
-import threading
-import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
-from typing import Callable
+from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QThread, Qt, Signal, Slot
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.models.enums import AntennaPol
 from app.models.manual_test import ManualMast, ManualSaSettings
@@ -24,21 +20,16 @@ from app.report.manual_screenshot_store import (
 logger = logging.getLogger(__name__)
 
 OperationGuard = Callable[[], str | None]
+ManualOperation = Callable[[], None]
 MANUAL_OPERATION_IN_PROGRESS_MESSAGE = "Manual Test 작업이 진행 중입니다."
 MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE = "Manual Test 서비스를 종료하는 중입니다."
-_SHUTDOWN_WAIT_MS = 1000
-_TURNTABLE_POLL_SEC = 0.1
 _DEFAULT_TURNTABLE_TIMEOUT_SEC = 300.0
 _TURNTABLE_EVENT_COMMANDS = {
     "turntable_progress",
     "turntable_complete",
     "equipment_error",
 }
-_DETACHED_THREADS: list[QThread] = []
-
-
-class _ManualStopError(RuntimeError):
-    """Stop 요청 실패를 일반 취소와 구분한다."""
+_MAX_HANDLED_TURNTABLE_EVENTS = 1000
 
 
 @dataclass(frozen=True)
@@ -51,7 +42,6 @@ class ManualTestCapabilities:
     turntable: bool = False
     mast_1m: bool = False
     mast_3m: bool = False
-    semi_auto: bool = False
 
 
 def manual_test_capabilities(
@@ -69,113 +59,18 @@ def manual_test_capabilities(
         turntable=co3000,
         mast_1m=controller_3d,
         mast_3m=co3000,
-        semi_auto=fsv40 and co3000,
     )
 
 
-class ManualOperationContext:
-    """Manual operation callback에 제공하는 최소 취소/진행 API."""
-
-    def __init__(
-        self,
-        cancel_event: threading.Event,
-        step_reporter: Callable[[str], None],
-    ) -> None:
-        self._cancel_event = cancel_event
-        self._step_reporter = step_reporter
-
-    @property
-    def cancel_requested(self) -> bool:
-        return self._cancel_event.is_set()
-
-    def report_step(self, message: str) -> None:
-        """현재 operation 단계를 UI에 전달한다."""
-
-        self._step_reporter(message)
-
-    def wait(self, timeout_s: float) -> bool:
-        """취소에 반응하며 대기하고 정상 대기 완료 여부를 반환한다."""
-
-        return not self._cancel_event.wait(max(0.0, timeout_s))
-
-
-ManualOperation = Callable[[ManualOperationContext], None]
-
-
-def _disconnect_safely(signal: Signal, slot: object) -> None:
-    try:
-        signal.disconnect(slot)
-    except (RuntimeError, TypeError):
-        pass
-
-
-def _forget_detached_thread(thread: QThread) -> None:
-    if thread in _DETACHED_THREADS:
-        _DETACHED_THREADS.remove(thread)
-    thread.deleteLater()
-
-
-class _ManualOperationWorker(QObject):
-    started = Signal(str)
-    step_changed = Signal(str)
-    finished = Signal(str)
-    failed = Signal(str, str)
-    cancelled = Signal(str)
-    done = Signal()
-
-    def __init__(
-        self,
-        *,
-        operation_name: str,
-        operation: ManualOperation,
-        cancel_event: threading.Event,
-    ) -> None:
-        super().__init__()
-        self._operation_name = operation_name
-        self._operation = operation
-        self._cancel_event = cancel_event
-
-    @Slot()
-    def run(self) -> None:
-        try:
-            self.started.emit(self._operation_name)
-            if self._cancel_event.is_set():
-                self.cancelled.emit(self._operation_name)
-                return
-
-            context = ManualOperationContext(
-                self._cancel_event,
-                self.step_changed.emit,
-            )
-            self._operation(context)
-            if self._cancel_event.is_set():
-                self.cancelled.emit(self._operation_name)
-            else:
-                self.finished.emit(self._operation_name)
-        except _ManualStopError as exc:
-            logger.exception("Manual Test Stop 실패: %s", self._operation_name)
-            self.failed.emit(self._operation_name, str(exc))
-        except Exception as exc:
-            if self._cancel_event.is_set():
-                self.cancelled.emit(self._operation_name)
-            else:
-                logger.exception("Manual Test 작업 실패: %s", self._operation_name)
-                self.failed.emit(self._operation_name, str(exc))
-        finally:
-            self.done.emit()
-
-
 class ManualTestService(QObject):
-    """Manual 장비 operation을 하나씩 비동기로 실행한다."""
+    """Manual 장비 command를 호출 스레드에서 하나씩 실행한다."""
 
     operation_started = Signal(str)
-    step_changed = Signal(str)
     operation_finished = Signal(str)
     operation_failed = Signal(str, str)
     operation_cancelled = Signal(str)
     running_changed = Signal(bool)
     capabilities_changed = Signal(object)
-    applied_settings_changed = Signal(object)
     screenshot_saved = Signal(str)
     turntable_info_changed = Signal(object)
 
@@ -195,58 +90,47 @@ class ManualTestService(QObject):
         self._temp_dir = Path(temp_dir)
         self._operation_guard = operation_guard
         self._turntable_timeout_sec = float(turntable_timeout_sec)
-        self._thread: QThread | None = None
-        self._worker: _ManualOperationWorker | None = None
-        self._cancel_event: threading.Event | None = None
+        self._running = False
         self._current_operation: str | None = None
         self._capabilities = ManualTestCapabilities()
-        self._applied_saturation_time_sec: float | None = None
         self._shutting_down = False
+        self._turntable_target_angle: float | None = None
+        self._turntable_speed: int | None = None
+        self._turntable_event_signal: Any | None = None
+        self._handled_turntable_events: list[Any] = []
+        self._turntable_timeout_timer = QTimer(self)
+        self._turntable_timeout_timer.setSingleShot(True)
+        self._turntable_timeout_timer.timeout.connect(self._on_turntable_timeout)
 
     @property
     def is_running(self) -> bool:
-        return self._thread is not None
+        return self._running
 
     @property
     def current_operation(self) -> str | None:
         return self._current_operation
 
     @property
-    def cancel_requested(self) -> bool:
-        return self._cancel_event is not None and self._cancel_event.is_set()
+    def is_turntable_running(self) -> bool:
+        return self._running and self._turntable_target_angle is not None
 
     @property
     def capabilities(self) -> ManualTestCapabilities:
         return self._capabilities
 
-    @property
-    def applied_saturation_time_sec(self) -> float | None:
-        """마지막으로 Set 성공한 Saturation Time을 반환한다."""
-
-        return self._applied_saturation_time_sec
-
     def set_equipment_state(self, equipment_state: dict[str, bool]) -> None:
         """연결 상태만 사용해 capability를 갱신한다."""
 
         capabilities = manual_test_capabilities(equipment_state)
-        if not capabilities.fsv40 and self._applied_saturation_time_sec is not None:
-            self.invalidate_applied_settings()
         if capabilities == self._capabilities:
             return
         self._capabilities = capabilities
         self.capabilities_changed.emit(capabilities)
 
-    def invalidate_applied_settings(self) -> None:
-        """재연결/Preset 이후 이전 Set 적용값을 폐기한다."""
-
-        self._applied_saturation_time_sec = None
-        self.applied_settings_changed.emit(None)
-
     def apply_sa_settings(self, settings: ManualSaSettings) -> bool:
-        """FSV40 설정을 적용하고 성공한 Saturation Time을 보관한다."""
+        """FSV40 Manual 설정 command를 한 번 호출한다."""
 
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step("FSV40 Manual 설정 적용 중")
+        def operation() -> None:
             ok = self._commands.setup_sa_manual(
                 self._require_client(),
                 start_frequency_mhz=settings.start_frequency_mhz,
@@ -260,28 +144,17 @@ class ManualTestService(QObject):
                 limit_dbm=settings.limit_dbm,
             )
             self._require_true(ok, "Load SA Manual Setting")
-            self._applied_saturation_time_sec = settings.saturation_time_sec
-            self.applied_settings_changed.emit(settings.saturation_time_sec)
 
-        return self.start_operation("FSV40 Set", operation)
+        return self._run_operation("FSV40 Set", operation)
 
     def preset_sa(self) -> bool:
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step("FSV40 Preset 실행 중")
-            self._require_true(
-                self._commands.preset_sa(self._require_client()),
-                "FSV40 Preset",
-            )
-            self._applied_saturation_time_sec = None
-            self.applied_settings_changed.emit(None)
-
-        return self.start_operation("FSV40 Preset", operation)
+        return self._run_bool_command("FSV40 Preset", self._commands.preset_sa)
 
     def clear_trace(self) -> bool:
-        return self._start_simple_command("Trace Clear", self._commands.clear_trace)
+        return self._run_bool_command("Trace Clear", self._commands.clear_trace)
 
     def marker_peak(self, marker_index: int, excursion: float) -> bool:
-        return self._start_marker_command(
+        return self._run_marker_command(
             "Marker Peak",
             self._commands.marker_peak,
             marker_index,
@@ -289,7 +162,7 @@ class ManualTestService(QObject):
         )
 
     def marker_next(self, marker_index: int, excursion: float) -> bool:
-        return self._start_marker_command(
+        return self._run_marker_command(
             "Marker Next",
             self._commands.marker_next,
             marker_index,
@@ -297,7 +170,7 @@ class ManualTestService(QObject):
         )
 
     def marker_off(self, marker_index: int, excursion: float) -> bool:
-        return self._start_marker_command(
+        return self._run_marker_command(
             "Marker OFF",
             self._commands.marker_off,
             marker_index,
@@ -305,13 +178,13 @@ class ManualTestService(QObject):
         )
 
     def marker_all_off(self) -> bool:
-        return self._start_simple_command(
+        return self._run_bool_command(
             "Marker ALL OFF",
             self._commands.marker_all_off,
         )
 
     def marker_auto_max(self, marker_index: int, excursion: float) -> bool:
-        return self._start_marker_command(
+        return self._run_marker_command(
             "Marker Auto Max",
             self._commands.marker_auto_max,
             marker_index,
@@ -319,7 +192,7 @@ class ManualTestService(QObject):
         )
 
     def marker_set_center(self, marker_index: int, excursion: float) -> bool:
-        return self._start_marker_command(
+        return self._run_marker_command(
             "Marker to Center",
             self._commands.marker_set_center,
             marker_index,
@@ -327,13 +200,63 @@ class ManualTestService(QObject):
         )
 
     def move_turntable(self, *, angle: float, speed: int) -> bool:
-        """Turntable 이동 명령을 보내고 완료 Event까지 기다린다."""
+        """Turntable 이동 command를 보내고 완료 Event까지 operation을 유지한다."""
 
         self._validate_turntable_request(angle=angle, speed=speed)
-        return self.start_operation(
-            f"Turntable {angle:g}°",
-            lambda context: self._rotate_and_wait(context, angle=angle, speed=speed),
-        )
+        name = f"Turntable {angle:g}°"
+        if not self._begin_operation(name):
+            return False
+
+        try:
+            client = self._require_client()
+            event_signal = getattr(client, "event_received", None)
+            if event_signal is None:
+                raise RuntimeError("Turntable Event signal is not available")
+
+            self._discard_buffered_turntable_events(client)
+            self._turntable_target_angle = angle
+            self._turntable_speed = speed
+            self._turntable_event_signal = event_signal
+            event_signal.connect(self._on_turntable_event)
+            self.turntable_info_changed.emit(
+                {"target_angle": angle, "current_angle": None, "speed": speed}
+            )
+            self._commands.rotate_turntable(
+                client,
+                angle=angle,
+                turntable_speed=speed,
+            )
+            self._drain_buffered_turntable_events(client)
+            if self.is_turntable_running:
+                timeout_ms = max(1, round(self._turntable_timeout_sec * 1000))
+                self._turntable_timeout_timer.start(timeout_ms)
+            return True
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: %s", name)
+            self._terminate_turntable_failure(str(exc))
+            return False
+
+    def request_stop(self) -> bool:
+        """진행 중인 Manual Turntable 회전을 중단한다."""
+
+        if not self.is_turntable_running:
+            return False
+        try:
+            self._commands.stop_turntable(self._require_client())
+        except Exception as exc:
+            logger.exception("Manual Test Turntable Stop 실패")
+            self.operation_failed.emit(
+                "Turntable Stop",
+                f"Turntable 정지 실패: {exc}",
+            )
+            return False
+
+        if not self.is_turntable_running:
+            return True
+        name = self._current_operation or "Turntable"
+        self._cleanup_turntable_operation()
+        self.operation_cancelled.emit(name)
+        return True
 
     def set_mast_polarization(
         self,
@@ -343,8 +266,7 @@ class ManualTestService(QObject):
     ) -> bool:
         """선택 Mast와 편파를 기존 InputPath 계약으로 변환한다."""
 
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step(f"{mast.value} {polarization.value} 편파 설정 중")
+        def operation() -> None:
             ok = self._commands.set_antenna_pol(
                 self._require_client(),
                 pol=polarization,
@@ -352,42 +274,7 @@ class ManualTestService(QObject):
             )
             self._require_true(ok, "Change Ant Pol")
 
-        return self.start_operation("Mast Polarization", operation)
-
-    def run_semi_auto(self, *, speed: int) -> bool:
-        """현재 각도 기준 정렬부터 반대 기준점 회전까지 순차 실행한다."""
-
-        self._validate_turntable_request(angle=0.0, speed=speed)
-        if self._applied_saturation_time_sec is None:
-            self.operation_failed.emit(
-                "Semi Auto",
-                "먼저 FSV40 Set을 완료하세요.",
-            )
-            return False
-
-        saturation_time_sec = self._applied_saturation_time_sec
-
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step("Turntable 현재 각도 조회 중")
-            current_angle = self._commands.get_turntable_angle(self._require_client())
-            reference_angle = 0.0 if current_angle <= 180.0 else 360.0
-            self._rotate_and_wait(context, angle=reference_angle, speed=6)
-            if context.cancel_requested:
-                return
-
-            context.report_step("Trace Clear / Max Hold 적용 중")
-            self._require_true(
-                self._commands.clear_trace(self._require_client()),
-                "Clear Trace",
-            )
-            context.report_step(f"Saturation 대기 중 ({saturation_time_sec:g}s)")
-            if not context.wait(saturation_time_sec):
-                return
-
-            target_angle = 360.0 if reference_angle == 0.0 else 0.0
-            self._rotate_and_wait(context, angle=target_angle, speed=speed)
-
-        return self.start_operation("Semi Auto", operation)
+        return self._run_operation("Mast Polarization", operation)
 
     def capture_single(self, *, directory: Path, base_name: str) -> bool:
         """현재 FSV40 화면을 한 장 저장한다."""
@@ -398,54 +285,89 @@ class ManualTestService(QObject):
             shot_count=1,
             numbered=False,
         )
-        return self.start_operation(
-            "Single Capture",
-            lambda context: self._capture_sequence(context, paths=paths, interval_sec=0),
-        )
 
-    def capture_many(
-        self,
-        *,
-        directory: Path,
-        base_name: str,
-        interval_sec: float,
-        shot_count: int,
-    ) -> bool:
-        """충돌을 먼저 확인한 뒤 N장의 Screenshot을 순차 저장한다."""
+        def operation() -> None:
+            ensure_manual_screenshot_paths_available(paths)
+            destination = paths[0]
+            self._temp_dir.mkdir(parents=True, exist_ok=True)
+            source = self._temp_dir / "screenshot.png"
+            try:
+                source.unlink(missing_ok=True)
+            except OSError as exc:
+                raise ValueError(f"stale Screenshot 제거 실패: {source}") from exc
+            self._require_true(
+                self._commands.get_screenshot(self._require_client()),
+                "Get Screenshot",
+            )
+            saved = save_manual_screenshot(
+                source_path=source,
+                destination_path=destination,
+            )
+            self.screenshot_saved.emit(str(saved))
 
-        if (
-            isinstance(interval_sec, bool)
-            or not isinstance(interval_sec, int | float)
-            or not math.isfinite(float(interval_sec))
-            or interval_sec < 0
-        ):
-            raise ValueError("Interval은 0 이상이어야 합니다.")
-        paths = build_manual_screenshot_paths(
-            directory=directory,
-            base_name=base_name,
-            shot_count=shot_count,
-            numbered=True,
-        )
-        return self.start_operation(
-            "N-Capture",
-            lambda context: self._capture_sequence(
-                context,
-                paths=paths,
-                interval_sec=interval_sec,
-            ),
-        )
+        return self._run_operation("Single Capture", operation)
 
-    def start_operation(
+    def shutdown(self) -> None:
+        """신규 Manual command를 막고 진행 중인 회전을 정리한다."""
+
+        if self._shutting_down:
+            return
+        self._shutting_down = True
+        if not self.is_turntable_running:
+            return
+        try:
+            self._commands.stop_turntable(self._require_client())
+        except Exception:
+            logger.exception("Manual Test 종료 중 Turntable Stop 실패")
+        self._cleanup_turntable_operation()
+
+    def _run_bool_command(
         self,
         name: str,
-        operation: ManualOperation,
+        command: Callable[[Any], bool],
     ) -> bool:
-        """operation을 즉시 선점하고 worker thread에서 시작한다."""
+        def operation() -> None:
+            self._require_true(command(self._require_client()), name)
 
+        return self._run_operation(name, operation)
+
+    def _run_marker_command(
+        self,
+        name: str,
+        command: Callable[..., bool],
+        marker_index: int,
+        excursion: float,
+    ) -> bool:
+        def operation() -> None:
+            ok = command(
+                self._require_client(),
+                marker_index=marker_index,
+                excursion=excursion,
+            )
+            self._require_true(ok, name)
+
+        return self._run_operation(name, operation)
+
+    def _run_operation(self, name: str, operation: ManualOperation) -> bool:
+        if not self._begin_operation(name):
+            return False
+        try:
+            operation()
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: %s", name)
+            self.operation_failed.emit(name, str(exc))
+            return False
+        else:
+            self.operation_finished.emit(name)
+            return True
+        finally:
+            self._finish_operation()
+
+    def _begin_operation(self, name: str) -> bool:
         if self._shutting_down:
             self.operation_failed.emit(name, MANUAL_SERVICE_SHUTTING_DOWN_MESSAGE)
             return False
-        if self._thread is not None:
+        if self._running:
             self.operation_failed.emit(name, MANUAL_OPERATION_IN_PROGRESS_MESSAGE)
             return False
         if self._operation_guard is not None:
@@ -454,178 +376,120 @@ class ManualTestService(QObject):
                 self.operation_failed.emit(name, block_reason)
                 return False
 
-        cancel_event = threading.Event()
-        thread = QThread(self)
-        worker = _ManualOperationWorker(
-            operation_name=name,
-            operation=operation,
-            cancel_event=cancel_event,
-        )
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.started.connect(self._on_operation_started)
-        worker.step_changed.connect(self._on_step_changed)
-        worker.finished.connect(self._on_operation_finished)
-        worker.failed.connect(self._on_operation_failed)
-        worker.cancelled.connect(self._on_operation_cancelled)
-        worker.done.connect(thread.quit, Qt.ConnectionType.DirectConnection)
-        worker.done.connect(worker.deleteLater)
-        thread.finished.connect(self._on_thread_finished)
-        thread.finished.connect(thread.deleteLater)
-
-        self._thread = thread
-        self._worker = worker
-        self._cancel_event = cancel_event
+        self._running = True
         self._current_operation = name
         self.running_changed.emit(True)
-        thread.start()
+        self.operation_started.emit(name)
         return True
 
-    def request_stop(self) -> None:
-        """현재 operation이 다음 단계로 진행하지 않도록 취소를 요청한다."""
+    def _finish_operation(self) -> None:
+        self._running = False
+        self._current_operation = None
+        self.running_changed.emit(False)
 
-        if self._cancel_event is not None:
-            self._cancel_event.set()
-
-    def _start_simple_command(self, name: str, command: Callable[[Any], bool]) -> bool:
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step(f"{name} 실행 중")
-            self._require_true(command(self._require_client()), name)
-
-        return self.start_operation(name, operation)
-
-    def _start_marker_command(
-        self,
-        name: str,
-        command: Callable[..., bool],
-        marker_index: int,
-        excursion: float,
-    ) -> bool:
-        def operation(context: ManualOperationContext) -> None:
-            context.report_step(f"{name} 실행 중")
-            ok = command(
-                self._require_client(),
-                marker_index=marker_index,
-                excursion=excursion,
-            )
-            self._require_true(ok, name)
-
-        return self.start_operation(name, operation)
-
-    def _capture_sequence(
-        self,
-        context: ManualOperationContext,
-        *,
-        paths: tuple[Path, ...],
-        interval_sec: float,
-    ) -> None:
-        ensure_manual_screenshot_paths_available(paths)
-        for index, destination in enumerate(paths):
-            if context.cancel_requested:
-                return
-            if index > 0:
-                context.report_step(f"Capture {index + 1}/{len(paths)} Trace Clear")
-                self._require_true(
-                    self._commands.clear_trace(self._require_client()),
-                    "Clear Trace",
-                )
-                if not context.wait(interval_sec):
-                    return
-            context.report_step(f"Capture {index + 1}/{len(paths)} 저장 중")
-            self._capture_to(context, destination)
-
-    def _capture_to(
-        self,
-        context: ManualOperationContext,
-        destination: Path,
-    ) -> None:
-        self._temp_dir.mkdir(parents=True, exist_ok=True)
-        source = self._temp_dir / "screenshot.png"
-        try:
-            source.unlink(missing_ok=True)
-        except OSError as exc:
-            raise ValueError(f"stale Screenshot 제거 실패: {source}") from exc
-        self._require_true(
-            self._commands.get_screenshot(self._require_client()),
-            "Get Screenshot",
-        )
-        if context.cancel_requested:
+    def _on_turntable_event(self, event: Any) -> None:
+        if not self.is_turntable_running or not self._is_turntable_event(event):
             return
-        saved = save_manual_screenshot(
-            source_path=source,
-            destination_path=destination,
-        )
-        self.screenshot_saved.emit(str(saved))
+        if any(handled is event for handled in self._handled_turntable_events):
+            return
+        self._handled_turntable_events.append(event)
+        if len(self._handled_turntable_events) > _MAX_HANDLED_TURNTABLE_EVENTS:
+            del self._handled_turntable_events[0]
 
-    def _rotate_and_wait(
-        self,
-        context: ManualOperationContext,
-        *,
-        angle: float,
-        speed: int,
-    ) -> None:
-        client = self._require_client()
-        completed = threading.Event()
-        failed_reason: list[str] = []
-
-        def is_turntable_event(event: Any) -> bool:
-            return (
-                getattr(event, "target", None) == "CO3000"
-                and getattr(event, "command", None) in _TURNTABLE_EVENT_COMMANDS
-            )
-
-        def handle_event(event: Any) -> None:
-            if not is_turntable_event(event):
+        command = getattr(event, "command", None)
+        params = getattr(event, "params", {}) or {}
+        if command == "turntable_progress":
+            if not isinstance(params, dict):
                 return
-            command = getattr(event, "command", None)
-            params = getattr(event, "params", {}) or {}
-            if command == "turntable_progress":
-                current_angle = params.get("Current Angle", params.get("current_angle"))
+            current_angle = params.get("Current Angle", params.get("current_angle"))
+            if current_angle is not None:
                 self.turntable_info_changed.emit(
-                    {"target_angle": angle, "current_angle": current_angle, "speed": speed}
+                    {
+                        "target_angle": self._turntable_target_angle,
+                        "current_angle": current_angle,
+                        "speed": self._turntable_speed,
+                    }
                 )
-            elif command == "equipment_error":
-                failed_reason.append(str(params.get("message", "unknown")))
-                completed.set()
-            elif command == "turntable_complete":
-                completed.set()
+            return
+        if command == "equipment_error":
+            message = (
+                params.get("message", "unknown")
+                if isinstance(params, dict)
+                else "unknown"
+            )
+            self._terminate_turntable_failure(f"Turntable 회전 실패: {message}")
+            return
+        if command == "turntable_complete":
+            name = self._current_operation or "Turntable"
+            target_angle = self._turntable_target_angle
+            speed = self._turntable_speed
+            self.turntable_info_changed.emit(
+                {
+                    "target_angle": target_angle,
+                    "current_angle": target_angle,
+                    "speed": speed,
+                }
+            )
+            self._cleanup_turntable_operation()
+            self.operation_finished.emit(name)
 
+    def _on_turntable_timeout(self) -> None:
+        if not self.is_turntable_running:
+            return
+        try:
+            self._commands.stop_turntable(self._require_client())
+        except Exception:
+            logger.exception("Manual Test Turntable timeout Stop 실패")
+        if not self.is_turntable_running:
+            return
+        self._terminate_turntable_failure("Turntable 회전 타임아웃")
+
+    def _terminate_turntable_failure(self, message: str) -> None:
+        name = self._current_operation or "Turntable"
+        self._cleanup_turntable_operation()
+        self.operation_failed.emit(name, message)
+
+    def _cleanup_turntable_operation(self) -> None:
+        self._turntable_timeout_timer.stop()
+        event_signal = self._turntable_event_signal
+        self._turntable_event_signal = None
+        if event_signal is not None:
+            try:
+                event_signal.disconnect(self._on_turntable_event)
+            except (RuntimeError, TypeError):
+                pass
+        self._turntable_target_angle = None
+        self._turntable_speed = None
+        if self._running:
+            self._finish_operation()
+
+    def _discard_buffered_turntable_events(self, client: Any) -> None:
         pop_events = getattr(client, "pop_events", None)
-        if callable(pop_events):
-            pop_events(is_turntable_event)
-        event_signal = getattr(client, "event_received", None)
-        if event_signal is None:
-            raise RuntimeError("Turntable Event signal is not available")
-        event_signal.connect(handle_event, Qt.ConnectionType.DirectConnection)
+        if not callable(pop_events):
+            return
         try:
-            context.report_step(f"Turntable {angle:g}° 이동 중")
-            if context.cancel_requested:
-                return
-            self._commands.rotate_turntable(client, angle=angle, turntable_speed=speed)
-            self.turntable_info_changed.emit(
-                {"target_angle": angle, "current_angle": None, "speed": speed}
-            )
-            deadline = time.monotonic() + self._turntable_timeout_sec
-            while not completed.wait(_TURNTABLE_POLL_SEC):
-                if context.cancel_requested:
-                    self._stop_turntable(client)
-                    return
-                if time.monotonic() >= deadline:
-                    self._stop_turntable(client)
-                    raise TimeoutError("Turntable 회전 타임아웃")
-            if failed_reason:
-                raise RuntimeError(f"Turntable 회전 실패: {failed_reason[-1]}")
-            self.turntable_info_changed.emit(
-                {"target_angle": angle, "current_angle": angle, "speed": speed}
-            )
-        finally:
-            _disconnect_safely(event_signal, handle_event)
-
-    def _stop_turntable(self, client: Any) -> None:
-        try:
-            self._commands.stop_turntable(client)
+            pop_events(self._is_turntable_event)
         except Exception as exc:
-            raise _ManualStopError(f"Turntable 정지 실패: {exc}") from exc
+            logger.warning("Manual Turntable event buffer 정리 실패: %s", exc)
+
+    def _drain_buffered_turntable_events(self, client: Any) -> None:
+        pop_events = getattr(client, "pop_events", None)
+        if not callable(pop_events):
+            return
+        try:
+            events = list(pop_events(self._is_turntable_event))
+        except Exception as exc:
+            logger.warning("Manual Turntable event buffer 읽기 실패: %s", exc)
+            return
+        for event in events:
+            self._on_turntable_event(event)
+
+    @staticmethod
+    def _is_turntable_event(event: Any) -> bool:
+        return (
+            getattr(event, "target", None) == "CO3000"
+            and getattr(event, "command", None) in _TURNTABLE_EVENT_COMMANDS
+        )
 
     def _require_client(self) -> Any:
         if self._client is None:
@@ -643,70 +507,3 @@ class ManualTestService(QObject):
     def _require_true(result: object, command_name: str) -> None:
         if not bool(result):
             raise RuntimeError(f"{command_name} returned false")
-
-    def shutdown(self) -> None:
-        """신규 작업을 막고 실행 중 worker를 유한 시간 동안 정리한다."""
-
-        if self._shutting_down:
-            return
-        self._shutting_down = True
-        self.request_stop()
-
-        thread = self._thread
-        if thread is None:
-            return
-
-        _disconnect_safely(thread.finished, self._on_thread_finished)
-        _disconnect_safely(thread.finished, thread.deleteLater)
-        thread.quit()
-        if not thread.wait(_SHUTDOWN_WAIT_MS):
-            logger.error("Manual Test worker thread did not stop cleanly")
-            thread.setParent(None)
-            _DETACHED_THREADS.append(thread)
-            thread.finished.connect(
-                lambda thread=thread: _forget_detached_thread(thread),
-            )
-        else:
-            thread.deleteLater()
-        self._clear_running_state()
-
-    @Slot()
-    def _on_thread_finished(self) -> None:
-        thread = self.sender()
-        if thread is not self._thread:
-            return
-        self._clear_running_state()
-
-    @Slot(str)
-    def _on_operation_started(self, operation_name: str) -> None:
-        if not self._shutting_down:
-            self.operation_started.emit(operation_name)
-
-    @Slot(str)
-    def _on_step_changed(self, message: str) -> None:
-        if not self._shutting_down:
-            self.step_changed.emit(message)
-
-    @Slot(str)
-    def _on_operation_finished(self, operation_name: str) -> None:
-        if not self._shutting_down:
-            self.operation_finished.emit(operation_name)
-
-    @Slot(str, str)
-    def _on_operation_failed(self, operation_name: str, message: str) -> None:
-        if not self._shutting_down:
-            self.operation_failed.emit(operation_name, message)
-
-    @Slot(str)
-    def _on_operation_cancelled(self, operation_name: str) -> None:
-        if not self._shutting_down:
-            self.operation_cancelled.emit(operation_name)
-
-    def _clear_running_state(self) -> None:
-        was_running = self._thread is not None
-        self._thread = None
-        self._worker = None
-        self._cancel_event = None
-        self._current_operation = None
-        if was_running:
-            self.running_changed.emit(False)

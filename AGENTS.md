@@ -164,6 +164,10 @@ Codex는 요청받은 작업 범위 안에서만 변경한다. 구현 중 더 �
 
 ## Reference Notes
 
+- H2026E014-56~60 또는 Manual Test 장비 제어를 수정하기 전에는
+  `docs/MANUAL_TEST_FAILURE_POSTMORTEM.md`를 반드시 끝까지 읽고 그 재발 방지 규칙을 따른다.
+- Manual Test 관련 push, PR 생성, PR merge, main force-push, branch 삭제는 서로 다른 권한으로
+  취급하며, 특히 merge와 main 변경은 해당 동작 직전에 사용자의 명시적 지시를 확인한다.
 - 프로젝트 상세 스펙: `docs/PROJECT_SPEC_1.0.1.md` (메인), `docs/ARCHITECTURE.md` (개요),
   심화 문서 `docs/FSM.md` / `docs/PROTOCOL.md` / `docs/DOMAIN_MODELS.md` /
   `docs/REPORTING.md` / `docs/UI_GUIDE.md`.

@@ -508,7 +508,6 @@ class ManualTestPanel(QWidget):
         self._preset_button.clicked.connect(self._on_preset_clicked)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._trace_clear_button.clicked.connect(self._on_trace_clear_clicked)
-        self._semi_auto_button.clicked.connect(self._on_semi_auto_clicked)
         self._stop_button.clicked.connect(self._on_stop_clicked)
         self._turntable_zero_button.clicked.connect(lambda _checked=False: self._move_turntable(0.0))
         self._turntable_360_button.clicked.connect(lambda _checked=False: self._move_turntable(360.0))
@@ -522,7 +521,6 @@ class ManualTestPanel(QWidget):
         self._marker_auto_max_button.clicked.connect(lambda _checked=False: self._run_marker("auto"))
         self._marker_center_button.clicked.connect(lambda _checked=False: self._run_marker("center"))
         self._capture_button.clicked.connect(self._on_capture_clicked)
-        self._n_capture_button.clicked.connect(self._on_n_capture_clicked)
         self._screenshot_list.currentItemChanged.connect(self._on_screenshot_selected)
         self._tdf_list.currentItemChanged.connect(self._update_control_state)
         self._tdf_update_button.clicked.connect(self.get_tdf_list_requested.emit)
@@ -533,10 +531,8 @@ class ManualTestPanel(QWidget):
         if self._service is None:
             return
         self._service.capabilities_changed.connect(self.set_capabilities)
-        self._service.applied_settings_changed.connect(self._on_applied_settings_changed)
         self._service.running_changed.connect(self._on_running_changed)
         self._service.operation_started.connect(self._on_operation_started)
-        self._service.step_changed.connect(self._status_label.setText)
         self._service.operation_finished.connect(self._on_operation_finished)
         self._service.operation_cancelled.connect(self._on_operation_cancelled)
         self._service.operation_failed.connect(self._on_operation_failed)
@@ -598,7 +594,10 @@ class ManualTestPanel(QWidget):
         ):
             button.setEnabled(self._capabilities.marker and idle)
         self._capture_button.setEnabled(self._capabilities.capture and idle)
-        self._n_capture_button.setEnabled(self._capabilities.capture and idle)
+        self._n_capture_button.setEnabled(False)
+        self._capture_interval_spin.setEnabled(False)
+        self._capture_shots_spin.setEnabled(False)
+        self._saturation_time_edit.setEnabled(False)
         self._turntable_zero_button.setEnabled(self._capabilities.turntable and idle)
         self._turntable_360_button.setEnabled(self._capabilities.turntable and idle)
         selected_mast = self._selected_mast()
@@ -609,13 +608,15 @@ class ManualTestPanel(QWidget):
         )
         self._vertical_button.setEnabled(mast_ready and idle)
         self._horizontal_button.setEnabled(mast_ready and idle)
-        semi_ready = (
-            self._capabilities.semi_auto
-            and self._service is not None
-            and self._service.applied_saturation_time_sec is not None
+        self._semi_auto_button.setEnabled(False)
+        turntable_running = (
+            self._service is not None and self._service.is_turntable_running
         )
-        self._semi_auto_button.setEnabled(semi_ready and idle)
-        self._stop_button.setEnabled(self._service_running)
+        self._stop_button.setEnabled(
+            self._capabilities.turntable
+            and turntable_running
+            and not self._external_operation_locked
+        )
         tdf_ready = self._capabilities.fsv40 and idle and not self._tdf_operation_locked
         self._tdf_update_button.setEnabled(tdf_ready)
         self._tdf_all_off_button.setEnabled(tdf_ready)
@@ -624,10 +625,6 @@ class ManualTestPanel(QWidget):
     @Slot(bool)
     def _on_running_changed(self, active: bool) -> None:
         self._service_running = active
-        self._update_control_state()
-
-    @Slot(object)
-    def _on_applied_settings_changed(self, _value: object) -> None:
         self._update_control_state()
 
     @Slot(str)
@@ -642,6 +639,7 @@ class ManualTestPanel(QWidget):
     @Slot(str)
     def _on_operation_cancelled(self, name: str) -> None:
         self._status_label.setText(f"{name} 중단")
+        self._update_control_state()
 
     @Slot(str, str)
     def _on_operation_failed(self, name: str, message: str) -> None:
@@ -655,6 +653,7 @@ class ManualTestPanel(QWidget):
         self._status_label.setText(
             f"Turntable {target}° 이동 중" if current is None else f"Turntable {current}°"
         )
+        self._update_control_state()
 
     def _on_set_clicked(self) -> None:
         if self._service is None:
@@ -672,14 +671,9 @@ class ManualTestPanel(QWidget):
         if self._service is not None:
             self._service.clear_trace()
 
-    def _on_semi_auto_clicked(self) -> None:
-        if self._service is not None:
-            self._service.run_semi_auto(speed=self._turntable_speed_spin.value())
-
     def _on_stop_clicked(self) -> None:
         if self._service is not None:
             self._service.request_stop()
-            self._status_label.setText("중단 요청 중")
 
     def _move_turntable(self, angle: float) -> None:
         if self._service is not None:
@@ -730,19 +724,6 @@ class ManualTestPanel(QWidget):
             )
         except (ValueError, FileExistsError) as exc:
             self._show_warning("Single Capture", str(exc))
-
-    def _on_n_capture_clicked(self) -> None:
-        if self._service is None:
-            return
-        try:
-            self._service.capture_many(
-                directory=self._capture_directory(),
-                base_name=self._capture_name_edit.text(),
-                interval_sec=self._capture_interval_spin.value(),
-                shot_count=self._capture_shots_spin.value(),
-            )
-        except (ValueError, FileExistsError) as exc:
-            self._show_warning("N-Capture", str(exc))
 
     def _on_browse_directory(self) -> None:
         initial = self._capture_directory_edit.text().strip() or str(Path.cwd())
