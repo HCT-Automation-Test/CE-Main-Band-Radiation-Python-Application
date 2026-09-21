@@ -11,7 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal, Slot
 from PySide6.QtNetwork import QAbstractSocket, QTcpSocket
 
 from app.net.protocol import (
@@ -334,10 +334,17 @@ class TcpClient(QObject):
 
         self._thread = _SocketThread()
         self._thread.event_message.connect(self._buffer_event, Qt.DirectConnection)
-        self._thread.event_message.connect(self.event_received.emit)
+        self._thread.event_message.connect(
+            self._relay_event,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self._thread.connected_state_changed.connect(self.connected_changed.emit)
         self._thread.error_message.connect(self.error_occurred.emit)
         self._thread.start()
+
+    @Slot(object)
+    def _relay_event(self, event: Event) -> None:
+        self.event_received.emit(event)
 
     def _buffer_event(self, event: Event) -> None:
         with self._event_buffer_lock:

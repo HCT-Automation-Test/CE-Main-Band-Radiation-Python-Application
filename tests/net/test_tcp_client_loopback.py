@@ -127,6 +127,43 @@ def test_tcp_client_event_consumer_does_not_run_on_socket_thread(qtbot) -> None:
         server.stop()
 
 
+def test_tcp_client_relays_event_after_connection_from_finished_worker(
+    qtbot,
+) -> None:
+    server = MockServer()
+    server.start()
+    client = TcpClient()
+    errors: list[BaseException] = []
+    events: list[Event] = []
+    client.event_received.connect(events.append)
+
+    def connect_from_worker() -> None:
+        try:
+            client.connect_to(server.host, server.port)
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=connect_from_worker)
+
+    try:
+        worker.start()
+        worker.join(timeout=2.0)
+        assert not worker.is_alive()
+        assert errors == []
+
+        event = Event(
+            id="evt-after-connect-worker",
+            target="CO3000",
+            command="turntable_complete",
+            params={},
+        )
+        server.send_event(event)
+        qtbot.waitUntil(lambda: events == [event], timeout=1000)
+    finally:
+        client.disconnect_from_host()
+        server.stop()
+
+
 def test_tcp_client_response_timeout(qtbot) -> None:
     server = MockServer()
     server.enqueue_response(None)

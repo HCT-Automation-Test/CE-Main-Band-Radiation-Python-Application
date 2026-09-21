@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, QTimer, Qt, Signal, Slot
 
 from app.models.enums import AntennaPol
 from app.models.manual_test import ManualMast, ManualSaSettings
@@ -450,6 +450,7 @@ class ManualTestService(QObject):
         self._current_operation = None
         self.running_changed.emit(False)
 
+    @Slot(object)
     def _on_turntable_event(self, event: Any) -> None:
         if not self.is_turntable_running or not self._is_turntable_event(event):
             return
@@ -508,7 +509,10 @@ class ManualTestService(QObject):
         self._turntable_speed = speed
         self._turntable_event_signal = event_signal
         self._turntable_completed = completed
-        event_signal.connect(self._on_turntable_event)
+        event_signal.connect(
+            self._on_turntable_event,
+            Qt.ConnectionType.QueuedConnection,
+        )
         self.turntable_info_changed.emit(
             {"target_angle": angle, "current_angle": None, "speed": speed}
         )

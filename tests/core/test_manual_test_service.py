@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import Qt
 
 from app.core.manual_test_service import (
     MANUAL_OPERATION_IN_PROGRESS_MESSAGE,
@@ -102,8 +102,30 @@ class _Commands:
         return self._record("set_antenna_pol", pol, input_path)
 
 
-class _EventClient(QObject):
-    event_received = Signal(object)
+class _EventSignal:
+    def __init__(self) -> None:
+        self._slots: list[Any] = []
+        self.connection_types: list[Qt.ConnectionType | None] = []
+
+    def connect(
+        self,
+        slot: Any,
+        connection_type: Qt.ConnectionType | None = None,
+    ) -> None:
+        self._slots.append(slot)
+        self.connection_types.append(connection_type)
+
+    def disconnect(self, slot: Any) -> None:
+        self._slots.remove(slot)
+
+    def emit(self, event: object) -> None:
+        for slot in tuple(self._slots):
+            slot(event)
+
+
+class _EventClient:
+    def __init__(self) -> None:
+        self.event_received = _EventSignal()
 
     def deliver(self, event: object) -> None:
         self.event_received.emit(event)
@@ -535,6 +557,9 @@ def test_manual_turntable_waits_for_progress_and_complete_event() -> None:
     service.operation_finished.connect(finished.append)
 
     assert service.move_turntable(angle=360.0, speed=4)
+    assert client.event_received.connection_types == [
+        Qt.ConnectionType.QueuedConnection
+    ]
     assert service.is_running
     assert service.is_turntable_running
     assert timer.active
