@@ -507,6 +507,24 @@ class ManualTestPanel(QWidget):
         self._preset_button.clicked.connect(self._on_preset_clicked)
         self._set_button.clicked.connect(self._on_set_clicked)
         self._trace_clear_button.clicked.connect(self._on_trace_clear_clicked)
+        self._marker_peak_button.clicked.connect(
+            lambda _checked=False: self._run_marker("peak")
+        )
+        self._marker_next_button.clicked.connect(
+            lambda _checked=False: self._run_marker("next")
+        )
+        self._marker_off_button.clicked.connect(
+            lambda _checked=False: self._run_marker("off")
+        )
+        self._marker_all_off_button.clicked.connect(
+            self._on_marker_all_off_clicked
+        )
+        self._marker_auto_max_button.clicked.connect(
+            lambda _checked=False: self._run_marker("auto")
+        )
+        self._marker_center_button.clicked.connect(
+            lambda _checked=False: self._run_marker("center")
+        )
         self._screenshot_list.currentItemChanged.connect(self._on_screenshot_selected)
         self._tdf_list.currentItemChanged.connect(self._update_control_state)
         self._tdf_update_button.clicked.connect(self.get_tdf_list_requested.emit)
@@ -575,7 +593,7 @@ class ManualTestPanel(QWidget):
             self._marker_auto_max_button,
             self._marker_center_button,
         ):
-            button.setEnabled(False)
+            button.setEnabled(self._capabilities.marker and idle)
         self._capture_button.setEnabled(False)
         self._n_capture_button.setEnabled(False)
         self._capture_interval_spin.setEnabled(False)
@@ -626,6 +644,41 @@ class ManualTestPanel(QWidget):
     def _on_trace_clear_clicked(self) -> None:
         if self._service is not None:
             self._service.clear_trace()
+
+    def _run_marker(self, action: str) -> None:
+        if self._service is None:
+            return
+        try:
+            marker_index = int(self._marker_combo.currentData())
+            if action in {"auto", "center"}:
+                method = {
+                    "auto": self._service.marker_auto_max,
+                    "center": self._service.marker_set_center,
+                }[action]
+                method(marker_index)
+                return
+
+            excursion = self._parse_float(
+                self._excursion_edit,
+                "Next Peak Search Level",
+            )
+            if not 0 <= excursion <= _MAX_NEXT_PEAK_SEARCH_LEVEL_DB:
+                raise ValueError(
+                    "Next Peak Search Level은 "
+                    f"0~{_MAX_NEXT_PEAK_SEARCH_LEVEL_DB:g} 범위여야 합니다."
+                )
+            method = {
+                "peak": self._service.marker_peak,
+                "next": self._service.marker_next,
+                "off": self._service.marker_off,
+            }[action]
+            method(marker_index, excursion)
+        except ValueError as exc:
+            self._show_warning("Marker", str(exc))
+
+    def _on_marker_all_off_clicked(self) -> None:
+        if self._service is not None:
+            self._service.marker_all_off()
 
     def _on_browse_directory(self) -> None:
         initial = self._capture_directory_edit.text().strip() or str(Path.cwd())

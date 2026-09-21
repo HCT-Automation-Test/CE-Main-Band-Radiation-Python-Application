@@ -217,7 +217,7 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
         )
     )
     assert all(button.isEnabled() for button in fsv40_buttons)
-    assert not panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
+    assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
     assert not panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
     assert not panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
@@ -231,6 +231,7 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
 
     panel.set_capabilities(ManualTestCapabilities())
     assert all(not button.isEnabled() for button in fsv40_buttons)
+    assert not panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
 
 
 def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
@@ -246,6 +247,12 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
             "manualSetButton",
             "manualPresetButton",
             "manualTraceClearButton",
+            "manualMarkerPeakButton",
+            "manualMarkerNextButton",
+            "manualMarkerOffButton",
+            "manualMarkerAllOffButton",
+            "manualMarkerAutoMaxButton",
+            "manualMarkerCenterButton",
         )
     )
 
@@ -262,6 +269,61 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
 
     panel.set_operation_locked(False)
     assert all(button.isEnabled() for button in buttons)
+
+
+def test_manual_panel_marker_buttons_use_existing_command_mapping(qtbot) -> None:
+    calls: list[tuple[object, ...]] = []
+
+    class Commands:
+        def marker_peak(self, _client, **params):
+            calls.append(("marker_peak", params))
+            return True
+
+        def marker_next(self, _client, **params):
+            calls.append(("marker_next", params))
+            return True
+
+        def marker_off(self, _client, **params):
+            calls.append(("marker_off", params))
+            return True
+
+        def marker_all_off(self, _client):
+            calls.append(("marker_all_off",))
+            return True
+
+        def marker_auto_max(self, _client, **params):
+            calls.append(("marker_auto_max", params))
+            return True
+
+        def marker_set_center(self, _client, **params):
+            calls.append(("marker_set_center", params))
+            return True
+
+    service = ManualTestService(client=object(), commands=Commands())
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True})
+    panel.findChild(QComboBox, "manualTargetMarkerComboBox").setCurrentIndex(1)
+    panel.findChild(QLineEdit, "manualNextPeakSearchLevelEdit").setText("3.5")
+
+    for object_name in (
+        "manualMarkerPeakButton",
+        "manualMarkerNextButton",
+        "manualMarkerOffButton",
+        "manualMarkerAllOffButton",
+        "manualMarkerAutoMaxButton",
+        "manualMarkerCenterButton",
+    ):
+        panel.findChild(QPushButton, object_name).click()
+
+    assert calls == [
+        ("marker_peak", {"marker_index": 2, "excursion": 3.5}),
+        ("marker_next", {"marker_index": 2, "excursion": 3.5}),
+        ("marker_off", {"marker_index": 2, "excursion": 3.5}),
+        ("marker_all_off",),
+        ("marker_auto_max", {"marker_index": 2, "excursion": 0.0}),
+        ("marker_set_center", {"marker_index": 2, "excursion": 0.0}),
+    ]
 
 
 def test_manual_panel_emits_tdf_requests_and_marks_active_item(qtbot) -> None:

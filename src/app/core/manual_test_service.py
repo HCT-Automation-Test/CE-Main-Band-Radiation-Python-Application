@@ -23,6 +23,7 @@ class ManualTestCapabilities:
     """현재 구현된 Manual Test 기능의 장비 연결 상태."""
 
     fsv40: bool = False
+    marker: bool = False
 
 
 def manual_test_capabilities(
@@ -30,7 +31,8 @@ def manual_test_capabilities(
 ) -> ManualTestCapabilities:
     """FSV40 연결 상태에서 현재 Manual capability를 계산한다."""
 
-    return ManualTestCapabilities(fsv40=equipment_state.get("FSV40") is True)
+    fsv40 = equipment_state.get("FSV40") is True
+    return ManualTestCapabilities(fsv40=fsv40, marker=fsv40)
 
 
 class ManualTestService(QObject):
@@ -106,6 +108,52 @@ class ManualTestService(QObject):
     def clear_trace(self) -> bool:
         return self._run_bool_command("Trace Clear", self._commands.clear_trace)
 
+    def marker_peak(self, marker_index: int, excursion: float) -> bool:
+        return self._run_marker_command(
+            "Marker Peak",
+            self._commands.marker_peak,
+            marker_index,
+            excursion,
+        )
+
+    def marker_next(self, marker_index: int, excursion: float) -> bool:
+        return self._run_marker_command(
+            "Marker Next",
+            self._commands.marker_next,
+            marker_index,
+            excursion,
+        )
+
+    def marker_off(self, marker_index: int, excursion: float) -> bool:
+        return self._run_marker_command(
+            "Marker OFF",
+            self._commands.marker_off,
+            marker_index,
+            excursion,
+        )
+
+    def marker_all_off(self) -> bool:
+        return self._run_bool_command(
+            "Marker ALL OFF",
+            self._commands.marker_all_off,
+        )
+
+    def marker_auto_max(self, marker_index: int) -> bool:
+        return self._run_marker_command(
+            "Marker Auto Max",
+            self._commands.marker_auto_max,
+            marker_index,
+            0.0,
+        )
+
+    def marker_set_center(self, marker_index: int) -> bool:
+        return self._run_marker_command(
+            "Marker to Center",
+            self._commands.marker_set_center,
+            marker_index,
+            0.0,
+        )
+
     def shutdown(self) -> None:
         """신규 Manual command를 막는다."""
 
@@ -118,6 +166,23 @@ class ManualTestService(QObject):
     ) -> bool:
         def operation() -> None:
             self._require_true(command(self._require_client()), name)
+
+        return self._run_operation(name, operation)
+
+    def _run_marker_command(
+        self,
+        name: str,
+        command: Callable[..., bool],
+        marker_index: int,
+        excursion: float,
+    ) -> bool:
+        def operation() -> None:
+            ok = command(
+                self._require_client(),
+                marker_index=marker_index,
+                excursion=excursion,
+            )
+            self._require_true(ok, name)
 
         return self._run_operation(name, operation)
 
