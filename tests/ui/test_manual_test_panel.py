@@ -424,3 +424,27 @@ def test_manual_panel_adds_new_screenshot_first_and_displays_it(
     assert screenshot_list.count() == 2
     assert screenshot_list.item(0).text() == "second.png"
     assert screenshot_list.currentRow() == 0
+
+
+def test_manual_panel_lists_only_current_session_success_signals(
+    qtbot,
+    tmp_path: Path,
+) -> None:
+    old = tmp_path / "old.png"
+    current = tmp_path / "current.png"
+    image = QImage(8, 8, QImage.Format.Format_RGB32)
+    image.fill(0xFFFFFF)
+    assert image.save(str(old))
+    assert image.save(str(current))
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    panel.findChild(QLineEdit, "captureDirectoryEdit").setText(str(tmp_path))
+    screenshot_list = panel.findChild(QListWidget, "manualScreenshotListWidget")
+
+    assert screenshot_list.count() == 0
+
+    service.screenshot_saved.emit(str(current))
+
+    assert screenshot_list.count() == 1
+    assert screenshot_list.item(0).text() == "current.png"

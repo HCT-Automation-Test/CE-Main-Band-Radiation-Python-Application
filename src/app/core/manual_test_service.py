@@ -364,6 +364,12 @@ class ManualTestService(QObject):
         )
 
     def capture_single(self, *, directory: Path, base_name: str) -> bool:
+        if not self._require_capability(
+            "Single Capture",
+            available=self._capabilities.capture,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         paths = build_manual_screenshot_paths(
             directory=directory,
             base_name=base_name,
@@ -387,6 +393,12 @@ class ManualTestService(QObject):
             or interval_sec < 0
         ):
             raise ValueError("Interval은 0 이상이어야 합니다.")
+        if not self._require_capability(
+            "N-Capture",
+            available=self._capabilities.capture,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         paths = build_manual_screenshot_paths(
             directory=directory,
             base_name=base_name,
