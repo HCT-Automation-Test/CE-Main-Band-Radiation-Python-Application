@@ -341,6 +341,18 @@ class ManualTestService(QObject):
             saturation_time_sec,
             field_name="Saturation Time",
         )
+        if not self._require_capability(
+            "Semi Auto",
+            available=self._capabilities.fsv40,
+            message=FSV40_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
+        if not self._require_capability(
+            "Semi Auto",
+            available=self._capabilities.turntable,
+            message=CO3000_NOT_CONNECTED_MESSAGE,
+        ):
+            return False
         return self._begin_operation(
             "Semi Auto",
             _OperationKind.SEMI_AUTO,

@@ -279,6 +279,30 @@ def test_manual_panel_semi_auto_uses_current_saturation_without_set(
     assert calls == [{"speed": 6, "saturation_time_sec": 7.5}]
 
 
+@pytest.mark.parametrize("value", ["", "bad", "-1", "nan"])
+def test_manual_panel_rejects_invalid_semi_auto_saturation(
+    qtbot,
+    monkeypatch,
+    value: str,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    warnings: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        panel,
+        "_show_warning",
+        lambda title, message: warnings.append((title, message)),
+    )
+    service.set_equipment_state({"FSV40": True, "CO3000": True})
+    panel.findChild(QLineEdit, "manualSaturationTimeEdit").setText(value)
+
+    panel.findChild(QPushButton, "manualSemiAutoButton").click()
+
+    assert warnings and warnings[0][0] == "Semi Auto"
+    assert not service.is_running
+
+
 @pytest.mark.parametrize(
     ("object_name", "value"),
     [
