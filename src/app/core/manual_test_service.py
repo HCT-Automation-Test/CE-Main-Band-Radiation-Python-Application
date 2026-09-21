@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -11,6 +12,11 @@ from PySide6.QtCore import QObject, QTimer, Signal
 from app.models.enums import AntennaPol
 from app.models.manual_test import ManualMast, ManualSaSettings
 from app.net import commands as default_commands
+from app.report.manual_screenshot_store import (
+    build_manual_screenshot_paths,
+    ensure_manual_screenshot_paths_available,
+    save_manual_screenshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +69,7 @@ class ManualTestService(QObject):
     running_changed = Signal(bool)
     capabilities_changed = Signal(object)
     turntable_info_changed = Signal(object)
+    screenshot_saved = Signal(str)
 
     def __init__(
         self,
@@ -70,11 +77,13 @@ class ManualTestService(QObject):
         *,
         client: Any | None = None,
         commands: Any = default_commands,
+        temp_dir: Path = Path("temp"),
         operation_guard: OperationGuard | None = None,
     ) -> None:
         super().__init__(parent)
         self._client = client
         self._commands = commands
+        self._temp_dir = Path(temp_dir)
         self._operation_guard = operation_guard
         self._running = False
         self._current_operation: str | None = None
@@ -93,6 +102,12 @@ class ManualTestService(QObject):
         self._saturation_timer = QTimer(self)
         self._saturation_timer.setSingleShot(True)
         self._saturation_timer.timeout.connect(self._on_saturation_elapsed)
+        self._capture_timer = QTimer(self)
+        self._capture_timer.setSingleShot(True)
+        self._capture_timer.timeout.connect(self._on_capture_timer)
+        self._capture_paths: tuple[Path, ...] = ()
+        self._capture_index = 0
+        self._capture_interval_sec = 0.0
 
     @property
     def is_running(self) -> bool:
@@ -299,10 +314,62 @@ class ManualTestService(QObject):
 
         return self._run_operation("Mast Polarization", operation)
 
+    def capture_single(self, *, directory: Path, base_name: str) -> bool:
+        """현재 FSV40 화면을 한 장 저장한다."""
+
+        paths = build_manual_screenshot_paths(
+            directory=directory,
+            base_name=base_name,
+            shot_count=1,
+            numbered=False,
+        )
+
+        def operation() -> None:
+            ensure_manual_screenshot_paths_available(paths)
+            self._capture_to(paths[0])
+
+        return self._run_operation("Single Capture", operation)
+
+    def capture_many(
+        self,
+        *,
+        directory: Path,
+        base_name: str,
+        interval_sec: float,
+        shot_count: int,
+    ) -> bool:
+        """첫 장을 즉시 저장하고 나머지를 Timer 간격으로 저장한다."""
+
+        self._validate_capture_interval(interval_sec)
+        paths = build_manual_screenshot_paths(
+            directory=directory,
+            base_name=base_name,
+            shot_count=shot_count,
+            numbered=True,
+        )
+        if not self._begin_operation("N-Capture"):
+            return False
+
+        try:
+            ensure_manual_screenshot_paths_available(paths)
+            self._capture_paths = paths
+            self._capture_index = 0
+            self._capture_interval_sec = float(interval_sec)
+            self._capture_next()
+            return True
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: N-Capture")
+            if self._running:
+                self._fail_current_operation(str(exc))
+            return False
+
     def shutdown(self) -> None:
         """신규 Manual command를 막는다."""
 
         self._shutting_down = True
+        if self._current_operation == "N-Capture":
+            self._cleanup_async_operation()
+            return
         if (
             self._current_operation == "Semi Auto"
             and self._saturation_timer.isActive()
@@ -496,6 +563,48 @@ class ManualTestService(QObject):
             logger.exception("Manual Test 작업 실패: Semi Auto")
             self._fail_current_operation(str(exc))
 
+    def _on_capture_timer(self) -> None:
+        if self._current_operation != "N-Capture" or not self._running:
+            return
+        try:
+            self._capture_next()
+        except Exception as exc:
+            logger.exception("Manual Test 작업 실패: N-Capture")
+            self._fail_current_operation(str(exc))
+
+    def _capture_next(self) -> None:
+        destination = self._capture_paths[self._capture_index]
+        self._capture_to(destination)
+        self._capture_index += 1
+        if self._capture_index >= len(self._capture_paths):
+            self._complete_current_operation()
+            return
+
+        self._require_true(
+            self._commands.clear_trace(self._require_client()),
+            "Clear Trace",
+        )
+        interval_ms = (
+            0
+            if self._capture_interval_sec == 0
+            else max(1, math.ceil(self._capture_interval_sec * 1000))
+        )
+        self._capture_timer.start(interval_ms)
+
+    def _capture_to(self, destination: Path) -> None:
+        self._temp_dir.mkdir(parents=True, exist_ok=True)
+        source = self._temp_dir / "screenshot.png"
+        source.unlink(missing_ok=True)
+        self._require_true(
+            self._commands.get_screenshot(self._require_client()),
+            "Get Screenshot",
+        )
+        saved = save_manual_screenshot(
+            source_path=source,
+            destination_path=destination,
+        )
+        self.screenshot_saved.emit(str(saved))
+
     def _complete_current_operation(self) -> None:
         name = self._current_operation or "Turntable"
         self._cleanup_async_operation()
@@ -508,10 +617,14 @@ class ManualTestService(QObject):
 
     def _cleanup_async_operation(self) -> None:
         self._saturation_timer.stop()
+        self._capture_timer.stop()
         self._clear_turntable_wait()
         self._semi_auto_speed = None
         self._semi_auto_saturation_time_sec = None
         self._semi_auto_target_angle = None
+        self._capture_paths = ()
+        self._capture_index = 0
+        self._capture_interval_sec = 0.0
         if self._running:
             self._finish_operation()
 
@@ -556,6 +669,16 @@ class ManualTestService(QObject):
             or saturation_time_sec < 0
         ):
             raise ValueError("Saturation Time은 0 이상의 유한한 숫자여야 합니다.")
+
+    @staticmethod
+    def _validate_capture_interval(interval_sec: float) -> None:
+        if (
+            isinstance(interval_sec, bool)
+            or not isinstance(interval_sec, (int, float))
+            or not math.isfinite(interval_sec)
+            or interval_sec < 0
+        ):
+            raise ValueError("Interval은 0 이상의 유한한 숫자여야 합니다.")
 
     @staticmethod
     def _require_true(result: object, command_name: str) -> None:

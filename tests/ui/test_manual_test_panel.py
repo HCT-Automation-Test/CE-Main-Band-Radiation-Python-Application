@@ -222,8 +222,8 @@ def test_manual_panel_enables_controls_by_capability(qtbot) -> None:
     )
     assert all(button.isEnabled() for button in fsv40_buttons)
     assert panel.findChild(QPushButton, "manualMarkerPeakButton").isEnabled()
-    assert not panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
-    assert not panel.findChild(QPushButton, "nCaptureButton").isEnabled()
+    assert panel.findChild(QPushButton, "singleCaptureButton").isEnabled()
+    assert panel.findChild(QPushButton, "nCaptureButton").isEnabled()
     assert panel.findChild(QPushButton, "manualSemiAutoButton").isEnabled()
     assert panel.findChild(QLineEdit, "manualSaturationTimeEdit").isEnabled()
     assert panel.findChild(QPushButton, "manualTurntableZeroButton").isEnabled()
@@ -298,6 +298,8 @@ def test_manual_panel_locks_all_fsv40_commands_during_operations(qtbot) -> None:
             "manualMarkerAllOffButton",
             "manualMarkerAutoMaxButton",
             "manualMarkerCenterButton",
+            "singleCaptureButton",
+            "nCaptureButton",
             "manualSemiAutoButton",
             "manualTurntableZeroButton",
             "manualTurntable360Button",
@@ -367,6 +369,39 @@ def test_manual_panel_semi_auto_passes_current_speed_and_saturation(qtbot) -> No
         ("rotate_turntable", 0.0, 4),
     ]
     assert service.is_running
+
+
+def test_manual_panel_single_capture_saves_to_session_list(qtbot, tmp_path) -> None:
+    temp_dir = tmp_path / "temp"
+
+    class Commands:
+        def get_screenshot(self, _client) -> bool:
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            (temp_dir / "screenshot.png").write_bytes(
+                b"\x89PNG\r\n\x1a\nfixture"
+            )
+            return True
+
+    service = ManualTestService(
+        client=object(),
+        commands=Commands(),
+        temp_dir=temp_dir,
+    )
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True})
+    panel.findChild(QLineEdit, "captureDirectoryEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "captureFileNameEdit").setText("manual")
+
+    qtbot.mouseClick(
+        panel.findChild(QPushButton, "singleCaptureButton"),
+        Qt.MouseButton.LeftButton,
+    )
+
+    screenshot_list = panel.findChild(QListWidget, "manualScreenshotListWidget")
+    assert (tmp_path / "manual.png").is_file()
+    assert screenshot_list.count() == 1
+    assert screenshot_list.item(0).text() == "manual.png"
 
 
 def test_manual_panel_marker_buttons_use_existing_command_mapping(qtbot) -> None:

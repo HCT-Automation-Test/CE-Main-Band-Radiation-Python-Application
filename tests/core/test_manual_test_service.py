@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -18,8 +19,9 @@ from app.models.manual_test import ManualMast, ManualSaSettings
 
 
 class _Commands:
-    def __init__(self) -> None:
+    def __init__(self, temp_dir: Path | None = None) -> None:
         self.calls: list[tuple[object, ...]] = []
+        self.temp_dir = temp_dir
         self.result = True
         self.error: Exception | None = None
         self.on_rotate: Any | None = None
@@ -81,6 +83,15 @@ class _Commands:
             raise self.error
         return self.turntable_angle
 
+    def get_screenshot(self, _client: Any) -> bool:
+        result = self._record("get_screenshot")
+        if result and self.temp_dir is not None:
+            self.temp_dir.mkdir(parents=True, exist_ok=True)
+            (self.temp_dir / "screenshot.png").write_bytes(
+                b"\x89PNG\r\n\x1a\nfixture"
+            )
+        return result
+
     def set_antenna_pol(
         self,
         _client: Any,
@@ -129,6 +140,12 @@ def _replace_saturation_timer(service: ManualTestService) -> _ManualTimer:
 def _replace_turntable_timeout_timer(service: ManualTestService) -> _ManualTimer:
     timer = _ManualTimer(service._on_turntable_timeout)
     service._turntable_timeout_timer = timer
+    return timer
+
+
+def _replace_capture_timer(service: ManualTestService) -> _ManualTimer:
+    timer = _ManualTimer(service._on_capture_timer)
+    service._capture_timer = timer
     return timer
 
 
@@ -1224,3 +1241,226 @@ def test_manual_mast_guard_rejects_before_command() -> None:
 
     assert commands.calls == []
     assert not service.is_running
+
+
+def test_manual_single_capture_saves_and_emits_path(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+    saved: list[str] = []
+    service.screenshot_saved.connect(saved.append)
+
+    assert service.capture_single(directory=tmp_path, base_name="capture")
+
+    destination = tmp_path / "capture.png"
+    assert commands.calls == [("get_screenshot",)]
+    assert destination.is_file()
+    assert saved == [str(destination)]
+    assert not service.is_running
+
+
+def test_manual_single_capture_collision_sends_no_command(tmp_path: Path) -> None:
+    destination = tmp_path / "capture.png"
+    destination.write_bytes(b"existing")
+    commands = _Commands(tmp_path / "temp")
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=tmp_path / "temp",
+    )
+
+    assert not service.capture_single(directory=tmp_path, base_name="capture")
+
+    assert commands.calls == []
+    assert destination.read_bytes() == b"existing"
+    assert not service.is_running
+
+
+@pytest.mark.parametrize(
+    ("result", "error", "message"),
+    [
+        (False, None, "Get Screenshot returned false"),
+        (True, RuntimeError("capture failed"), "capture failed"),
+    ],
+)
+def test_manual_single_capture_command_failure_releases_state(
+    tmp_path: Path,
+    result: bool,
+    error: Exception | None,
+    message: str,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    commands.result = result
+    commands.error = error
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+    failures: list[tuple[str, str]] = []
+    service.operation_failed.connect(
+        lambda name, detail: failures.append((name, detail))
+    )
+
+    assert not service.capture_single(directory=tmp_path, base_name="capture")
+
+    assert commands.calls == [("get_screenshot",)]
+    assert failures == [("Single Capture", message)]
+    assert not (tmp_path / "capture.png").exists()
+    assert not service.is_running
+
+
+def test_manual_capture_many_preserves_command_and_signal_order(
+    tmp_path: Path,
+) -> None:
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+    timer = _replace_capture_timer(service)
+    saved: list[str] = []
+    service.screenshot_saved.connect(saved.append)
+
+    assert service.capture_many(
+        directory=tmp_path,
+        base_name="capture",
+        interval_sec=1.5,
+        shot_count=3,
+    )
+
+    assert commands.calls == [("get_screenshot",), ("clear_trace",)]
+    assert timer.interval_ms == 1500
+    assert service.is_running
+
+    timer.fire()
+    assert commands.calls == [
+        ("get_screenshot",),
+        ("clear_trace",),
+        ("get_screenshot",),
+        ("clear_trace",),
+    ]
+    assert service.is_running
+
+    timer.fire()
+    assert commands.calls[-1] == ("get_screenshot",)
+    assert [Path(path).name for path in saved] == [
+        "capture_001.png",
+        "capture_002.png",
+        "capture_003.png",
+    ]
+    assert not service.is_running
+
+
+def test_manual_capture_many_one_shot_uses_numbered_name(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+    timer = _replace_capture_timer(service)
+
+    assert service.capture_many(
+        directory=tmp_path,
+        base_name="capture",
+        interval_sec=10.0,
+        shot_count=1,
+    )
+
+    assert commands.calls == [("get_screenshot",)]
+    assert (tmp_path / "capture_001.png").is_file()
+    assert not timer.active
+    assert not service.is_running
+
+
+def test_manual_capture_many_preflight_checks_every_path(tmp_path: Path) -> None:
+    (tmp_path / "capture_002.png").write_bytes(b"existing")
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+
+    assert not service.capture_many(
+        directory=tmp_path,
+        base_name="capture",
+        interval_sec=0.0,
+        shot_count=3,
+    )
+
+    assert commands.calls == []
+    assert not (tmp_path / "capture_001.png").exists()
+    assert not service.is_running
+
+
+def test_manual_capture_many_failure_preserves_saved_files(tmp_path: Path) -> None:
+    temp_dir = tmp_path / "temp"
+    commands = _Commands(temp_dir)
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        temp_dir=temp_dir,
+    )
+    timer = _replace_capture_timer(service)
+
+    assert service.capture_many(
+        directory=tmp_path,
+        base_name="capture",
+        interval_sec=0.0,
+        shot_count=3,
+    )
+    commands.result = False
+    timer.fire()
+
+    assert (tmp_path / "capture_001.png").is_file()
+    assert not (tmp_path / "capture_002.png").exists()
+    assert not (tmp_path / "capture_003.png").exists()
+    assert not service.is_running
+
+
+@pytest.mark.parametrize("interval_sec", [-1.0, float("nan"), True])
+def test_manual_capture_many_rejects_invalid_interval(
+    tmp_path: Path,
+    interval_sec: float,
+) -> None:
+    commands = _Commands(tmp_path / "temp")
+    service = ManualTestService(client=object(), commands=commands)
+
+    with pytest.raises(ValueError):
+        service.capture_many(
+            directory=tmp_path,
+            base_name="capture",
+            interval_sec=interval_sec,
+            shot_count=2,
+        )
+
+    assert commands.calls == []
+
+
+def test_manual_capture_guard_rejects_before_command(tmp_path: Path) -> None:
+    commands = _Commands(tmp_path / "temp")
+    service = ManualTestService(
+        client=object(),
+        commands=commands,
+        operation_guard=lambda: "다른 작업 진행 중",
+    )
+
+    assert not service.capture_many(
+        directory=tmp_path,
+        base_name="capture",
+        interval_sec=0.0,
+        shot_count=2,
+    )
+
+    assert commands.calls == []

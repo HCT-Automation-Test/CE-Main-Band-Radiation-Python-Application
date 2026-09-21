@@ -509,6 +509,8 @@ class ManualTestPanel(QWidget):
         self._set_button.clicked.connect(self._on_set_clicked)
         self._trace_clear_button.clicked.connect(self._on_trace_clear_clicked)
         self._semi_auto_button.clicked.connect(self._on_semi_auto_clicked)
+        self._capture_button.clicked.connect(self._on_capture_clicked)
+        self._n_capture_button.clicked.connect(self._on_capture_many_clicked)
         self._marker_peak_button.clicked.connect(
             lambda _checked=False: self._run_marker("peak")
         )
@@ -558,6 +560,7 @@ class ManualTestPanel(QWidget):
         self._service.turntable_info_changed.connect(
             self._on_turntable_info_changed
         )
+        self._service.screenshot_saved.connect(self.add_screenshot)
 
     @Slot(object)
     def set_capabilities(self, capabilities: ManualTestCapabilities) -> None:
@@ -613,10 +616,10 @@ class ManualTestPanel(QWidget):
             self._marker_center_button,
         ):
             button.setEnabled(self._capabilities.marker and idle)
-        self._capture_button.setEnabled(False)
-        self._n_capture_button.setEnabled(False)
-        self._capture_interval_spin.setEnabled(False)
-        self._capture_shots_spin.setEnabled(False)
+        self._capture_button.setEnabled(fsv)
+        self._n_capture_button.setEnabled(fsv)
+        self._capture_interval_spin.setEnabled(fsv)
+        self._capture_shots_spin.setEnabled(fsv)
         semi_auto_ready = (
             self._capabilities.fsv40
             and self._capabilities.turntable
@@ -701,6 +704,30 @@ class ManualTestPanel(QWidget):
             )
         except ValueError as exc:
             self._show_warning("Semi Auto", str(exc))
+
+    def _on_capture_clicked(self) -> None:
+        if self._service is None:
+            return
+        try:
+            self._service.capture_single(
+                directory=Path(self._capture_directory_edit.text().strip()),
+                base_name=self._capture_name_edit.text(),
+            )
+        except ValueError as exc:
+            self._show_warning("Single Capture", str(exc))
+
+    def _on_capture_many_clicked(self) -> None:
+        if self._service is None:
+            return
+        try:
+            self._service.capture_many(
+                directory=Path(self._capture_directory_edit.text().strip()),
+                base_name=self._capture_name_edit.text(),
+                interval_sec=self._capture_interval_spin.value(),
+                shot_count=self._capture_shots_spin.value(),
+            )
+        except ValueError as exc:
+            self._show_warning("N-Capture", str(exc))
 
     def _run_marker(self, action: str) -> None:
         if self._service is None:
