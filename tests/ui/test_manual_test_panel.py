@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QLineEdit,
     QListWidget,
+    QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSpinBox,
@@ -432,6 +433,52 @@ def test_manual_panel_single_capture_saves_to_session_list(qtbot, tmp_path) -> N
     assert (tmp_path / "manual.png").is_file()
     assert screenshot_list.count() == 1
     assert screenshot_list.item(0).text() == "manual.png"
+
+
+def test_manual_panel_shows_n_capture_completion_message(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda parent, title, message: calls.append((parent, title, message)),
+    )
+
+    service.operation_finished.emit("N-Capture")
+
+    assert calls == [(panel, "N-Capture", "N-Capture가 완료되었습니다.")]
+
+
+def test_manual_panel_does_not_show_completion_message_for_other_or_failed_operations(
+    qtbot,
+    monkeypatch,
+) -> None:
+    service = ManualTestService()
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    information_calls: list[tuple[object, ...]] = []
+    warning_calls: list[tuple[object, ...]] = []
+    monkeypatch.setattr(
+        QMessageBox,
+        "information",
+        lambda *args: information_calls.append(args),
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "warning",
+        lambda *args: warning_calls.append(args),
+    )
+
+    service.operation_finished.emit("Single Capture")
+    service.operation_failed.emit("N-Capture", "capture failed")
+
+    assert information_calls == []
+    assert warning_calls == [(panel, "N-Capture", "capture failed")]
 
 
 def test_manual_panel_passes_displayed_directory_to_both_capture_actions(

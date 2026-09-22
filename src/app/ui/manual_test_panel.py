@@ -660,6 +660,8 @@ class ManualTestPanel(QWidget):
     def _on_operation_finished(self, name: str) -> None:
         self._status_label.setText(f"{name} 완료")
         self._update_control_state()
+        if name == "N-Capture":
+            QMessageBox.information(self, name, "N-Capture가 완료되었습니다.")
 
     @Slot(str, str)
     def _on_operation_failed(self, name: str, message: str) -> None:
