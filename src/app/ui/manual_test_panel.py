@@ -38,6 +38,7 @@ from app.models.manual_test import (
     ManualSaSettings,
     get_manual_frequency_preset,
 )
+from app.models.test_run_settings import default_screenshot_root_dir
 from app.ui.log_panel import LogPanel
 
 _DEFAULT_PRESET = ManualPresetId.PRESET_3
@@ -170,6 +171,7 @@ class ManualTestPanel(QWidget):
 
         self._capture_directory_edit = QLineEdit(group)
         self._capture_directory_edit.setObjectName("captureDirectoryEdit")
+        self._capture_directory_edit.setText(str(default_screenshot_root_dir()))
         browse_button = QPushButton("…", group)
         browse_button.setObjectName("captureDirectoryButton")
         browse_button.setFixedWidth(_CAPTURE_ACTION_WIDTH)

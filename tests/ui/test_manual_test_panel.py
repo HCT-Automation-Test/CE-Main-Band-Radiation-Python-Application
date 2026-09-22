@@ -7,6 +7,7 @@ from PySide6.QtGui import QColor, QImage, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QGridLayout,
     QGroupBox,
     QLineEdit,
@@ -18,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.manual_test_service import ManualTestCapabilities, ManualTestService
+from app.models.test_run_settings import default_screenshot_root_dir
 from app.ui.log_panel import LogPanel
 from app.ui.manual_test_panel import ManualTestPanel
 
@@ -32,6 +34,34 @@ def test_manual_panel_uses_expected_defaults(qtbot) -> None:
     assert panel.findChild(QLineEdit, "manualSweepPointEdit").text() == "30001"
     assert panel.findChild(QLineEdit, "manualSaturationTimeEdit").text() == "5"
     assert panel.findChild(QComboBox, "manualDetectorModeComboBox").currentText() == "RMS"
+    assert panel.findChild(QLineEdit, "captureDirectoryEdit").text() == str(
+        default_screenshot_root_dir()
+    )
+
+
+def test_manual_panel_browse_uses_current_directory_and_applies_selection(
+    qtbot,
+    monkeypatch,
+    tmp_path,
+) -> None:
+    panel = ManualTestPanel(service=ManualTestService())
+    qtbot.addWidget(panel)
+    directory_edit = panel.findChild(QLineEdit, "captureDirectoryEdit")
+    current = tmp_path / "current"
+    selected = tmp_path / "selected"
+    directory_edit.setText(str(current))
+    calls: list[tuple[str, str]] = []
+
+    def select_directory(_parent, title: str, initial: str) -> str:
+        calls.append((title, initial))
+        return str(selected)
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", select_directory)
+
+    panel.findChild(QPushButton, "captureDirectoryButton").click()
+
+    assert calls == [("Screenshot 저장 폴더", str(current))]
+    assert directory_edit.text() == str(selected)
 
 
 def test_manual_panel_uses_compact_setting_sections_with_readable_inputs(qtbot) -> None:
@@ -402,6 +432,39 @@ def test_manual_panel_single_capture_saves_to_session_list(qtbot, tmp_path) -> N
     assert (tmp_path / "manual.png").is_file()
     assert screenshot_list.count() == 1
     assert screenshot_list.item(0).text() == "manual.png"
+
+
+def test_manual_panel_passes_displayed_directory_to_both_capture_actions(
+    qtbot,
+    tmp_path,
+) -> None:
+    service = ManualTestService(client=object())
+    calls: list[tuple[object, ...]] = []
+    service.capture_single = lambda **params: calls.append(
+        ("single", params["directory"], params["base_name"])
+    )
+    service.capture_many = lambda **params: calls.append(
+        (
+            "many",
+            params["directory"],
+            params["base_name"],
+            params["interval_sec"],
+            params["shot_count"],
+        )
+    )
+    panel = ManualTestPanel(service=service)
+    qtbot.addWidget(panel)
+    service.set_equipment_state({"FSV40": True})
+    panel.findChild(QLineEdit, "captureDirectoryEdit").setText(str(tmp_path))
+    panel.findChild(QLineEdit, "captureFileNameEdit").setText("manual")
+
+    panel.findChild(QPushButton, "singleCaptureButton").click()
+    panel.findChild(QPushButton, "nCaptureButton").click()
+
+    assert calls == [
+        ("single", tmp_path, "manual"),
+        ("many", tmp_path, "manual", 1.0, 1),
+    ]
 
 
 def test_manual_panel_marker_buttons_use_existing_command_mapping(qtbot) -> None:
